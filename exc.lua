@@ -30,7 +30,7 @@ end
 -- Função para carregar e executar o script com log de erros
 local function executeScript(scriptName, url)
     local success, errorMessage = pcall(function()
-        local scriptCode = game:HttpGet(url)  -- Carregar o script do Pastebin
+        local scriptCode = game:HttpGet(url)  -- Carregar o script do GitHub
         loadstring(scriptCode)()  -- Executar o script carregado
     end)
     
@@ -47,9 +47,9 @@ end
 local function loadScripts()
     showMessage("Carregando scripts...", 3)
 
-    -- Links dos scripts do Pastebin
-    local fishingScriptURL = "https://pastebin.com/raw/dsa2yEVM"  -- Link do script de automação da vara de pesca
-    local indicatorScriptURL = "https://pastebin.com/raw/eLQePmPE"  -- Link do script de controle do indicador
+    -- Links dos scripts do GitHub (links "raw")
+    local fishingScriptURL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/main/fishing.lua"  -- Link do script de automação da vara de pesca
+    local indicatorScriptURL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/main/indicator.lua"  -- Link do script de controle do indicador
 
     -- Carregar e executar o script de automação da vara de pesca
     executeScript("Automação da Vara de Pesca", fishingScriptURL)

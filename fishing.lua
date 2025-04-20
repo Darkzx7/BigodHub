@@ -45,14 +45,19 @@ local function updateFishingButtonState(btn, active)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
 end
 
+local RunService = game:GetService("RunService")
+
 local function clampToScreen(frame)
+	RunService.RenderStepped:Wait() 
+	local guiParent = frame.Parent
+	if not guiParent or not guiParent:IsA("GuiObject") then return end
+
 	frame:GetPropertyChangedSignal("Position"):Connect(function()
-		local parent = frame.Parent
-		if parent and parent:IsA("GuiBase2d") then
-			local x = math.clamp(frame.Position.X.Offset, 0, parent.AbsoluteSize.X - frame.AbsoluteSize.X)
-			local y = math.clamp(frame.Position.Y.Offset, 0, parent.AbsoluteSize.Y - frame.AbsoluteSize.Y)
-			frame.Position = UDim2.new(0, x, 0, y)
-		end
+		local maxX = guiParent.AbsoluteSize.X - frame.AbsoluteSize.X
+		local maxY = guiParent.AbsoluteSize.Y - frame.AbsoluteSize.Y
+		local x = math.clamp(frame.Position.X.Offset, 0, maxX)
+		local y = math.clamp(frame.Position.Y.Offset, 0, maxY)
+		frame.Position = UDim2.new(0, x, 0, y)
 	end)
 end
 

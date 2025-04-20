@@ -1,4 +1,3 @@
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -11,36 +10,80 @@ local guiRoot = player:WaitForChild("PlayerGui")
 
 local autoFishing = false
 local autoIndicator = false
+local minimized = false
 local fishingTool = nil
 
 local fishCount, trashCount, diamondCount = 0, 0, 0
-
--- Referências da GUI
 local status, toast
 local fishIcon, trashIcon, diamondIcon
+local elementsToToggle = {}
 
-local function updateLootVisual()
-	fishIcon.Text = "🐟 " .. fishCount
-	trashIcon.Text = "🗑️ " .. trashCount
-	diamondIcon.Text = "💎 " .. diamondCount
-end
 
-local function showToast(msg)
-	toast.Text = msg
-	toast.Visible = true
-	TweenService:Create(toast, TweenInfo.new(0.2), {
-		BackgroundTransparency = 0.2,
-		TextTransparency = 0
-	}):Play()
-	task.delay(1.2, function()
-		TweenService:Create(toast, TweenInfo.new(0.3), {
-			BackgroundTransparency = 1,
-			TextTransparency = 1
-		}):Play()
-		task.wait(0.3)
-		toast.Visible = false
+local function showAnimatedIntro(callback)
+	local introGui = Instance.new("ScreenGui", guiRoot)
+	introGui.Name = "BigodeIntroV2"
+	introGui.IgnoreGuiInset = true
+
+	local frame = Instance.new("Frame", introGui)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+
+	local title = Instance.new("TextLabel", frame)
+	title.AnchorPoint = Vector2.new(0.5, 0.5)
+	title.Position = UDim2.new(0.5, 0, 0.4, 0)
+	title.Size = UDim2.new(0, 400, 0, 50)
+	title.Text = "Bigode Hub"
+	title.Font = Enum.Font.GothamBlack
+	title.TextColor3 = Color3.fromRGB(100, 200, 255)
+	title.TextSize = 38
+	title.BackgroundTransparency = 1
+	title.TextTransparency = 1
+
+	local subtitle = Instance.new("TextLabel", frame)
+	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
+	subtitle.Size = UDim2.new(0, 400, 0, 25)
+	subtitle.Text = "Use e abuse com moderação"
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
+	subtitle.TextSize = 16
+	subtitle.BackgroundTransparency = 1
+	subtitle.TextTransparency = 1
+
+	local barBack = Instance.new("Frame", frame)
+	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
+	barBack.Position = UDim2.new(0.5, 0, 0.55, 0)
+	barBack.Size = UDim2.new(0, 300, 0, 10)
+	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+	barBack.BorderSizePixel = 0
+	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
+
+	local barFill = Instance.new("Frame", barBack)
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+	barFill.BorderSizePixel = 0
+	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
+
+	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
+	task.wait(0.4)
+	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
+
+	spawn(function()
+		for i = 1, 100 do
+			barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.02, true)
+			wait(0.02)
+		end
+		wait(0.5)
+		TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+		TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+		TweenService:Create(barBack, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+		TweenService:Create(barFill, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+		wait(0.5)
+		introGui:Destroy()
+		if callback then callback() end
 	end)
 end
+
 
 local function equipRod()
 	local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
@@ -57,7 +100,6 @@ local function launchLine()
 	if fishingTool and fishingTool:IsDescendantOf(character) then
 		fishingTool:Activate()
 		status.Text = "Status: Linha lançada!"
-		showToast("Linha lançada!")
 	end
 end
 
@@ -77,14 +119,30 @@ local function stopAutoFishing()
 	status.Text = "Status: Inativo"
 end
 
+
+local function toggleMinimize(frame, minimizeBtn)
+	minimized = not minimized
+	for _, ui in ipairs(elementsToToggle) do
+		ui.Visible = not minimized
+	end
+	frame.Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 270, 0, 240)
+	minimizeBtn.Text = minimized and "+" or "-"
+end
+
+local function updateLootVisual()
+	fishIcon.Text = "🐟 " .. fishCount
+	trashIcon.Text = "🗑️ " .. trashCount
+	diamondIcon.Text = "💎 " .. diamondCount
+end
+
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
-	gui.Name = "FishingHUDModern"
+	gui.Name = "FishingHUD"
 
 	local frame = Instance.new("Frame", gui)
-	frame.Position = UDim2.new(1, -290, 0.25, 0)
-	frame.Size = UDim2.new(0, 260, 0, 240)
-	frame.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+	frame.Position = UDim2.new(1, -290, 0.3, 0)
+	frame.Size = UDim2.new(0, 270, 0, 240)
+	frame.BackgroundColor3 = Color3.fromRGB(24, 28, 36)
 	frame.BorderSizePixel = 0
 	frame.Active = true
 	frame.Draggable = true
@@ -92,12 +150,26 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X"
-	title.BackgroundColor3 = Color3.fromRGB(50, 90, 160)
+	title.Text = "Bigode X.  (v1.2)"
+	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 16
-	Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
+	Instance.new("UICorner", title)
+	table.insert(elementsToToggle, title)
+
+	local minimize = Instance.new("TextButton", frame)
+	minimize.Size = UDim2.new(0, 26, 0, 26)
+	minimize.Position = UDim2.new(1, -30, 0, 2)
+	minimize.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	minimize.Text = "-"
+	minimize.TextColor3 = Color3.new(1, 1, 1)
+	minimize.Font = Enum.Font.GothamBold
+	minimize.TextSize = 16
+	Instance.new("UICorner", minimize).CornerRadius = UDim.new(1, 0)
+	minimize.MouseButton1Click:Connect(function()
+		toggleMinimize(frame, minimize)
+	end)
 
 	status = Instance.new("TextLabel", frame)
 	status.Position = UDim2.new(0, 10, 0, 40)
@@ -108,17 +180,17 @@ local function createGUI()
 	status.Font = Enum.Font.Gotham
 	status.TextSize = 13
 	status.TextXAlignment = Enum.TextXAlignment.Left
+	table.insert(elementsToToggle, status)
 
 	local lootBox = Instance.new("Frame", frame)
 	lootBox.Position = UDim2.new(0.05, 0, 0, 70)
 	lootBox.Size = UDim2.new(0.9, 0, 0, 36)
 	lootBox.BackgroundColor3 = Color3.fromRGB(30, 35, 45)
-	lootBox.BorderSizePixel = 0
-	Instance.new("UICorner", lootBox).CornerRadius = UDim.new(0, 6)
+	Instance.new("UICorner", lootBox)
+	table.insert(elementsToToggle, lootBox)
 
 	fishIcon = Instance.new("TextLabel", lootBox)
 	fishIcon.Size = UDim2.new(0.33, 0, 1, 0)
-	fishIcon.Text = "🐟 0"
 	fishIcon.BackgroundTransparency = 1
 	fishIcon.TextColor3 = Color3.new(1, 1, 1)
 	fishIcon.Font = Enum.Font.GothamBold
@@ -127,7 +199,6 @@ local function createGUI()
 	trashIcon = Instance.new("TextLabel", lootBox)
 	trashIcon.Position = UDim2.new(0.34, 0, 0, 0)
 	trashIcon.Size = UDim2.new(0.33, 0, 1, 0)
-	trashIcon.Text = "🗑️ 0"
 	trashIcon.BackgroundTransparency = 1
 	trashIcon.TextColor3 = Color3.new(1, 1, 1)
 	trashIcon.Font = Enum.Font.GothamBold
@@ -136,23 +207,10 @@ local function createGUI()
 	diamondIcon = Instance.new("TextLabel", lootBox)
 	diamondIcon.Position = UDim2.new(0.67, 0, 0, 0)
 	diamondIcon.Size = UDim2.new(0.33, 0, 1, 0)
-	diamondIcon.Text = "💎 0"
 	diamondIcon.BackgroundTransparency = 1
 	diamondIcon.TextColor3 = Color3.new(1, 1, 1)
 	diamondIcon.Font = Enum.Font.GothamBold
 	diamondIcon.TextSize = 14
-
-	toast = Instance.new("TextLabel", gui)
-	toast.Size = UDim2.new(0, 240, 0, 40)
-	toast.Position = UDim2.new(0.5, -120, 0.88, 0)
-	toast.BackgroundColor3 = Color3.fromRGB(30, 100, 180)
-	toast.TextColor3 = Color3.new(1, 1, 1)
-	toast.TextSize = 14
-	toast.Font = Enum.Font.GothamBold
-	toast.BackgroundTransparency = 1
-	toast.TextTransparency = 1
-	toast.Visible = false
-	Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 8)
 
 	local btnFishing = Instance.new("TextButton", frame)
 	btnFishing.Position = UDim2.new(0.05, 0, 0, 120)
@@ -162,7 +220,8 @@ local function createGUI()
 	btnFishing.Font = Enum.Font.GothamBold
 	btnFishing.TextSize = 14
 	btnFishing.Text = "Ativar Pesca Automática"
-	Instance.new("UICorner", btnFishing).CornerRadius = UDim.new(0, 6)
+	Instance.new("UICorner", btnFishing)
+	table.insert(elementsToToggle, btnFishing)
 
 	btnFishing.MouseButton1Click:Connect(function()
 		if autoFishing then
@@ -182,7 +241,8 @@ local function createGUI()
 	btnIndicator.Font = Enum.Font.GothamBold
 	btnIndicator.TextSize = 14
 	btnIndicator.Text = "Ativar Indicador Automático"
-	Instance.new("UICorner", btnIndicator).CornerRadius = UDim.new(0, 6)
+	Instance.new("UICorner", btnIndicator)
+	table.insert(elementsToToggle, btnIndicator)
 
 	btnIndicator.MouseButton1Click:Connect(function()
 		autoIndicator = not autoIndicator
@@ -194,24 +254,22 @@ local function createGUI()
 					local bar = fishing and fishing:FindFirstChild("bar")
 					local indicator = bar and bar:FindFirstChild("indicator")
 					local safe = bar and bar:FindFirstChild("safeArea")
-
 					if indicator and safe then
 						local y = indicator.Position.Y.Scale
 						local top = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.9
 						local bottom = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.1
 						if y < bottom or y > top then
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-							task.wait(0.008)
+							wait(0.008)
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
 						end
 					end
-					task.wait(0.02)
+					wait(0.02)
 				end
 			end)
 		end
 	end)
 
-	-- Atualização em tempo real do loot
 	ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
 		if data and data.fishing then
 			fishCount = data.fishing.Fish or 0
@@ -222,4 +280,7 @@ local function createGUI()
 	end)
 end
 
-createGUI()
+
+showAnimatedIntro(function()
+	createGUI()
+end)

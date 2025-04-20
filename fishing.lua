@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -14,14 +15,99 @@ local minimized = false
 local fishingTool = nil
 
 local fishCount, trashCount, diamondCount = 0, 0, 0
-local status, toast
+local status
 local fishIcon, trashIcon, diamondIcon
 local elementsToToggle = {}
 
+-- Atualiza contadores de loot
+local function updateLootVisual()
+	fishIcon.Text = "🐟 " .. fishCount
+	trashIcon.Text = "🗑️ " .. trashCount
+	diamondIcon.Text = "💎 " .. diamondCount
+end
 
+-- Hover bonito nos botões
+local function applyHoverEffect(button)
+	local originalColor = button.BackgroundColor3
+	button.MouseEnter:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundColor3 = originalColor:Lerp(Color3.new(1, 1, 1), 0.1)
+		}):Play()
+	end)
+	button.MouseLeave:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundColor3 = originalColor
+		}):Play()
+	end)
+end
+
+-- Botão de pesca muda cor
+local function updateFishingButtonState(btn, active)
+	local color = active and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(50, 100, 200)
+	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
+end
+
+-- Impede que a GUI seja arrastada pra fora
+local function clampToScreen(frame)
+	frame:GetPropertyChangedSignal("Position"):Connect(function()
+		local x = math.clamp(frame.Position.X.Offset, 0, guiRoot.AbsoluteSize.X - frame.AbsoluteSize.X)
+		local y = math.clamp(frame.Position.Y.Offset, 0, guiRoot.AbsoluteSize.Y - frame.AbsoluteSize.Y)
+		frame.Position = UDim2.new(0, x, 0, y)
+	end)
+end
+
+-- Minimiza HUD
+local function toggleMinimize(frame, minimizeBtn)
+	minimized = not minimized
+	for _, ui in ipairs(elementsToToggle) do
+		ui.Visible = not minimized
+	end
+	frame.Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 270, 0, 260)
+	minimizeBtn.Text = minimized and "+" or "-"
+end
+
+-- Equipar vara de pesca
+local function equipRod()
+	local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
+	if tool then
+		tool.Parent = character
+		task.wait(0.3)
+		return tool
+	end
+	return nil
+end
+
+-- Lançar linha de pesca
+local function launchLine()
+	fishingTool = equipRod()
+	if fishingTool and fishingTool:IsDescendantOf(character) then
+		fishingTool:Activate()
+		status.Text = "Status: Linha lançada!"
+	end
+end
+
+-- Começa pesca automática
+local function startAutoFishing()
+	autoFishing = true
+	status.Text = "Status: Automático"
+	spawn(function()
+		while autoFishing do
+			launchLine()
+			wait(61.1)
+		end
+	end)
+end
+
+-- Para a pesca
+local function stopAutoFishing()
+	autoFishing = false
+	status.Text = "Status: Inativo"
+end
+
+-- Tela de carregamento animada
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
-	introGui.Name = "BigodeIntroV2"
+	introGui.Name = "BigodeIntro"
 	introGui.IgnoreGuiInset = true
 
 	local frame = Instance.new("Frame", introGui)
@@ -84,73 +170,23 @@ local function showAnimatedIntro(callback)
 	end)
 end
 
-
-local function equipRod()
-	local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
-	if tool then
-		tool.Parent = character
-		task.wait(0.3)
-		return tool
-	end
-	return nil
-end
-
-local function launchLine()
-	fishingTool = equipRod()
-	if fishingTool and fishingTool:IsDescendantOf(character) then
-		fishingTool:Activate()
-		status.Text = "Status: Linha lançada!"
-	end
-end
-
-local function startAutoFishing()
-	autoFishing = true
-	status.Text = "Status: Automático"
-	spawn(function()
-		while autoFishing do
-			launchLine()
-			wait(61.1)
-		end
-	end)
-end
-
-local function stopAutoFishing()
-	autoFishing = false
-	status.Text = "Status: Inativo"
-end
-
-
-local function toggleMinimize(frame, minimizeBtn)
-	minimized = not minimized
-	for _, ui in ipairs(elementsToToggle) do
-		ui.Visible = not minimized
-	end
-	frame.Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 270, 0, 240)
-	minimizeBtn.Text = minimized and "+" or "-"
-end
-
-local function updateLootVisual()
-	fishIcon.Text = "🐟 " .. fishCount
-	trashIcon.Text = "🗑️ " .. trashCount
-	diamondIcon.Text = "💎 " .. diamondCount
-end
-
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
 	gui.Name = "FishingHUD"
 
 	local frame = Instance.new("Frame", gui)
 	frame.Position = UDim2.new(1, -290, 0.3, 0)
-	frame.Size = UDim2.new(0, 270, 0, 240)
+	frame.Size = UDim2.new(0, 270, 0, 260)
 	frame.BackgroundColor3 = Color3.fromRGB(24, 28, 36)
 	frame.BorderSizePixel = 0
 	frame.Active = true
 	frame.Draggable = true
 	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+	clampToScreen(frame)
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v1.2)"
+	title.Text = "Bigode X.  (v1.6)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -222,16 +258,7 @@ local function createGUI()
 	btnFishing.Text = "Ativar Pesca Automática"
 	Instance.new("UICorner", btnFishing)
 	table.insert(elementsToToggle, btnFishing)
-
-	btnFishing.MouseButton1Click:Connect(function()
-		if autoFishing then
-			stopAutoFishing()
-			btnFishing.Text = "Ativar Pesca Automática"
-		else
-			startAutoFishing()
-			btnFishing.Text = "Desativar Pesca"
-		end
-	end)
+	applyHoverEffect(btnFishing)
 
 	local btnIndicator = Instance.new("TextButton", frame)
 	btnIndicator.Position = UDim2.new(0.05, 0, 0, 165)
@@ -243,6 +270,7 @@ local function createGUI()
 	btnIndicator.Text = "Ativar Indicador Automático"
 	Instance.new("UICorner", btnIndicator)
 	table.insert(elementsToToggle, btnIndicator)
+	applyHoverEffect(btnIndicator)
 
 	btnIndicator.MouseButton1Click:Connect(function()
 		autoIndicator = not autoIndicator
@@ -270,6 +298,32 @@ local function createGUI()
 		end
 	end)
 
+	-- Aviso vermelho
+	local aviso = Instance.new("TextLabel", frame)
+	aviso.Position = UDim2.new(0.05, 0, 1, -35)
+	aviso.Size = UDim2.new(0.9, 0, 0, 30)
+	aviso.Text = "Caso bugue ou pare de pescar, é só executar novamente o script!"
+	aviso.Font = Enum.Font.Gotham
+	aviso.TextSize = 11
+	aviso.TextColor3 = Color3.fromRGB(255, 80, 80)
+	aviso.BackgroundTransparency = 1
+	aviso.TextWrapped = true
+	aviso.TextYAlignment = Enum.TextYAlignment.Center
+	aviso.TextXAlignment = Enum.TextXAlignment.Center
+	table.insert(elementsToToggle, aviso)
+
+	btnFishing.MouseButton1Click:Connect(function()
+		if autoFishing then
+			stopAutoFishing()
+			btnFishing.Text = "Ativar Pesca Automática"
+		else
+			startAutoFishing()
+			btnFishing.Text = "Desativar Pesca"
+		end
+		updateFishingButtonState(btnFishing, autoFishing)
+	end)
+
+	-- Atualiza loot visual
 	ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
 		if data and data.fishing then
 			fishCount = data.fishing.Fish or 0
@@ -279,7 +333,6 @@ local function createGUI()
 		end
 	end)
 end
-
 
 showAnimatedIntro(function()
 	createGUI()

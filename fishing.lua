@@ -45,7 +45,6 @@ local function updateFishingButtonState(btn, active)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
 end
 
-local RunService = game:GetService("RunService")
 
 local function clampToScreen(frame)
 	RunService.RenderStepped:Wait() 

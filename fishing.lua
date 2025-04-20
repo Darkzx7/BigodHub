@@ -47,11 +47,15 @@ end
 
 local function clampToScreen(frame)
 	frame:GetPropertyChangedSignal("Position"):Connect(function()
-		local x = math.clamp(frame.Position.X.Offset, 0, guiRoot.AbsoluteSize.X - frame.AbsoluteSize.X)
-		local y = math.clamp(frame.Position.Y.Offset, 0, guiRoot.AbsoluteSize.Y - frame.AbsoluteSize.Y)
-		frame.Position = UDim2.new(0, x, 0, y)
+		local parent = frame.Parent
+		if parent and parent:IsA("GuiBase2d") then
+			local x = math.clamp(frame.Position.X.Offset, 0, parent.AbsoluteSize.X - frame.AbsoluteSize.X)
+			local y = math.clamp(frame.Position.Y.Offset, 0, parent.AbsoluteSize.Y - frame.AbsoluteSize.Y)
+			frame.Position = UDim2.new(0, x, 0, y)
+		end
 	end)
 end
+
 
 local function toggleMinimize(frame, minimizeBtn)
 	minimized = not minimized

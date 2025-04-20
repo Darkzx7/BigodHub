@@ -13,19 +13,18 @@ local autoFishing = false
 local autoIndicator = false
 local minimized = false
 local fishingTool = nil
+local blocker = nil
 
 local fishCount, trashCount, diamondCount = 0, 0, 0
 local status
 local fishIcon, trashIcon, diamondIcon
 local elementsToToggle = {}
 
-
 local function updateLootVisual()
 	fishIcon.Text = "🐟 " .. fishCount
 	trashIcon.Text = "🗑️ " .. trashCount
 	diamondIcon.Text = "💎 " .. diamondCount
 end
-
 
 local function applyHoverEffect(button)
 	local originalColor = button.BackgroundColor3
@@ -41,12 +40,10 @@ local function applyHoverEffect(button)
 	end)
 end
 
-
 local function updateFishingButtonState(btn, active)
 	local color = active and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(50, 100, 200)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
 end
-
 
 local function clampToScreen(frame)
 	frame:GetPropertyChangedSignal("Position"):Connect(function()
@@ -56,7 +53,6 @@ local function clampToScreen(frame)
 	end)
 end
 
-
 local function toggleMinimize(frame, minimizeBtn)
 	minimized = not minimized
 	for _, ui in ipairs(elementsToToggle) do
@@ -65,7 +61,6 @@ local function toggleMinimize(frame, minimizeBtn)
 	frame.Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 270, 0, 260)
 	minimizeBtn.Text = minimized and "+" or "-"
 end
-
 
 local function equipRod()
 	local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
@@ -77,7 +72,6 @@ local function equipRod()
 	return nil
 end
 
-
 local function launchLine()
 	fishingTool = equipRod()
 	if fishingTool and fishingTool:IsDescendantOf(character) then
@@ -86,24 +80,53 @@ local function launchLine()
 	end
 end
 
+local function createBlocker()
+	if blocker then blocker:Destroy() end
+	blocker = Instance.new("TextButton")
+	blocker.Name = "FishingBlocker"
+	blocker.Size = UDim2.new(1, 0, 1, 0)
+	blocker.Position = UDim2.new(0, 0, 0, 0)
+	blocker.Text = ""
+	blocker.BackgroundTransparency = 1
+	blocker.AutoButtonColor = false
+	blocker.ZIndex = 9999
+	blocker.Parent = guiRoot
+	blocker.Visible = false
+end
 
 local function startAutoFishing()
 	autoFishing = true
 	status.Text = "Status: Automático"
+	if not blocker then createBlocker() end
+
 	spawn(function()
 		while autoFishing do
+			blocker.Visible = true
 			launchLine()
-			wait(61.1)
+			local startTime = tick()
+
+			spawn(function()
+				while autoFishing do
+					if not character:FindFirstChild("Fishing Rod") then
+						equipRod()
+						task.wait(0.2)
+						if fishingTool then fishingTool:Activate() end
+					end
+					task.wait(1)
+				end
+			end)
+
+			wait(61.1 - (tick() - startTime))
+			blocker.Visible = false
 		end
 	end)
 end
 
-
 local function stopAutoFishing()
 	autoFishing = false
 	status.Text = "Status: Inativo"
+	if blocker then blocker.Visible = false end
 end
-
 
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
@@ -186,7 +209,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v1.6)"
+	title.Text = "Bigode X.  (v2.0)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -298,7 +321,6 @@ local function createGUI()
 		end
 	end)
 
-	-- Aviso 
 	local aviso = Instance.new("TextLabel", frame)
 	aviso.Position = UDim2.new(0.05, 0, 1, -35)
 	aviso.Size = UDim2.new(0.9, 0, 0, 30)
@@ -323,7 +345,6 @@ local function createGUI()
 		updateFishingButtonState(btnFishing, autoFishing)
 	end)
 
-	
 	ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
 		if data and data.fishing then
 			fishCount = data.fishing.Fish or 0

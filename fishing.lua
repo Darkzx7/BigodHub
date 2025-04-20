@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -45,21 +46,16 @@ local function updateFishingButtonState(btn, active)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
 end
 
-
 local function clampToScreen(frame)
-	RunService.RenderStepped:Wait() 
-	local guiParent = frame.Parent
-	if not guiParent or not guiParent:IsA("GuiObject") then return end
-
 	frame:GetPropertyChangedSignal("Position"):Connect(function()
-		local maxX = guiParent.AbsoluteSize.X - frame.AbsoluteSize.X
-		local maxY = guiParent.AbsoluteSize.Y - frame.AbsoluteSize.Y
+		local screenSize = Camera.ViewportSize
+		local maxX = screenSize.X - frame.AbsoluteSize.X
+		local maxY = screenSize.Y - frame.AbsoluteSize.Y
 		local x = math.clamp(frame.Position.X.Offset, 0, maxX)
 		local y = math.clamp(frame.Position.Y.Offset, 0, maxY)
 		frame.Position = UDim2.new(0, x, 0, y)
 	end)
 end
-
 
 local function toggleMinimize(frame, minimizeBtn)
 	minimized = not minimized
@@ -217,7 +213,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.0)"
+	title.Text = "Bigode X.  (v2.1)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold

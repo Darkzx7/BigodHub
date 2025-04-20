@@ -3,7 +3,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local Camera = workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -20,6 +19,7 @@ local fishCount, trashCount, diamondCount = 0, 0, 0
 local status
 local fishIcon, trashIcon, diamondIcon
 local elementsToToggle = {}
+local toggleFishingFromKey
 
 local function updateLootVisual()
 	fishIcon.Text = "🐟 " .. fishCount
@@ -44,17 +44,6 @@ end
 local function updateFishingButtonState(btn, active)
 	local color = active and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(50, 100, 200)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
-end
-
-local function clampToScreen(frame)
-	frame:GetPropertyChangedSignal("Position"):Connect(function()
-		local screenSize = Camera.ViewportSize
-		local maxX = screenSize.X - frame.AbsoluteSize.X
-		local maxY = screenSize.Y - frame.AbsoluteSize.Y
-		local x = math.clamp(frame.Position.X.Offset, 0, maxX)
-		local y = math.clamp(frame.Position.Y.Offset, 0, maxY)
-		frame.Position = UDim2.new(0, x, 0, y)
-	end)
 end
 
 local function toggleMinimize(frame, minimizeBtn)
@@ -131,6 +120,27 @@ local function stopAutoFishing()
 	status.Text = "Status: Inativo"
 	if blocker then blocker.Visible = false end
 end
+
+toggleFishingFromKey = function(buttonRef)
+	if autoFishing then
+		stopAutoFishing()
+		if buttonRef then buttonRef.Text = "Ativar Pesca Automática" end
+	else
+		startAutoFishing()
+		if buttonRef then buttonRef.Text = "Desativar Pesca" end
+	end
+	updateFishingButtonState(buttonRef, autoFishing)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.P then
+		if guiRoot:FindFirstChild("FishingHUD") then
+			local btn = guiRoot.FishingHUD:FindFirstChildWhichIsA("Frame"):FindFirstChild("TextButton")
+			toggleFishingFromKey(btn)
+		end
+	end
+end)
 
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
@@ -209,11 +219,10 @@ local function createGUI()
 	frame.Active = true
 	frame.Draggable = true
 	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
-	clampToScreen(frame)
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.1)"
+	title.Text = "Bigode X.  (v2.2)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -287,6 +296,10 @@ local function createGUI()
 	table.insert(elementsToToggle, btnFishing)
 	applyHoverEffect(btnFishing)
 
+	btnFishing.MouseButton1Click:Connect(function()
+		toggleFishingFromKey(btnFishing)
+	end)
+
 	local btnIndicator = Instance.new("TextButton", frame)
 	btnIndicator.Position = UDim2.new(0.05, 0, 0, 165)
 	btnIndicator.Size = UDim2.new(0.9, 0, 0, 36)
@@ -337,17 +350,6 @@ local function createGUI()
 	aviso.TextYAlignment = Enum.TextYAlignment.Center
 	aviso.TextXAlignment = Enum.TextXAlignment.Center
 	table.insert(elementsToToggle, aviso)
-
-	btnFishing.MouseButton1Click:Connect(function()
-		if autoFishing then
-			stopAutoFishing()
-			btnFishing.Text = "Ativar Pesca Automática"
-		else
-			startAutoFishing()
-			btnFishing.Text = "Desativar Pesca"
-		end
-		updateFishingButtonState(btnFishing, autoFishing)
-	end)
 
 	ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
 		if data and data.fishing then

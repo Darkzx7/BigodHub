@@ -32,52 +32,38 @@ local function waitForFishing()
 	indicator = fishing.bar.indicator
 end
 
-local function getIndicatorState()
-	if not safeArea or not indicator then return "missing" end
-
-	local safeAreaPos = safeArea.Position.Y.Scale
-	local safeAreaSize = safeArea.Size.Y.Scale
-	local minSafeAreaSize = 0.05
-	local effectiveSafeAreaSize = math.max(safeAreaSize, minSafeAreaSize)
-	local margin = math.max(effectiveSafeAreaSize * 0.1, 0.018)
-
-	local upperBound = safeAreaPos + effectiveSafeAreaSize - margin
-	local lowerBound = safeAreaPos + margin
-	local indicatorPos = indicator.Position.Y.Scale
-
-	if indicatorPos < lowerBound then
-		return "above"
-	elseif indicatorPos > upperBound then
-		return "below"
-	elseif indicatorPos >= lowerBound and indicatorPos <= upperBound then
-		return "center"
-	else
-		return "out_of_bounds"
-	end
+local function clickHold(state)
+	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, state, nil, 0)
 end
 
-local function clickToAdjustIndicator(holdTime)
-	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-	wait(holdTime)
-	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
-end
-
-local function ensureIndicatorStaysInSafeArea()
+local function controlIndicatorWithHold()
+	local holding = false
 	while autoIndicatorEnabled do
 		if not game.Workspace:FindFirstChild("fishing") then waitForFishing() end
 		if not safeArea or not indicator then waitForFishing() end
 
-		local state = getIndicatorState()
-		if state == "above" or state == "below" then
-			clickToAdjustIndicator(0.007)
-			wait(0.0015)
-		elseif state == "out_of_bounds" then
-			clickToAdjustIndicator(0.02)
-			wait(0.002)
-		else
-			wait(0.002)
+		local safeY = safeArea.Position.Y.Scale
+		local safeH = safeArea.Size.Y.Scale
+		local margin = 0.018
+
+		local y = indicator.Position.Y.Scale
+		local top = safeY + safeH * (1 - margin)
+		local bottom = safeY + safeH * margin
+		local center = safeY + safeH * 0.5
+
+		if y < bottom or y > top then
+			if not holding then
+				clickHold(true)
+				holding = true
+			end
+		elseif holding and math.abs(y - center) < 0.015 then
+			clickHold(false)
+			holding = false
 		end
+
+		wait(0.001)
 	end
+	if holding then clickHold(false) end
 end
 
 local function updateLootVisual()
@@ -201,71 +187,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
-local function showAnimatedIntro(callback)
-	local introGui = Instance.new("ScreenGui", guiRoot)
-	introGui.Name = "BigodeIntro"
-	introGui.IgnoreGuiInset = true
-
-	local frame = Instance.new("Frame", introGui)
-	frame.Size = UDim2.new(1, 0, 1, 0)
-	frame.BackgroundTransparency = 1
-
-	local title = Instance.new("TextLabel", frame)
-	title.AnchorPoint = Vector2.new(0.5, 0.5)
-	title.Position = UDim2.new(0.5, 0, 0.4, 0)
-	title.Size = UDim2.new(0, 400, 0, 50)
-	title.Text = "Bigode Hub"
-	title.Font = Enum.Font.GothamBlack
-	title.TextColor3 = Color3.fromRGB(100, 200, 255)
-	title.TextSize = 38
-	title.BackgroundTransparency = 1
-	title.TextTransparency = 1
-
-	local subtitle = Instance.new("TextLabel", frame)
-	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
-	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
-	subtitle.Size = UDim2.new(0, 400, 0, 25)
-	subtitle.Text = "Use e abuse com moderação"
-	subtitle.Font = Enum.Font.Gotham
-	subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
-	subtitle.TextSize = 16
-	subtitle.BackgroundTransparency = 1
-	subtitle.TextTransparency = 1
-
-	local barBack = Instance.new("Frame", frame)
-	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
-	barBack.Position = UDim2.new(0.5, 0, 0.55, 0)
-	barBack.Size = UDim2.new(0, 300, 0, 10)
-	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-	barBack.BorderSizePixel = 0
-	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
-
-	local barFill = Instance.new("Frame", barBack)
-	barFill.Size = UDim2.new(0, 0, 1, 0)
-	barFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
-	barFill.BorderSizePixel = 0
-	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
-
-	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
-	task.wait(0.4)
-	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
-
-	spawn(function()
-		for i = 1, 100 do
-			barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.02, true)
-			wait(0.02)
-		end
-		wait(0.5)
-		TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-		TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-		TweenService:Create(barBack, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-		TweenService:Create(barFill, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-		wait(0.5)
-		introGui:Destroy()
-		if callback then callback() end
-	end)
-end
-
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
 	gui.Name = "FishingHUD"
@@ -281,7 +202,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.7)"
+	title.Text = "Bigode X.  (v2.8)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -376,7 +297,7 @@ local function createGUI()
 		btnIndicator.Text = autoIndicatorEnabled and "Desativar Indicador" or "Ativar Indicador Automático"
 		if autoIndicatorEnabled then
 			spawn(function()
-				ensureIndicatorStaysInSafeArea()
+				controlIndicatorWithHold()
 			end)
 		end
 	end)

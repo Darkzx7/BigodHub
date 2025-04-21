@@ -40,16 +40,20 @@ local function getIndicatorState()
 	local indicatorY = indicator.Position.Y.Scale
 
 	local effectiveSize = math.max(safeH, 0.05)
-	local margin = math.max(effectiveSize * 0.1, 0.015)
+	local baseMargin = math.max(effectiveSize * 0.1, 0.015)
+	local buffer = 0.012  -- margem de antecipação
 
-	local top = safeY + effectiveSize - margin
-	local bottom = safeY + margin
+	local top = safeY + effectiveSize - baseMargin
+	local bottom = safeY + baseMargin
 
-	if indicatorY < bottom then
+	local topBuffer = top - buffer
+	local bottomBuffer = bottom + buffer
+
+	if indicatorY < bottomBuffer then
 		return "above"
-	elseif indicatorY > top then
+	elseif indicatorY > topBuffer then
 		return "below"
-	elseif indicatorY >= bottom and indicatorY <= top then
+	elseif indicatorY >= bottomBuffer and indicatorY <= topBuffer then
 		return "center"
 	else
 		return "out_of_bounds"
@@ -285,7 +289,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v3.1)"
+	title.Text = "Bigode X.  (v3.2)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold

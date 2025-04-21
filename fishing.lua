@@ -187,6 +187,74 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
+local function showAnimatedIntro(callback)
+	local introGui = Instance.new("ScreenGui", guiRoot)
+	introGui.Name = "BigodeIntro"
+	introGui.IgnoreGuiInset = true
+
+	local frame = Instance.new("Frame", introGui)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+
+	local title = Instance.new("TextLabel", frame)
+	title.AnchorPoint = Vector2.new(0.5, 0.5)
+	title.Position = UDim2.new(0.5, 0, 0.4, 0)
+	title.Size = UDim2.new(0, 400, 0, 50)
+	title.Text = "Bigode Hub"
+	title.Font = Enum.Font.GothamBlack
+	title.TextColor3 = Color3.fromRGB(100, 200, 255)
+	title.TextSize = 38
+	title.BackgroundTransparency = 1
+	title.TextTransparency = 1
+
+	local subtitle = Instance.new("TextLabel", frame)
+	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
+	subtitle.Size = UDim2.new(0, 400, 0, 25)
+	subtitle.Text = "Use e abuse com moderação"
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
+	subtitle.TextSize = 16
+	subtitle.BackgroundTransparency = 1
+	subtitle.TextTransparency = 1
+
+	local barBack = Instance.new("Frame", frame)
+	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
+	barBack.Position = UDim2.new(0.5, 0, 0.55, 0)
+	barBack.Size = UDim2.new(0, 300, 0, 10)
+	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+	barBack.BorderSizePixel = 0
+	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
+
+	local barFill = Instance.new("Frame", barBack)
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+	barFill.BorderSizePixel = 0
+	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
+
+	frame.Parent = introGui
+	introGui.Parent = guiRoot
+
+	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
+	task.wait(0.4)
+	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
+
+	spawn(function()
+		for i = 1, 100 do
+			barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.02, true)
+			wait(0.02)
+		end
+		wait(0.5)
+		TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+		TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+		TweenService:Create(barBack, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+		TweenService:Create(barFill, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+		wait(0.5)
+		introGui:Destroy()
+		if callback then callback() end
+	end)
+end
+
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
 	gui.Name = "FishingHUD"

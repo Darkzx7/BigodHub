@@ -222,7 +222,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.4)"
+	title.Text = "Bigode X.  (v2.5)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -318,6 +318,7 @@ local function createGUI()
 		if autoIndicator then
 			spawn(function()
 				local holding = false
+				local anticipationMargin = 0.02
 				while autoIndicator do
 					local fishing = workspace:FindFirstChild("fishing")
 					local bar = fishing and fishing:FindFirstChild("bar")
@@ -325,8 +326,8 @@ local function createGUI()
 					local safe = bar and bar:FindFirstChild("safeArea")
 					if indicator and safe then
 						local y = indicator.Position.Y.Scale
-						local safeTop = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.98
-						local safeBottom = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.02
+						local safeTop = safe.Position.Y.Scale + safe.Size.Y.Scale * (1 - anticipationMargin)
+						local safeBottom = safe.Position.Y.Scale + safe.Size.Y.Scale * anticipationMargin
 						local center = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.5
 
 						if y < safeBottom or y > safeTop then

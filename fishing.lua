@@ -39,7 +39,7 @@ local function getIndicatorState()
 	local safeAreaSize = safeArea.Size.Y.Scale
 	local minSafeAreaSize = 0.05
 	local effectiveSafeAreaSize = math.max(safeAreaSize, minSafeAreaSize)
-	local margin = math.max(effectiveSafeAreaSize * 0.1, 0.015)
+	local margin = math.max(effectiveSafeAreaSize * 0.1, 0.018)
 
 	local upperBound = safeAreaPos + effectiveSafeAreaSize - margin
 	local lowerBound = safeAreaPos + margin
@@ -67,17 +67,15 @@ local function ensureIndicatorStaysInSafeArea()
 		if not game.Workspace:FindFirstChild("fishing") then waitForFishing() end
 		if not safeArea or not indicator then waitForFishing() end
 
-		local indicatorState = getIndicatorState()
-		local holdTime = 0.007
-
-		if indicatorState == "above" or indicatorState == "below" then
-			clickToAdjustIndicator(holdTime)
-			wait(0.008)
-		elseif indicatorState == "out_of_bounds" then
-			clickToAdjustIndicator(0.025)
-			wait(0.03)
+		local state = getIndicatorState()
+		if state == "above" or state == "below" then
+			clickToAdjustIndicator(0.007)
+			wait(0.0015)
+		elseif state == "out_of_bounds" then
+			clickToAdjustIndicator(0.02)
+			wait(0.002)
 		else
-			wait(0.03)
+			wait(0.002)
 		end
 	end
 end
@@ -283,7 +281,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.6)"
+	title.Text = "Bigode X.  (v2.7)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold

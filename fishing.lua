@@ -222,7 +222,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.2)"
+	title.Text = "Bigode X.  (v2.3)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -324,15 +324,15 @@ local function createGUI()
 					local safe = bar and bar:FindFirstChild("safeArea")
 					if indicator and safe then
 						local y = indicator.Position.Y.Scale
-						local top = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.9
-						local bottom = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.1
-						if y < bottom or y > top then
+						local safeTop = safe.Position.Y.Scale + safe.Size.Y.Scale
+						local safeBottom = safe.Position.Y.Scale
+						if y < safeBottom or y > safeTop then
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-							wait(0.008)
+							wait(0.005)
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
 						end
 					end
-					wait(0.02)
+					wait(0.01)
 				end
 			end)
 		end

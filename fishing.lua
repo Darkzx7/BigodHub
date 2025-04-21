@@ -10,7 +10,7 @@ local backpack = player:WaitForChild("Backpack")
 local guiRoot = player:WaitForChild("PlayerGui")
 
 local autoFishing = false
-local autoIndicator = false
+local autoIndicatorEnabled = false
 local minimized = false
 local fishingTool = nil
 local blocker = nil
@@ -20,6 +20,67 @@ local status
 local fishIcon, trashIcon, diamondIcon
 local elementsToToggle = {}
 local toggleFishingFromKey
+
+local safeArea
+local indicator
+local fishing
+
+local function waitForFishing()
+	while not game.Workspace:FindFirstChild("fishing") do wait(0.1) end
+	fishing = game.Workspace.fishing
+	safeArea = fishing.bar.safeArea
+	indicator = fishing.bar.indicator
+end
+
+local function getIndicatorState()
+	if not safeArea or not indicator then return "missing" end
+
+	local safeAreaPos = safeArea.Position.Y.Scale
+	local safeAreaSize = safeArea.Size.Y.Scale
+	local minSafeAreaSize = 0.05
+	local effectiveSafeAreaSize = math.max(safeAreaSize, minSafeAreaSize)
+	local margin = math.max(effectiveSafeAreaSize * 0.1, 0.015)
+
+	local upperBound = safeAreaPos + effectiveSafeAreaSize - margin
+	local lowerBound = safeAreaPos + margin
+	local indicatorPos = indicator.Position.Y.Scale
+
+	if indicatorPos < lowerBound then
+		return "above"
+	elseif indicatorPos > upperBound then
+		return "below"
+	elseif indicatorPos >= lowerBound and indicatorPos <= upperBound then
+		return "center"
+	else
+		return "out_of_bounds"
+	end
+end
+
+local function clickToAdjustIndicator(holdTime)
+	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
+	wait(holdTime)
+	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
+end
+
+local function ensureIndicatorStaysInSafeArea()
+	while autoIndicatorEnabled do
+		if not game.Workspace:FindFirstChild("fishing") then waitForFishing() end
+		if not safeArea or not indicator then waitForFishing() end
+
+		local indicatorState = getIndicatorState()
+		local holdTime = 0.007
+
+		if indicatorState == "above" or indicatorState == "below" then
+			clickToAdjustIndicator(holdTime)
+			wait(0.008)
+		elseif indicatorState == "out_of_bounds" then
+			clickToAdjustIndicator(0.025)
+			wait(0.03)
+		else
+			wait(0.03)
+		end
+	end
+end
 
 local function updateLootVisual()
 	fishIcon.Text = "🐟 " .. fishCount
@@ -222,7 +283,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.5)"
+	title.Text = "Bigode X.  (v2.6)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -313,38 +374,11 @@ local function createGUI()
 	applyHoverEffect(btnIndicator)
 
 	btnIndicator.MouseButton1Click:Connect(function()
-		autoIndicator = not autoIndicator
-		btnIndicator.Text = autoIndicator and "Desativar Indicador" or "Ativar Indicador Automático"
-		if autoIndicator then
+		autoIndicatorEnabled = not autoIndicatorEnabled
+		btnIndicator.Text = autoIndicatorEnabled and "Desativar Indicador" or "Ativar Indicador Automático"
+		if autoIndicatorEnabled then
 			spawn(function()
-				local holding = false
-				local anticipationMargin = 0.02
-				while autoIndicator do
-					local fishing = workspace:FindFirstChild("fishing")
-					local bar = fishing and fishing:FindFirstChild("bar")
-					local indicator = bar and bar:FindFirstChild("indicator")
-					local safe = bar and bar:FindFirstChild("safeArea")
-					if indicator and safe then
-						local y = indicator.Position.Y.Scale
-						local safeTop = safe.Position.Y.Scale + safe.Size.Y.Scale * (1 - anticipationMargin)
-						local safeBottom = safe.Position.Y.Scale + safe.Size.Y.Scale * anticipationMargin
-						local center = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.5
-
-						if y < safeBottom or y > safeTop then
-							if not holding then
-								VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-								holding = true
-							end
-						elseif holding and math.abs(y - center) < 0.015 then
-							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
-							holding = false
-						end
-					end
-					wait(0.005)
-				end
-				if holding then
-					VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
-				end
+				ensureIndicatorStaysInSafeArea()
 			end)
 		end
 	end)

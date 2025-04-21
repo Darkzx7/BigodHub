@@ -21,49 +21,40 @@ local fishIcon, trashIcon, diamondIcon
 local elementsToToggle = {}
 local toggleFishingFromKey
 
-local safeArea
-local indicator
-local fishing
-
-local function waitForFishing()
-	while not game.Workspace:FindFirstChild("fishing") do wait(0.1) end
-	fishing = game.Workspace.fishing
-	safeArea = fishing.bar.safeArea
-	indicator = fishing.bar.indicator
-end
+local safeTop = 0.75076
+local pressThreshold = 0.748 -- quando pressionar
+local releaseThreshold = 0.70 -- quando soltar
+local holding = false
 
 local function clickHold(state)
 	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, state, nil, 0)
 end
 
 local function controlIndicatorWithHold()
-	local holding = false
 	while autoIndicatorEnabled do
-		if not game.Workspace:FindFirstChild("fishing") then waitForFishing() end
-		if not safeArea or not indicator then waitForFishing() end
+		local fishing = workspace:FindFirstChild("fishing")
+		if fishing and fishing:FindFirstChild("bar") then
+			local indicator = fishing.bar:FindFirstChild("indicator")
+			if indicator then
+				local y = indicator.Position.Y.Scale
 
-		local safeY = safeArea.Position.Y.Scale
-		local safeH = safeArea.Size.Y.Scale
-		local margin = 0.018
-
-		local y = indicator.Position.Y.Scale
-		local top = safeY + safeH * (1 - margin)
-		local bottom = safeY + safeH * margin
-		local center = safeY + safeH * 0.5
-
-		if y < bottom or y > top then
-			if not holding then
-				clickHold(true)
-				holding = true
+				if y > pressThreshold then
+					if not holding then
+						clickHold(true)
+						holding = true
+					end
+				elseif holding and y < releaseThreshold then
+					clickHold(false)
+					holding = false
+				end
 			end
-		elseif holding and math.abs(y - center) < 0.015 then
-			clickHold(false)
-			holding = false
 		end
-
 		wait(0.001)
 	end
-	if holding then clickHold(false) end
+	if holding then
+		clickHold(false)
+		holding = false
+	end
 end
 
 local function updateLootVisual()
@@ -270,7 +261,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.8)"
+	title.Text = "Bigode X.  (v2.9)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold

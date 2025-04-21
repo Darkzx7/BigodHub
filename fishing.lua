@@ -222,7 +222,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v2.3)"
+	title.Text = "Bigode X.  (v2.4)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -317,6 +317,7 @@ local function createGUI()
 		btnIndicator.Text = autoIndicator and "Desativar Indicador" or "Ativar Indicador Automático"
 		if autoIndicator then
 			spawn(function()
+				local holding = false
 				while autoIndicator do
 					local fishing = workspace:FindFirstChild("fishing")
 					local bar = fishing and fishing:FindFirstChild("bar")
@@ -324,15 +325,24 @@ local function createGUI()
 					local safe = bar and bar:FindFirstChild("safeArea")
 					if indicator and safe then
 						local y = indicator.Position.Y.Scale
-						local safeTop = safe.Position.Y.Scale + safe.Size.Y.Scale
-						local safeBottom = safe.Position.Y.Scale
+						local safeTop = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.98
+						local safeBottom = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.02
+						local center = safe.Position.Y.Scale + safe.Size.Y.Scale * 0.5
+
 						if y < safeBottom or y > safeTop then
-							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-							wait(0.005)
+							if not holding then
+								VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
+								holding = true
+							end
+						elseif holding and math.abs(y - center) < 0.015 then
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
+							holding = false
 						end
 					end
-					wait(0.01)
+					wait(0.005)
+				end
+				if holding then
+					VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
 				end
 			end)
 		end

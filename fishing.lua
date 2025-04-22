@@ -187,7 +187,7 @@ local function startAutoFishing()
 				end
 			end)
 
-			wait(61.1 - (tick() - startTime))
+			wait(62.4 - (tick() - startTime))
 			blocker.Visible = false
 		end
 	end)

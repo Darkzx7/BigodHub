@@ -15,6 +15,7 @@ local autoIndicatorEnabled = false
 local minimized = false
 local fishingTool = nil
 local blocker = nil
+local holdingClick = false
 
 local fishCount, trashCount, diamondCount = 0, 0, 0
 local status
@@ -24,6 +25,20 @@ local toggleFishingFromKey
 
 local function waitForFishing()
 	while not workspace:FindFirstChild("fishing") do task.wait(0.05) end
+end
+
+local function startHolding()
+	if not holdingClick then
+		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
+		holdingClick = true
+	end
+end
+
+local function stopHolding()
+	if holdingClick then
+		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
+		holdingClick = false
+	end
 end
 
 local function getIndicatorState()
@@ -41,48 +56,45 @@ local function getIndicatorState()
 	local indicatorY = indicator.Position.Y.Scale
 
 	local effectiveSize = math.max(safeH, 0.05)
-	local margin = math.max(effectiveSize * 0.1, 0.015)
 
-	local dynamicBuffer = effectiveSize * 0.04
-	if effectiveSize < 0.25 then
-		dynamicBuffer = effectiveSize * 0.06
-	end
+	local margin = math.max(effectiveSize * 0.1, 0.015)
+	local bufferApproach = effectiveSize * 0.06
+	local bufferRisk = effectiveSize * 0.04
 
 	local top = safeY + effectiveSize - margin
 	local bottom = safeY + margin
 
-	local topBuffer = top - dynamicBuffer
-	local bottomBuffer = bottom + dynamicBuffer
+	local approachingTop = top - bufferApproach
+	local atRiskTop = top - bufferRisk
+	local approachingBottom = bottom + bufferApproach
+	local atRiskBottom = bottom + bufferRisk
 
-	if indicatorY < bottomBuffer then
-		return "above"
-	elseif indicatorY > topBuffer then
-		return "below"
-	elseif indicatorY >= bottomBuffer and indicatorY <= topBuffer then
-		return "center"
+	if indicatorY < approachingBottom or indicatorY > approachingTop then
+		if indicatorY < atRiskBottom or indicatorY > atRiskTop then
+			if indicatorY < bottom or indicatorY > top then
+				return "out"
+			end
+			return "atRisk"
+		end
+		return "approaching"
 	else
-		return "out_of_bounds"
+		return "safe"
 	end
 end
 
-local function clickToAdjustIndicator(holdTime)
-	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-	task.wait(holdTime)
-	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
-end
-
-local function ensureIndicatorStaysInSafeArea()
+local function ensureIndicatorControl()
 	RunService.Heartbeat:Connect(function()
 		if not autoIndicatorEnabled then return end
 		waitForFishing()
 
 		local state = getIndicatorState()
-		local holdTime = 0.007
 
-		if state == "above" or state == "below" then
-			clickToAdjustIndicator(holdTime)
-		elseif state == "out_of_bounds" then
-			clickToAdjustIndicator(0.03)
+		if state == "approaching" or state == "atRisk" then
+			startHolding()
+		elseif state == "safe" then
+			stopHolding()
+		elseif state == "out" then
+			startHolding()
 		end
 	end)
 end
@@ -185,6 +197,7 @@ local function stopAutoFishing()
 	autoFishing = false
 	status.Text = "Status: Inativo"
 	if blocker then blocker.Visible = false end
+	stopHolding()
 end
 
 toggleFishingFromKey = function(buttonRef)
@@ -208,73 +221,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
-local function showAnimatedIntro(callback)
-	local introGui = Instance.new("ScreenGui", guiRoot)
-	introGui.Name = "BigodeIntro"
-	introGui.IgnoreGuiInset = true
-
-	local frame = Instance.new("Frame", introGui)
-	frame.Size = UDim2.new(1, 0, 1, 0)
-	frame.BackgroundTransparency = 1
-
-	local title = Instance.new("TextLabel", frame)
-	title.AnchorPoint = Vector2.new(0.5, 0.5)
-	title.Position = UDim2.new(0.5, 0, 0.4, 0)
-	title.Size = UDim2.new(0, 400, 0, 50)
-	title.Text = "Bigode Hub"
-	title.Font = Enum.Font.GothamBlack
-	title.TextColor3 = Color3.fromRGB(100, 200, 255)
-	title.TextSize = 38
-	title.BackgroundTransparency = 1
-	title.TextTransparency = 1
-
-	local subtitle = Instance.new("TextLabel", frame)
-	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
-	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
-	subtitle.Size = UDim2.new(0, 400, 0, 25)
-	subtitle.Text = "Use e abuse com moderação"
-	subtitle.Font = Enum.Font.Gotham
-	subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
-	subtitle.TextSize = 16
-	subtitle.BackgroundTransparency = 1
-	subtitle.TextTransparency = 1
-
-	local barBack = Instance.new("Frame", frame)
-	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
-	barBack.Position = UDim2.new(0.5, 0, 0.55, 0)
-	barBack.Size = UDim2.new(0, 300, 0, 10)
-	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-	barBack.BorderSizePixel = 0
-	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
-
-	local barFill = Instance.new("Frame", barBack)
-	barFill.Size = UDim2.new(0, 0, 1, 0)
-	barFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
-	barFill.BorderSizePixel = 0
-	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
-
-	frame.Parent = introGui
-	introGui.Parent = guiRoot
-
-	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
-	task.wait(0.4)
-	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
-
-	spawn(function()
-		for i = 1, 100 do
-			barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.02, true)
-			wait(0.02)
-		end
-		wait(0.5)
-		TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-		TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-		TweenService:Create(barBack, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-		TweenService:Create(barFill, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-		wait(0.5)
-		introGui:Destroy()
-		if callback then callback() end
-	end)
-end
+-- NOVA INTRO ANIMADA mais fluida e diferente virá na Parte 2 (continua...)
 
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
@@ -291,7 +238,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v3.3)"
+	title.Text = "Bigode X.  (v3.4)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -385,7 +332,9 @@ local function createGUI()
 		autoIndicatorEnabled = not autoIndicatorEnabled
 		btnIndicator.Text = autoIndicatorEnabled and "Desativar Indicador" or "Ativar Indicador Automático"
 		if autoIndicatorEnabled then
-			ensureIndicatorStaysInSafeArea()
+			ensureIndicatorControl()
+		else
+			stopHolding()
 		end
 	end)
 
@@ -410,6 +359,61 @@ local function createGUI()
 			updateLootVisual()
 		end
 	end)
+end
+
+-- Nova intro com estilo mais suave e destacada
+local function showAnimatedIntro(callback)
+	local introGui = Instance.new("ScreenGui", guiRoot)
+	introGui.Name = "BigodeIntro"
+	introGui.IgnoreGuiInset = true
+
+	local frame = Instance.new("Frame", introGui)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	frame.BackgroundTransparency = 0.1
+
+	local glow = Instance.new("UIGradient", frame)
+	glow.Rotation = 45
+	glow.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 100, 180)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 200, 255))
+	}
+
+	local title = Instance.new("TextLabel", frame)
+	title.AnchorPoint = Vector2.new(0.5, 0.5)
+	title.Position = UDim2.new(0.5, 0, 0.4, 0)
+	title.Size = UDim2.new(0, 420, 0, 50)
+	title.Text = "BIGODE HUB"
+	title.Font = Enum.Font.GothamBlack
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.TextSize = 40
+	title.TextTransparency = 1
+	title.BackgroundTransparency = 1
+
+	local subtitle = Instance.new("TextLabel", frame)
+	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
+	subtitle.Size = UDim2.new(0, 400, 0, 24)
+	subtitle.Text = "Use e abuse com moderação ⚙️"
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+	subtitle.TextSize = 16
+	subtitle.BackgroundTransparency = 1
+	subtitle.TextTransparency = 1
+
+	frame.Parent = introGui
+	introGui.Parent = guiRoot
+
+	TweenService:Create(title, TweenInfo.new(1), {TextTransparency = 0}):Play()
+	task.wait(0.3)
+	TweenService:Create(subtitle, TweenInfo.new(1), {TextTransparency = 0}):Play()
+	task.wait(2)
+	TweenService:Create(frame, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
+	task.wait(0.8)
+	introGui:Destroy()
+	if callback then callback() end
 end
 
 showAnimatedIntro(function()

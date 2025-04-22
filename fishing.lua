@@ -221,8 +221,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
--- NOVA INTRO ANIMADA mais fluida e diferente virá na Parte 2 (continua...)
-
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
 	gui.Name = "FishingHUD"
@@ -361,7 +359,7 @@ local function createGUI()
 	end)
 end
 
--- Nova intro com estilo mais suave e destacada
+-- INTRO Game UI com barra, animada e moderna
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
 	introGui.Name = "BigodeIntro"
@@ -369,23 +367,16 @@ local function showAnimatedIntro(callback)
 
 	local frame = Instance.new("Frame", introGui)
 	frame.Size = UDim2.new(1, 0, 1, 0)
-	frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-	frame.BackgroundTransparency = 0.1
-
-	local glow = Instance.new("UIGradient", frame)
-	glow.Rotation = 45
-	glow.Color = ColorSequence.new{
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 100, 180)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 200, 255))
-	}
+	frame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 
 	local title = Instance.new("TextLabel", frame)
 	title.AnchorPoint = Vector2.new(0.5, 0.5)
 	title.Position = UDim2.new(0.5, 0, 0.4, 0)
-	title.Size = UDim2.new(0, 420, 0, 50)
+	title.Size = UDim2.new(0, 420, 0, 55)
 	title.Text = "BIGODE HUB"
 	title.Font = Enum.Font.GothamBlack
-	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.TextColor3 = Color3.fromRGB(0, 180, 255)
+	title.TextStrokeTransparency = 0.7
 	title.TextSize = 40
 	title.TextTransparency = 1
 	title.BackgroundTransparency = 1
@@ -394,26 +385,48 @@ local function showAnimatedIntro(callback)
 	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
 	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
 	subtitle.Size = UDim2.new(0, 400, 0, 24)
-	subtitle.Text = "Use e abuse com moderação ⚙️"
+	subtitle.Text = "Use e abuse com moderação 🎮"
 	subtitle.Font = Enum.Font.Gotham
-	subtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+	subtitle.TextColor3 = Color3.fromRGB(200, 200, 210)
 	subtitle.TextSize = 16
 	subtitle.BackgroundTransparency = 1
 	subtitle.TextTransparency = 1
 
+	local barBack = Instance.new("Frame", frame)
+	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
+	barBack.Position = UDim2.new(0.5, 0, 0.55, 0)
+	barBack.Size = UDim2.new(0, 280, 0, 10)
+	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+	barBack.BorderSizePixel = 0
+	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
+
+	local barFill = Instance.new("Frame", barBack)
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+	barFill.BorderSizePixel = 0
+	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
+
 	frame.Parent = introGui
 	introGui.Parent = guiRoot
 
-	TweenService:Create(title, TweenInfo.new(1), {TextTransparency = 0}):Play()
+	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
 	task.wait(0.3)
-	TweenService:Create(subtitle, TweenInfo.new(1), {TextTransparency = 0}):Play()
-	task.wait(2)
-	TweenService:Create(frame, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
-	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
-	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
-	task.wait(0.8)
-	introGui:Destroy()
-	if callback then callback() end
+	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
+
+	spawn(function()
+		for i = 1, 100 do
+			barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.01, true)
+			task.wait(0.01)
+		end
+		task.wait(0.4)
+		TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
+		TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
+		TweenService:Create(barBack, TweenInfo.new(0.6), {BackgroundTransparency = 1}):Play()
+		TweenService:Create(barFill, TweenInfo.new(0.6), {BackgroundTransparency = 1}):Play()
+		task.wait(0.6)
+		introGui:Destroy()
+		if callback then callback() end
+	end)
 end
 
 showAnimatedIntro(function()

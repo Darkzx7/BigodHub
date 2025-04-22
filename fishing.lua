@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -22,7 +23,7 @@ local elementsToToggle = {}
 local toggleFishingFromKey
 
 local function waitForFishing()
-	while not workspace:FindFirstChild("fishing") do wait(0.1) end
+	while not workspace:FindFirstChild("fishing") do task.wait(0.05) end
 end
 
 local function getIndicatorState()
@@ -40,14 +41,18 @@ local function getIndicatorState()
 	local indicatorY = indicator.Position.Y.Scale
 
 	local effectiveSize = math.max(safeH, 0.05)
-	local baseMargin = math.max(effectiveSize * 0.1, 0.015)
-	local buffer = 0.012  -- margem de antecipação
+	local margin = math.max(effectiveSize * 0.1, 0.015)
 
-	local top = safeY + effectiveSize - baseMargin
-	local bottom = safeY + baseMargin
+	local dynamicBuffer = effectiveSize * 0.04
+	if effectiveSize < 0.25 then
+		dynamicBuffer = effectiveSize * 0.06
+	end
 
-	local topBuffer = top - buffer
-	local bottomBuffer = bottom + buffer
+	local top = safeY + effectiveSize - margin
+	local bottom = safeY + margin
+
+	local topBuffer = top - dynamicBuffer
+	local bottomBuffer = bottom + dynamicBuffer
 
 	if indicatorY < bottomBuffer then
 		return "above"
@@ -62,12 +67,13 @@ end
 
 local function clickToAdjustIndicator(holdTime)
 	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-	wait(holdTime)
+	task.wait(holdTime)
 	VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
 end
 
 local function ensureIndicatorStaysInSafeArea()
-	while autoIndicatorEnabled do
+	RunService.Heartbeat:Connect(function()
+		if not autoIndicatorEnabled then return end
 		waitForFishing()
 
 		local state = getIndicatorState()
@@ -75,14 +81,10 @@ local function ensureIndicatorStaysInSafeArea()
 
 		if state == "above" or state == "below" then
 			clickToAdjustIndicator(holdTime)
-			wait(0.008)
 		elseif state == "out_of_bounds" then
-			clickToAdjustIndicator(0.02)
-			wait(0.03)
-		else
-			wait(0.03)
+			clickToAdjustIndicator(0.03)
 		end
-	end
+	end)
 end
 
 local function updateLootVisual()
@@ -289,7 +291,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v3.2)"
+	title.Text = "Bigode X.  (v3.3)"
 	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
@@ -383,9 +385,7 @@ local function createGUI()
 		autoIndicatorEnabled = not autoIndicatorEnabled
 		btnIndicator.Text = autoIndicatorEnabled and "Desativar Indicador" or "Ativar Indicador Automático"
 		if autoIndicatorEnabled then
-			spawn(function()
-				ensureIndicatorStaysInSafeArea()
-			end)
+			ensureIndicatorStaysInSafeArea()
 		end
 	end)
 

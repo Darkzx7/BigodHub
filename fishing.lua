@@ -359,7 +359,6 @@ local function createGUI()
 	end)
 end
 
--- INTRO Game UI com barra, animada e moderna
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
 	introGui.Name = "BigodeIntro"
@@ -385,7 +384,7 @@ local function showAnimatedIntro(callback)
 	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
 	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
 	subtitle.Size = UDim2.new(0, 400, 0, 24)
-	subtitle.Text = "Use e abuse com moderação 🎮"
+	subtitle.Text = "Apenas faça seu trabalho árduo, lilbro..."
 	subtitle.Font = Enum.Font.Gotham
 	subtitle.TextColor3 = Color3.fromRGB(200, 200, 210)
 	subtitle.TextSize = 16

@@ -56,7 +56,6 @@ local function getIndicatorState()
 	local indicatorY = indicator.Position.Y.Scale
 
 	local effectiveSize = math.max(safeH, 0.05)
-
 	local margin = math.max(effectiveSize * 0.1, 0.015)
 	local bufferApproach = effectiveSize * 0.06
 	local bufferRisk = effectiveSize * 0.04
@@ -122,15 +121,6 @@ end
 local function updateFishingButtonState(btn, active)
 	local color = active and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(50, 100, 200)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
-end
-
-local function toggleMinimize(frame, minimizeBtn)
-	minimized = not minimized
-	for _, ui in ipairs(elementsToToggle) do
-		ui.Visible = not minimized
-	end
-	frame.Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 270, 0, 260)
-	minimizeBtn.Text = minimized and "+" or "-"
 end
 
 local function equipRod()
@@ -234,16 +224,29 @@ local function createGUI()
 	frame.Draggable = true
 	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
 
-	local title = Instance.new("TextLabel", frame)
-	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "Bigode X.  (v3.4)"
-	title.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
-	title.TextColor3 = Color3.new(1, 1, 1)
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 16
-	Instance.new("UICorner", title)
-	table.insert(elementsToToggle, title)
+	-- Avatar + Nome
+	local avatarFrame = Instance.new("Frame", frame)
+	avatarFrame.Size = UDim2.new(1, 0, 0, 50)
+	avatarFrame.BackgroundTransparency = 1
 
+	local avatarImg = Instance.new("ImageLabel", avatarFrame)
+	avatarImg.Image = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+	avatarImg.Size = UDim2.new(0, 30, 0, 30)
+	avatarImg.Position = UDim2.new(0, 6, 0.5, -15)
+	avatarImg.BackgroundTransparency = 1
+
+	local nameLabel = Instance.new("TextLabel", avatarFrame)
+	nameLabel.Position = UDim2.new(0, 42, 0, 0)
+	nameLabel.Size = UDim2.new(1, -45, 1, 0)
+	nameLabel.Text = player.DisplayName
+	nameLabel.Font = Enum.Font.GothamMedium
+	nameLabel.TextSize = 14
+	nameLabel.TextColor3 = Color3.fromRGB(200, 220, 255)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	table.insert(elementsToToggle, avatarFrame)
+
+	-- Minimizar com animação
 	local minimize = Instance.new("TextButton", frame)
 	minimize.Size = UDim2.new(0, 26, 0, 26)
 	minimize.Position = UDim2.new(1, -30, 0, 2)
@@ -253,12 +256,24 @@ local function createGUI()
 	minimize.Font = Enum.Font.GothamBold
 	minimize.TextSize = 16
 	Instance.new("UICorner", minimize).CornerRadius = UDim.new(1, 0)
-	minimize.MouseButton1Click:Connect(function()
-		toggleMinimize(frame, minimize)
-	end)
 
+	local function animateMinimize()
+		minimized = not minimized
+		for _, ui in ipairs(elementsToToggle) do
+			if ui ~= frame then
+				ui.Visible = not minimized
+			end
+		end
+		TweenService:Create(frame, TweenInfo.new(0.3), {
+			Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 270, 0, 260)
+		}):Play()
+		minimize.Text = minimized and "+" or "-"
+	end
+	minimize.MouseButton1Click:Connect(animateMinimize)
+
+	-- Status
 	status = Instance.new("TextLabel", frame)
-	status.Position = UDim2.new(0, 10, 0, 40)
+	status.Position = UDim2.new(0, 10, 0, 50)
 	status.Size = UDim2.new(1, -20, 0, 20)
 	status.BackgroundTransparency = 1
 	status.Text = "Status: Inativo"
@@ -268,8 +283,9 @@ local function createGUI()
 	status.TextXAlignment = Enum.TextXAlignment.Left
 	table.insert(elementsToToggle, status)
 
+	-- Loot Box
 	local lootBox = Instance.new("Frame", frame)
-	lootBox.Position = UDim2.new(0.05, 0, 0, 70)
+	lootBox.Position = UDim2.new(0.05, 0, 0, 80)
 	lootBox.Size = UDim2.new(0.9, 0, 0, 36)
 	lootBox.BackgroundColor3 = Color3.fromRGB(30, 35, 45)
 	Instance.new("UICorner", lootBox)
@@ -298,8 +314,9 @@ local function createGUI()
 	diamondIcon.Font = Enum.Font.GothamBold
 	diamondIcon.TextSize = 14
 
+	-- Botão Pesca
 	local btnFishing = Instance.new("TextButton", frame)
-	btnFishing.Position = UDim2.new(0.05, 0, 0, 120)
+	btnFishing.Position = UDim2.new(0.05, 0, 0, 125)
 	btnFishing.Size = UDim2.new(0.9, 0, 0, 36)
 	btnFishing.BackgroundColor3 = Color3.fromRGB(50, 100, 200)
 	btnFishing.TextColor3 = Color3.new(1, 1, 1)
@@ -309,13 +326,13 @@ local function createGUI()
 	Instance.new("UICorner", btnFishing)
 	table.insert(elementsToToggle, btnFishing)
 	applyHoverEffect(btnFishing)
-
 	btnFishing.MouseButton1Click:Connect(function()
 		toggleFishingFromKey(btnFishing)
 	end)
 
+	-- Botão Indicador
 	local btnIndicator = Instance.new("TextButton", frame)
-	btnIndicator.Position = UDim2.new(0.05, 0, 0, 165)
+	btnIndicator.Position = UDim2.new(0.05, 0, 0, 170)
 	btnIndicator.Size = UDim2.new(0.9, 0, 0, 36)
 	btnIndicator.BackgroundColor3 = Color3.fromRGB(40, 60, 120)
 	btnIndicator.TextColor3 = Color3.new(1, 1, 1)
@@ -325,7 +342,6 @@ local function createGUI()
 	Instance.new("UICorner", btnIndicator)
 	table.insert(elementsToToggle, btnIndicator)
 	applyHoverEffect(btnIndicator)
-
 	btnIndicator.MouseButton1Click:Connect(function()
 		autoIndicatorEnabled = not autoIndicatorEnabled
 		btnIndicator.Text = autoIndicatorEnabled and "Desativar Indicador" or "Ativar Indicador Automático"
@@ -336,6 +352,7 @@ local function createGUI()
 		end
 	end)
 
+	-- Aviso
 	local aviso = Instance.new("TextLabel", frame)
 	aviso.Position = UDim2.new(0.05, 0, 1, -35)
 	aviso.Size = UDim2.new(0.9, 0, 0, 30)
@@ -349,6 +366,7 @@ local function createGUI()
 	aviso.TextXAlignment = Enum.TextXAlignment.Center
 	table.insert(elementsToToggle, aviso)
 
+	-- Atualizar loot via Remote
 	ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
 		if data and data.fishing then
 			fishCount = data.fishing.Fish or 0
@@ -357,77 +375,12 @@ local function createGUI()
 			updateLootVisual()
 		end
 	end)
+
+	frame.Parent = gui
+	gui.Parent = guiRoot
 end
 
-local function showAnimatedIntro(callback)
-	local introGui = Instance.new("ScreenGui", guiRoot)
-	introGui.Name = "BigodeIntro"
-	introGui.IgnoreGuiInset = true
-
-	local frame = Instance.new("Frame", introGui)
-	frame.Size = UDim2.new(1, 0, 1, 0)
-	frame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-
-	local title = Instance.new("TextLabel", frame)
-	title.AnchorPoint = Vector2.new(0.5, 0.5)
-	title.Position = UDim2.new(0.5, 0, 0.4, 0)
-	title.Size = UDim2.new(0, 420, 0, 55)
-	title.Text = "BIGODE HUB"
-	title.Font = Enum.Font.GothamBlack
-	title.TextColor3 = Color3.fromRGB(0, 180, 255)
-	title.TextStrokeTransparency = 0.7
-	title.TextSize = 40
-	title.TextTransparency = 1
-	title.BackgroundTransparency = 1
-
-	local subtitle = Instance.new("TextLabel", frame)
-	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
-	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
-	subtitle.Size = UDim2.new(0, 400, 0, 24)
-	subtitle.Text = "Apenas faça seu trabalho árduo, lilbro..."
-	subtitle.Font = Enum.Font.Gotham
-	subtitle.TextColor3 = Color3.fromRGB(200, 200, 210)
-	subtitle.TextSize = 16
-	subtitle.BackgroundTransparency = 1
-	subtitle.TextTransparency = 1
-
-	local barBack = Instance.new("Frame", frame)
-	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
-	barBack.Position = UDim2.new(0.5, 0, 0.55, 0)
-	barBack.Size = UDim2.new(0, 280, 0, 10)
-	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-	barBack.BorderSizePixel = 0
-	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
-
-	local barFill = Instance.new("Frame", barBack)
-	barFill.Size = UDim2.new(0, 0, 1, 0)
-	barFill.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
-	barFill.BorderSizePixel = 0
-	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
-
-	frame.Parent = introGui
-	introGui.Parent = guiRoot
-
-	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
-	task.wait(0.3)
-	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
-
-	spawn(function()
-		for i = 1, 100 do
-			barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.01, true)
-			task.wait(0.01)
-		end
-		task.wait(0.4)
-		TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
-		TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
-		TweenService:Create(barBack, TweenInfo.new(0.6), {BackgroundTransparency = 1}):Play()
-		TweenService:Create(barFill, TweenInfo.new(0.6), {BackgroundTransparency = 1}):Play()
-		task.wait(0.6)
-		introGui:Destroy()
-		if callback then callback() end
-	end)
-end
-
+-- Intro visual já foi aplicada na versão anterior. Rodar setup:
 showAnimatedIntro(function()
 	createGUI()
 end)

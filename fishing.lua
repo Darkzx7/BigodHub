@@ -25,13 +25,14 @@ local heartbeatConnection
 
 -- Cores do Tema
 local COLORS = {
-    bg = Color3.fromRGB(20, 20, 20),
-    title = Color3.fromRGB(180, 40, 40),
-    buttonPrimary = Color3.fromRGB(200, 50, 50),
-    buttonSecondary = Color3.fromRGB(60, 60, 60),
-    text = Color3.new(1, 1, 1)
+	bg = Color3.fromRGB(15, 15, 15),
+	title = Color3.fromRGB(255, 40, 40),
+	buttonPrimary = Color3.fromRGB(200, 50, 50),
+	buttonSecondary = Color3.fromRGB(60, 60, 60),
+	text = Color3.new(1, 1, 1)
 }
 
+-- Atualiza os ícones de loot com animação
 local function animateLoot(icon)
 	TweenService:Create(icon, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 18}):Play()
 	task.wait(0.15)
@@ -47,6 +48,7 @@ local function updateLootVisual()
 	animateLoot(diamondIcon)
 end
 
+-- Animação de hover nos botões
 local function applyHoverEffect(button)
 	local originalColor = button.BackgroundColor3
 	button.MouseEnter:Connect(function()
@@ -66,6 +68,7 @@ local function updateFishingButtonState(btn, active)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
 end
 
+-- Minimizar a interface
 local function toggleMinimize(frame, minimizeBtn)
 	minimized = not minimized
 	for _, ui in ipairs(elementsToToggle) do
@@ -75,6 +78,7 @@ local function toggleMinimize(frame, minimizeBtn)
 	minimizeBtn.Text = minimized and "+" or "-"
 end
 
+-- Lógica de pesca
 local function equipRod()
 	local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
 	if tool then
@@ -93,6 +97,7 @@ local function launchLine()
 	end
 end
 
+-- Cria bloqueio invisível da GUI
 local function createBlocker()
 	if blocker then blocker:Destroy() end
 	blocker = Instance.new("TextButton")
@@ -121,6 +126,7 @@ local function stopHolding()
 	end
 end
 
+-- Detecta a posição do indicador para auto clique
 local function getIndicatorState()
 	local fishing = workspace:FindFirstChild("fishing")
 	if not fishing then return "missing" end
@@ -156,6 +162,7 @@ local function getIndicatorState()
 	end
 end
 
+-- Inicia controle do indicador automático
 local function ensureIndicatorControl()
 	if heartbeatConnection then heartbeatConnection:Disconnect() end
 	heartbeatConnection = RunService.Heartbeat:Connect(function()
@@ -171,6 +178,7 @@ local function ensureIndicatorControl()
 	end)
 end
 
+-- Reatribui personagem se morrer/resetar
 local function onCharacterAdded(char)
 	character = char
 	if autoFishing then
@@ -179,8 +187,9 @@ local function onCharacterAdded(char)
 	end
 end
 
-Players.LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+player.CharacterAdded:Connect(onCharacterAdded)
 
+-- Função que cria a GUI principal
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
 	gui.Name = "FishingHUD"
@@ -319,6 +328,7 @@ local function createGUI()
 	end)
 end
 
+-- Intro com spinner e frase
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
 	introGui.Name = "BigodeIntro"
@@ -330,7 +340,7 @@ local function showAnimatedIntro(callback)
 
 	local title = Instance.new("TextLabel", frame)
 	title.AnchorPoint = Vector2.new(0.5, 0.5)
-	title.Position = UDim2.new(0.5, 0, 0.45, 0)
+	title.Position = UDim2.new(0.5, 0, 0.4, 0)
 	title.Size = UDim2.new(0, 420, 0, 55)
 	title.Text = "BIGODE HUB"
 	title.Font = Enum.Font.GothamBlack
@@ -340,43 +350,92 @@ local function showAnimatedIntro(callback)
 	title.TextTransparency = 1
 	title.BackgroundTransparency = 1
 
+	local subtitle = Instance.new("TextLabel", frame)
+	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
+	subtitle.Size = UDim2.new(0, 400, 0, 24)
+	subtitle.Text = "Apenas faça seu trabalho árduo, lilbro..."
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.TextColor3 = Color3.fromRGB(220, 220, 220)
+	subtitle.TextSize = 16
+	subtitle.BackgroundTransparency = 1
+	subtitle.TextTransparency = 1
+
 	local spinner = Instance.new("ImageLabel", frame)
 	spinner.AnchorPoint = Vector2.new(0.5, 0.5)
 	spinner.Position = UDim2.new(0.5, 0, 0.6, 0)
 	spinner.Size = UDim2.new(0, 50, 0, 50)
-	spinner.Image = "rbxassetid://10578920484" -- Ícone circular de loading
+	spinner.Image = "rbxassetid://10957011989" -- spinner animado (círculo)
 	spinner.BackgroundTransparency = 1
 	spinner.ImageTransparency = 1
 
 	frame.Parent = introGui
 	introGui.Parent = guiRoot
 
-	local rotate = 0
+	local angle = 0
 	local running = true
 
-	local connection
-	connection = RunService.RenderStepped:Connect(function(dt)
-		if not running then connection:Disconnect() return end
-		rotate = (rotate + dt * 200) % 360
-		spinner.Rotation = rotate
+	local conn = RunService.RenderStepped:Connect(function(dt)
+		if not running then return end
+		angle = (angle + dt * 200) % 360
+		spinner.Rotation = angle
 	end)
 
 	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
 	TweenService:Create(spinner, TweenInfo.new(0.6), {ImageTransparency = 0}):Play()
 
 	task.wait(3.2)
 
 	TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
 	TweenService:Create(spinner, TweenInfo.new(0.5), {ImageTransparency = 1}):Play()
 
 	task.wait(0.5)
 	running = false
+	conn:Disconnect()
 	introGui:Destroy()
 
 	if callback then callback() end
 end
 
--- Início
+-- Atalho tecla "P"
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.P then
+		local gui = guiRoot:FindFirstChild("FishingHUD")
+		if gui then
+			local btn = gui:FindFirstChildWhichIsA("Frame"):FindFirstChild("TextButton")
+			if btn then toggleFishingFromKey(btn) end
+		end
+	end
+end)
+
+-- Alternância de pesca automática
+toggleFishingFromKey = function(buttonRef)
+	if autoFishing then
+		autoFishing = false
+		status.Text = "Status: Inativo"
+		if buttonRef then buttonRef.Text = "Ativar Pesca Automática" end
+		if blocker then blocker.Visible = false end
+		stopHolding()
+	else
+		autoFishing = true
+		status.Text = "Status: Automático"
+		if not blocker then createBlocker() end
+		blocker.Visible = true
+		if buttonRef then buttonRef.Text = "Desativar Pesca" end
+		spawn(function()
+			while autoFishing do
+				launchLine()
+				task.wait(62)
+			end
+		end)
+	end
+	updateFishingButtonState(buttonRef, autoFishing)
+end
+
+-- Iniciar tudo
 showAnimatedIntro(function()
 	createGUI()
 end)

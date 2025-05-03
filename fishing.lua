@@ -23,7 +23,6 @@ local elementsToToggle = {}
 local toggleFishingFromKey
 local heartbeatConnection
 
--- Cores do Tema
 local COLORS = {
 	bg = Color3.fromRGB(15, 15, 15),
 	title = Color3.fromRGB(255, 40, 40),
@@ -31,7 +30,6 @@ local COLORS = {
 	buttonSecondary = Color3.fromRGB(60, 60, 60),
 	text = Color3.new(1, 1, 1)
 }
-
 
 local function animateLoot(icon)
 	TweenService:Create(icon, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 18}):Play()
@@ -48,7 +46,6 @@ local function updateLootVisual()
 	animateLoot(diamondIcon)
 end
 
--- Animação de hover nos botões
 local function applyHoverEffect(button)
 	local originalColor = button.BackgroundColor3
 	button.MouseEnter:Connect(function()
@@ -123,7 +120,6 @@ local function stopHolding()
 	end
 end
 
-
 local function getIndicatorState()
 	local fishing = workspace:FindFirstChild("fishing")
 	if not fishing then return "missing" end
@@ -159,7 +155,6 @@ local function getIndicatorState()
 	end
 end
 
-
 local function ensureIndicatorControl()
 	if heartbeatConnection then heartbeatConnection:Disconnect() end
 	heartbeatConnection = RunService.Heartbeat:Connect(function()
@@ -175,7 +170,6 @@ local function ensureIndicatorControl()
 	end)
 end
 
-
 local function onCharacterAdded(char)
 	character = char
 	if autoFishing then
@@ -185,7 +179,6 @@ local function onCharacterAdded(char)
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
-
 
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
@@ -325,7 +318,6 @@ local function createGUI()
 	end)
 end
 
-
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
 	introGui.Name = "BigodeIntro"
@@ -351,46 +343,42 @@ local function showAnimatedIntro(callback)
 	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
 	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
 	subtitle.Size = UDim2.new(0, 400, 0, 24)
-	subtitle.Text = "[3.5...] Pequena update de layout e inovações nas cores. 03/05"
+	subtitle.Text = "[3.5] Update visual. Preto + vermelho. 03/05"
 	subtitle.Font = Enum.Font.Gotham
 	subtitle.TextColor3 = Color3.fromRGB(220, 220, 220)
 	subtitle.TextSize = 16
 	subtitle.BackgroundTransparency = 1
 	subtitle.TextTransparency = 1
 
-	local spinnerFrame = Instance.new("Frame", frame)
-	spinnerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	spinnerFrame.Position = UDim2.new(0.5, 0, 0.6, 0)
-	spinnerFrame.Size = UDim2.new(0, 40, 0, 40)
-	spinnerFrame.BackgroundColor3 = COLORS.title
-	spinnerFrame.BackgroundTransparency = 1
-	spinnerFrame.BorderSizePixel = 0
-	Instance.new("UICorner", spinnerFrame).CornerRadius = UDim.new(1, 0)
+	local spinner = Instance.new("Frame", frame)
+	spinner.AnchorPoint = Vector2.new(0.5, 0.5)
+	spinner.Position = UDim2.new(0.5, 0, 0.6, 0)
+	spinner.Size = UDim2.new(0, 40, 0, 40)
+	spinner.BackgroundColor3 = COLORS.title
+	spinner.BackgroundTransparency = 1
+	spinner.BorderSizePixel = 0
+	Instance.new("UICorner", spinner).CornerRadius = UDim.new(1, 0)
 
-	-- Spinner gira
 	local angle = 0
 	local running = true
 	local conn = RunService.RenderStepped:Connect(function(dt)
 		if not running then return end
 		angle = (angle + dt * 300) % 360
-		spinnerFrame.Rotation = angle
+		spinner.Rotation = angle
 	end)
 
 	frame.Parent = introGui
 	introGui.Parent = guiRoot
 
-	-- Fade in geral
 	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
 	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
-	TweenService:Create(spinnerFrame, TweenInfo.new(0.6), {BackgroundTransparency = 0}):Play()
+	TweenService:Create(spinner, TweenInfo.new(0.6), {BackgroundTransparency = 0}):Play()
 
-	-- Esperar animação (tempo visível da intro)
 	task.wait(3.2)
 
-	-- Fade out geral
 	TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
 	TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-	TweenService:Create(spinnerFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(spinner, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
 
 	task.delay(0.5, function()
 		running = false
@@ -400,9 +388,6 @@ local function showAnimatedIntro(callback)
 	end)
 end
 
-
-
--- Atalho tecla "P"
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.P then
@@ -414,7 +399,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
--- Alternância de pesca automática
 toggleFishingFromKey = function(buttonRef)
 	if autoFishing then
 		autoFishing = false
@@ -438,7 +422,6 @@ toggleFishingFromKey = function(buttonRef)
 	updateFishingButtonState(buttonRef, autoFishing)
 end
 
--- Iniciar tudo
 showAnimatedIntro(function()
 	createGUI()
 end)

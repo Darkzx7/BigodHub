@@ -343,53 +343,49 @@ local function showAnimatedIntro(callback)
 	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
 	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
 	subtitle.Size = UDim2.new(0, 400, 0, 24)
-	subtitle.Text = "[3.5] Update visual. Preto + vermelho. 03/05"
+	subtitle.Text = "[v3.5] Interface vermelha e preta. 03/05"
 	subtitle.Font = Enum.Font.Gotham
 	subtitle.TextColor3 = Color3.fromRGB(220, 220, 220)
 	subtitle.TextSize = 16
 	subtitle.BackgroundTransparency = 1
 	subtitle.TextTransparency = 1
 
-	local spinner = Instance.new("Frame", frame)
-spinner.AnchorPoint = Vector2.new(0.5, 0.5)
-spinner.Position = UDim2.new(0.5, 0, 0.6, 0)
-spinner.Size = UDim2.new(0, 40, 0, 40)
-spinner.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Cor vermelha
-spinner.BackgroundTransparency = 0.5
-spinner.BorderSizePixel = 2
-spinner.BorderColor3 = Color3.fromRGB(255, 255, 255) -- Borda branca
-spinner.ZIndex = 2
+	local barBack = Instance.new("Frame", frame)
+	barBack.AnchorPoint = Vector2.new(0.5, 0.5)
+	barBack.Position = UDim2.new(0.5, 0, 0.57, 0)
+	barBack.Size = UDim2.new(0, 280, 0, 10)
+	barBack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+	barBack.BorderSizePixel = 0
+	Instance.new("UICorner", barBack).CornerRadius = UDim.new(0, 6)
 
-
-	local angle = 0
-local running = true
-
-local conn = RunService.RenderStepped:Connect(function(dt)
-	if not running then return end
-	angle = (angle + dt * 300) % 360
-	spinner.Rotation = angle
-end)
-
+	local barFill = Instance.new("Frame", barBack)
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = COLORS.title
+	barFill.BorderSizePixel = 0
+	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 6)
 
 	frame.Parent = introGui
 	introGui.Parent = guiRoot
 
-	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
-	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
-	TweenService:Create(spinner, TweenInfo.new(0.6), {BackgroundTransparency = 0}):Play()
+	TweenService:Create(title, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
+	task.wait(0.3)
+	TweenService:Create(subtitle, TweenInfo.new(0.8), {TextTransparency = 0}):Play()
 
-	task.wait(3.2)
+	for i = 1, 100 do
+		barFill:TweenSize(UDim2.new(i / 100, 0, 1, 0), "Out", "Quad", 0.01, true)
+		task.wait(0.01)
+	end
 
-	TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-	TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-	TweenService:Create(spinner, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+	task.wait(0.5)
 
-	task.delay(0.5, function()
-		running = false
-		conn:Disconnect()
-		introGui:Destroy()
-		if callback then callback() end
-	end)
+	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
+	TweenService:Create(barBack, TweenInfo.new(0.6), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(barFill, TweenInfo.new(0.6), {BackgroundTransparency = 1}):Play()
+
+	task.wait(0.6)
+	introGui:Destroy()
+	if callback then callback() end
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)

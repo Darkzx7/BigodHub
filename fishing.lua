@@ -358,40 +358,48 @@ local function showAnimatedIntro(callback)
 	subtitle.BackgroundTransparency = 1
 	subtitle.TextTransparency = 1
 
-	-- Criar spinner nativo com UI elementos
-local spinnerFrame = Instance.new("Frame", frame)
-spinnerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-spinnerFrame.Position = UDim2.new(0.5, 0, 0.6, 0)
-spinnerFrame.Size = UDim2.new(0, 40, 0, 40)
-spinnerFrame.BackgroundColor3 = COLORS.title
-spinnerFrame.BackgroundTransparency = 0
-spinnerFrame.BorderSizePixel = 0
+	local spinnerFrame = Instance.new("Frame", frame)
+	spinnerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	spinnerFrame.Position = UDim2.new(0.5, 0, 0.6, 0)
+	spinnerFrame.Size = UDim2.new(0, 40, 0, 40)
+	spinnerFrame.BackgroundColor3 = COLORS.title
+	spinnerFrame.BackgroundTransparency = 1
+	spinnerFrame.BorderSizePixel = 0
+	Instance.new("UICorner", spinnerFrame).CornerRadius = UDim.new(1, 0)
 
-local uicorner = Instance.new("UICorner", spinnerFrame)
-uicorner.CornerRadius = UDim.new(1, 0)
+	-- Spinner gira
+	local angle = 0
+	local running = true
+	local conn = RunService.RenderStepped:Connect(function(dt)
+		if not running then return end
+		angle = (angle + dt * 300) % 360
+		spinnerFrame.Rotation = angle
+	end)
 
--- Spinner anima girando
-local angle = 0
-local running = true
+	frame.Parent = introGui
+	introGui.Parent = guiRoot
 
-local conn = RunService.RenderStepped:Connect(function(dt)
-	if not running then return end
-	angle = (angle + dt * 300) % 360
-	spinnerFrame.Rotation = angle
-end)
+	-- Fade in geral
+	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
+	TweenService:Create(spinnerFrame, TweenInfo.new(0.6), {BackgroundTransparency = 0}):Play()
 
--- Fade in
-spinnerFrame.BackgroundTransparency = 1
-TweenService:Create(spinnerFrame, TweenInfo.new(0.6), {BackgroundTransparency = 0}):Play()
+	-- Esperar animação (tempo visível da intro)
+	task.wait(3.2)
 
--- No fim:
--- Fade out + encerrar
-TweenService:Create(spinnerFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-task.delay(0.5, function()
-	running = false
-	conn:Disconnect()
-	spinnerFrame:Destroy()
-end)
+	-- Fade out geral
+	TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+	TweenService:Create(spinnerFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+
+	task.delay(0.5, function()
+		running = false
+		conn:Disconnect()
+		introGui:Destroy()
+		if callback then callback() end
+	end)
+end
+
 
 
 -- Atalho tecla "P"

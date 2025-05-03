@@ -32,7 +32,7 @@ local COLORS = {
 	text = Color3.new(1, 1, 1)
 }
 
--- Atualiza os ícones de loot com animação
+
 local function animateLoot(icon)
 	TweenService:Create(icon, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 18}):Play()
 	task.wait(0.15)
@@ -68,7 +68,6 @@ local function updateFishingButtonState(btn, active)
 	TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
 end
 
--- Minimizar a interface
 local function toggleMinimize(frame, minimizeBtn)
 	minimized = not minimized
 	for _, ui in ipairs(elementsToToggle) do
@@ -78,7 +77,6 @@ local function toggleMinimize(frame, minimizeBtn)
 	minimizeBtn.Text = minimized and "+" or "-"
 end
 
--- Lógica de pesca
 local function equipRod()
 	local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
 	if tool then
@@ -97,7 +95,6 @@ local function launchLine()
 	end
 end
 
--- Cria bloqueio invisível da GUI
 local function createBlocker()
 	if blocker then blocker:Destroy() end
 	blocker = Instance.new("TextButton")
@@ -126,7 +123,7 @@ local function stopHolding()
 	end
 end
 
--- Detecta a posição do indicador para auto clique
+
 local function getIndicatorState()
 	local fishing = workspace:FindFirstChild("fishing")
 	if not fishing then return "missing" end
@@ -162,7 +159,7 @@ local function getIndicatorState()
 	end
 end
 
--- Inicia controle do indicador automático
+
 local function ensureIndicatorControl()
 	if heartbeatConnection then heartbeatConnection:Disconnect() end
 	heartbeatConnection = RunService.Heartbeat:Connect(function()
@@ -178,7 +175,7 @@ local function ensureIndicatorControl()
 	end)
 end
 
--- Reatribui personagem se morrer/resetar
+
 local function onCharacterAdded(char)
 	character = char
 	if autoFishing then
@@ -189,7 +186,7 @@ end
 
 player.CharacterAdded:Connect(onCharacterAdded)
 
--- Função que cria a GUI principal
+
 local function createGUI()
 	local gui = Instance.new("ScreenGui", guiRoot)
 	gui.Name = "FishingHUD"
@@ -205,7 +202,7 @@ local function createGUI()
 
 	local title = Instance.new("TextLabel", frame)
 	title.Size = UDim2.new(1, 0, 0, 30)
-	title.Text = "BIGODE X (v3.5)"
+	title.Text = "BIGODE X"
 	title.BackgroundColor3 = COLORS.title
 	title.TextColor3 = COLORS.text
 	title.Font = Enum.Font.GothamBold
@@ -328,7 +325,7 @@ local function createGUI()
 	end)
 end
 
--- Intro com spinner e frase
+
 local function showAnimatedIntro(callback)
 	local introGui = Instance.new("ScreenGui", guiRoot)
 	introGui.Name = "BigodeIntro"
@@ -354,50 +351,48 @@ local function showAnimatedIntro(callback)
 	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
 	subtitle.Position = UDim2.new(0.5, 0, 0.47, 0)
 	subtitle.Size = UDim2.new(0, 400, 0, 24)
-	subtitle.Text = "Apenas faça seu trabalho árduo, lilbro..."
+	subtitle.Text = "[3.5...] Pequena update de layout e inovações nas cores. 03/05"
 	subtitle.Font = Enum.Font.Gotham
 	subtitle.TextColor3 = Color3.fromRGB(220, 220, 220)
 	subtitle.TextSize = 16
 	subtitle.BackgroundTransparency = 1
 	subtitle.TextTransparency = 1
 
-	local spinner = Instance.new("ImageLabel", frame)
-	spinner.AnchorPoint = Vector2.new(0.5, 0.5)
-	spinner.Position = UDim2.new(0.5, 0, 0.6, 0)
-	spinner.Size = UDim2.new(0, 50, 0, 50)
-	spinner.Image = "rbxassetid://10957011989" -- spinner animado (círculo)
-	spinner.BackgroundTransparency = 1
-	spinner.ImageTransparency = 1
+	-- Criar spinner nativo com UI elementos
+local spinnerFrame = Instance.new("Frame", frame)
+spinnerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+spinnerFrame.Position = UDim2.new(0.5, 0, 0.6, 0)
+spinnerFrame.Size = UDim2.new(0, 40, 0, 40)
+spinnerFrame.BackgroundColor3 = COLORS.title
+spinnerFrame.BackgroundTransparency = 0
+spinnerFrame.BorderSizePixel = 0
 
-	frame.Parent = introGui
-	introGui.Parent = guiRoot
+local uicorner = Instance.new("UICorner", spinnerFrame)
+uicorner.CornerRadius = UDim.new(1, 0)
 
-	local angle = 0
-	local running = true
+-- Spinner anima girando
+local angle = 0
+local running = true
 
-	local conn = RunService.RenderStepped:Connect(function(dt)
-		if not running then return end
-		angle = (angle + dt * 200) % 360
-		spinner.Rotation = angle
-	end)
+local conn = RunService.RenderStepped:Connect(function(dt)
+	if not running then return end
+	angle = (angle + dt * 300) % 360
+	spinnerFrame.Rotation = angle
+end)
 
-	TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
-	TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
-	TweenService:Create(spinner, TweenInfo.new(0.6), {ImageTransparency = 0}):Play()
+-- Fade in
+spinnerFrame.BackgroundTransparency = 1
+TweenService:Create(spinnerFrame, TweenInfo.new(0.6), {BackgroundTransparency = 0}):Play()
 
-	task.wait(3.2)
-
-	TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-	TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-	TweenService:Create(spinner, TweenInfo.new(0.5), {ImageTransparency = 1}):Play()
-
-	task.wait(0.5)
+-- No fim:
+-- Fade out + encerrar
+TweenService:Create(spinnerFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+task.delay(0.5, function()
 	running = false
 	conn:Disconnect()
-	introGui:Destroy()
+	spinnerFrame:Destroy()
+end)
 
-	if callback then callback() end
-end
 
 -- Atalho tecla "P"
 UserInputService.InputBegan:Connect(function(input, gameProcessed)

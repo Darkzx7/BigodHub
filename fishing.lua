@@ -351,21 +351,25 @@ local function showAnimatedIntro(callback)
 	subtitle.TextTransparency = 1
 
 	local spinner = Instance.new("Frame", frame)
-	spinner.AnchorPoint = Vector2.new(0.5, 0.5)
-	spinner.Position = UDim2.new(0.5, 0, 0.6, 0)
-	spinner.Size = UDim2.new(0, 40, 0, 40)
-	spinner.BackgroundColor3 = COLORS.title
-	spinner.BackgroundTransparency = 1
-	spinner.BorderSizePixel = 0
-	Instance.new("UICorner", spinner).CornerRadius = UDim.new(1, 0)
+spinner.AnchorPoint = Vector2.new(0.5, 0.5)
+spinner.Position = UDim2.new(0.5, 0, 0.6, 0)
+spinner.Size = UDim2.new(0, 40, 0, 40)
+spinner.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Cor vermelha
+spinner.BackgroundTransparency = 0.5
+spinner.BorderSizePixel = 2
+spinner.BorderColor3 = Color3.fromRGB(255, 255, 255) -- Borda branca
+spinner.ZIndex = 2
+
 
 	local angle = 0
-	local running = true
-	local conn = RunService.RenderStepped:Connect(function(dt)
-		if not running then return end
-		angle = (angle + dt * 300) % 360
-		spinner.Rotation = angle
-	end)
+local running = true
+
+local conn = RunService.RenderStepped:Connect(function(dt)
+	if not running then return end
+	angle = (angle + dt * 300) % 360
+	spinner.Rotation = angle
+end)
+
 
 	frame.Parent = introGui
 	introGui.Parent = guiRoot

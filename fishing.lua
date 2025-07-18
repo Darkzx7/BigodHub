@@ -595,4 +595,328 @@ local function createBlocker()
     label.Text = "PESCA AUTOMÁTICA ATIVA"
     label.Font = Enum.Font.GothamBlack
     label.TextSize = 24
-    label.TextCo
+    label.TextColor3 = STYLE.COLORS.text
+    label.BackgroundTransparency = 1
+end
+
+-- Função para controlar o estado do indicador (atualizada)
+local function getIndicatorState()
+    local fishing = workspace:FindFirstChild("fishing")
+    if not fishing then return "missing" end
+    
+    local bar = fishing:FindFirstChild("bar")
+    local safeArea = bar and bar:FindFirstChild("safeArea")
+    local indicator = bar and bar:FindFirstChild("indicator")
+    
+    if not safeArea or not indicator then return "missing" end
+
+    local safeY = safeArea.Position.Y.Scale
+    local safeH = safeArea.Size.Y.Scale
+    local indicatorY = indicator.Position.Y.Scale
+    
+    -- Cálculos de zonas com margens dinâmicas
+    local effectiveSize = math.max(safeH, 0.05)
+    local margin = math.max(effectiveSize * 0.1, 0.015)
+    local bufferApproach = effectiveSize * 0.06
+    local bufferRisk = effectiveSize * 0.04
+    
+    local top = safeY + effectiveSize - margin
+    local bottom = safeY + margin
+    local approachingTop = top - bufferApproach
+    local atRiskTop = top - bufferRisk
+    local approachingBottom = bottom + bufferApproach
+    local atRiskBottom = bottom + bufferRisk
+
+    -- Sistema de estados com feedback visual
+    if indicatorY < approachingBottom or indicatorY > approachingTop then
+        if indicatorY < atRiskBottom or indicatorY > atRiskTop then
+            if indicatorY < bottom or indicatorY > top then
+                if status.Text ~= "Status: FORA DA ZONA!" then
+                    status.Text = "Status: FORA DA ZONA!"
+                    animateElement(status, {TextColor3 = STYLE.COLORS.danger})
+                end
+                return "out"
+            end
+            
+            if status.Text ~= "Status: Zona de risco!" then
+                status.Text = "Status: Zona de risco!"
+                animateElement(status, {TextColor3 = STYLE.COLORS.warning})
+            end
+            return "atRisk"
+        end
+        
+        if status.Text ~= "Status: Aproximando da zona..." then
+            status.Text = "Status: Aproximando da zona..."
+            animateElement(status, {TextColor3 = STYLE.COLORS.warning})
+        end
+        return "approaching"
+    else
+        if status.Text ~= "Status: Na zona segura!" then
+            status.Text = "Status: Na zona segura!"
+            animateElement(status, {TextColor3 = STYLE.COLORS.success})
+        end
+        return "safe"
+    end
+end
+
+-- Função para garantir o controle do indicador (atualizada)
+local function ensureIndicatorControl()
+    if heartbeatConnection then 
+        heartbeatConnection:Disconnect() 
+    end
+    
+    heartbeatConnection = RunService.Heartbeat:Connect(function()
+        if not autoIndicatorEnabled then return end
+        
+        local state = getIndicatorState()
+        
+        -- Sistema de controle refinado
+        if state == "approaching" then
+            -- Controle preventivo
+            startHolding()
+            task.wait(0.05)
+            stopHolding()
+        elseif state == "atRisk" then
+            -- Controle mais agressivo
+            startHolding()
+        elseif state == "safe" then
+            -- Libera o controle
+            stopHolding()
+        elseif state == "out" then
+            -- Máximo esforço para retornar
+            startHolding()
+        end
+    end)
+end
+
+-- Função quando um novo personagem é adicionado (atualizada)
+local function onCharacterAdded(char)
+    character = char
+    
+    if autoFishing then
+        status.Text = "Status: Recarregando personagem..."
+        animateElement(status, {TextColor3 = STYLE.COLORS.warning})
+        
+        task.wait(1)
+        equipRod()
+        
+        if fishingTool and fishingTool:IsDescendantOf(character) then
+            status.Text = "Status: Pronto para pescar!"
+            animateElement(status, {TextColor3 = STYLE.COLORS.success})
+        end
+    end
+end
+
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- Função para mostrar introdução animada (atualizada)
+local function showAnimatedIntro(callback)
+    local introGui = Instance.new("ScreenGui", guiRoot)
+    introGui.Name = "BigodeIntro"
+    introGui.IgnoreGuiInset = true
+    introGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    introGui.ResetOnSpawn = false
+
+    local frame = createStyledElement("Frame", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = STYLE.COLORS.dark,
+        Parent = introGui
+    })
+
+    -- Efeito de partículas de fundo
+    local particles = Instance.new("Frame", frame)
+    particles.Size = UDim2.new(1, 0, 1, 0)
+    particles.BackgroundColor3 = STYLE.COLORS.dark
+    particles.BackgroundTransparency = 0.5
+    particles.ZIndex = 1
+
+    for i = 1, 30 do
+        local particle = Instance.new("Frame", particles)
+        particle.Size = UDim2.new(0, math.random(2, 5), 0, math.random(2, 5))
+        particle.Position = UDim2.new(0, math.random(0, 1000), 0, math.random(0, 600))
+        particle.BackgroundColor3 = STYLE.COLORS.primary
+        particle.BorderSizePixel = 0
+        particle.ZIndex = 2
+        
+        spawn(function()
+            while particle do
+                animateElement(particle, {
+                    Position = UDim2.new(0, math.random(0, 1000), 0, math.random(0, 600))
+                }, math.random(3, 7))
+                task.wait(math.random(3, 7))
+            end
+        end)
+    end
+
+    -- Título principal
+    local title = createStyledElement("TextLabel", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0.4, 0),
+        Size = UDim2.new(0, 420, 0, 60),
+        Text = "BIGODE HUB",
+        Font = STYLE.FONTS.title,
+        TextColor3 = STYLE.COLORS.primary,
+        TextSize = 48,
+        TextTransparency = 1,
+        BackgroundTransparency = 1,
+        ZIndex = 3,
+        Parent = frame
+    })
+
+    -- Subtítulo
+    local subtitle = createStyledElement("TextLabel", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0.47, 0),
+        Size = UDim2.new(0, 400, 0, 24),
+        Text = "Pesca Automática Premium • v3.5",
+        Font = STYLE.FONTS.subtitle,
+        TextColor3 = STYLE.COLORS.text,
+        TextSize = 18,
+        BackgroundTransparency = 1,
+        TextTransparency = 1,
+        ZIndex = 3,
+        Parent = frame
+    })
+
+    -- Barra de progresso
+    local barBack = createStyledElement("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0.57, 0),
+        Size = UDim2.new(0, 280, 0, 12),
+        BackgroundColor3 = STYLE.COLORS.secondary,
+        ZIndex = 3,
+        Parent = frame
+    })
+    Instance.new("UICorner", barBack).CornerRadius = UDim.new(1, 0)
+
+    local barFill = createStyledElement("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = STYLE.COLORS.primary,
+        ZIndex = 4,
+        Parent = barBack
+    })
+    Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
+
+    -- Avatar do usuário na intro
+    local avatarIntro = createCircleIcon(frame, UDim2.new(0, 80, 0, 80), UDim2.new(0.5, -40, 0.7, -40))
+    avatarIntro.ZIndex = 3
+    loadUserAvatar(avatarIntro)
+
+    -- Animação de entrada
+    animateElement(title, {TextTransparency = 0}, 0.8)
+    task.wait(0.3)
+    animateElement(subtitle, {TextTransparency = 0}, 0.8)
+    animateElement(avatarIntro, {ImageTransparency = 0}, 0.8)
+
+    -- Animação da barra de progresso
+    for i = 1, 100 do
+        barFill.Size = UDim2.new(i/100, 0, 1, 0)
+        task.wait(0.02)
+    end
+
+    task.wait(0.5)
+
+    -- Animação de saída
+    animateElement(title, {TextTransparency = 1}, 0.6)
+    animateElement(subtitle, {TextTransparency = 1}, 0.6)
+    animateElement(avatarIntro, {ImageTransparency = 1}, 0.6)
+    animateElement(barBack, {BackgroundTransparency = 1}, 0.6)
+    animateElement(barFill, {BackgroundTransparency = 1}, 0.6)
+
+    task.wait(0.6)
+    introGui:Destroy()
+    
+    if callback then callback() end
+end
+
+-- Função para alternar pesca via tecla (atualizada)
+toggleFishingFromKey = function(buttonRef)
+    if autoFishing then
+        -- Desativar pesca automática
+        autoFishing = false
+        status.Text = "Status: Desativado"
+        
+        if buttonRef then 
+            buttonRef.Text = "ATIVAR PESCA AUTOMÁTICA"
+            updateFishingButtonState(buttonRef, false)
+        end
+        
+        if blocker then blocker.Visible = false end
+        stopHolding()
+        
+        animateElement(status, {TextColor3 = STYLE.COLORS.text})
+    else
+        -- Ativar pesca automática
+        autoFishing = true
+        status.Text = "Status: Ativando..."
+        
+        if not blocker then createBlocker() end
+        blocker.Visible = true
+        
+        if buttonRef then 
+            buttonRef.Text = "DESATIVAR PESCA"
+            updateFishingButtonState(buttonRef, true)
+        end
+        
+        spawn(function()
+            while autoFishing do
+                if not character or not character:FindFirstChild("Humanoid") or character.Humanoid.Health <= 0 then
+                    status.Text = "Status: Personagem inválido!"
+                    animateElement(status, {TextColor3 = STYLE.COLORS.danger})
+                    task.wait(2)
+                    continue
+                end
+                
+                launchLine()
+                
+                -- Contagem regressiva visual
+                for i = 60, 1, -1 do
+                    if not autoFishing then break end
+                    status.Text = string.format("Status: Recarregando... %ds", i)
+                    task.wait(1)
+                end
+            end
+        end)
+    end
+end
+
+-- Conexão com input do usuário (atualizada)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.P then
+        local gui = guiRoot:FindFirstChild("FishingHUD")
+        if gui then
+            local btn = gui:FindFirstChildWhichIsA("Frame"):FindFirstChild("FishingButton")
+            if btn then 
+                toggleFishingFromKey(btn)
+                
+                -- Feedback visual ao ativar por tecla
+                animateElement(btn, {BackgroundColor3 = Color3.new(1, 0.5, 0.5)}, 0.1)
+                task.wait(0.1)
+                animateElement(btn, {BackgroundColor3 = autoFishing and STYLE.COLORS.success or STYLE.COLORS.primary})
+            end
+        end
+    end
+end)
+
+-- Inicialização do sistema
+showAnimatedIntro(function()
+    createGUI()
+    
+    -- Carregamento inicial dos dados
+    task.spawn(function()
+        status.Text = "Status: Carregando dados..."
+        animateElement(status, {TextColor3 = STYLE.COLORS.warning})
+        
+        -- Simular carregamento
+        task.wait(1)
+        
+        status.Text = "Status: Pronto para usar!"
+        animateElement(status, {TextColor3 = STYLE.COLORS.success})
+        
+        task.wait(2)
+        status.Text = "Status: Inativo"
+        animateElement(status, {TextColor3 = STYLE.COLORS.text})
+    end)
+end)

@@ -410,48 +410,103 @@ local function connectGameEvents()
         end
     end)
     
-    -- Atualizar quando o personagem muda
+    -- Função para esperar o personagem de forma segura
+local function waitForCharacter()
+    local maxAttempts = 10
+    local attempts = 0
+    
+    while attempts < maxAttempts do
+        if player.Character then
+            return player.Character
+        end
+        attempts += 1
+        task.wait(1) -- Esperar 1 segundo entre tentativas
+    end
+    return nil
+end
+
+-- Inicialização completa revisada
+local function initialize()
+    -- Esperar o personagem de forma segura
+    character = waitForCharacter()
+    
+    if not character then
+        warn("Falha ao carregar personagem após 10 segundos")
+        return
+    end
+
+    -- Verificar se a GUI já existe
+    if player.PlayerGui:FindFirstChild("BGHubFishing") then
+        player.PlayerGui.BGHubFishing:Destroy()
+    end
+
+    -- Criar UI com tratamento de erro
+    local success, err = pcall(function()
+        createMainUI()
+        connectGameEvents()
+        
+        -- Configurar botão principal
+        toggleBtn.MouseButton1Click:Connect(toggleAutoMode)
+        
+        -- Atualizar contadores iniciais
+        updateLootCounts()
+        
+        -- Verificar equipamento inicial
+        if character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod") then
+            statusLabel.Text = "Status: Pronto para pescar"
+        else
+            statusLabel.Text = "Status: Sem vara de pesca"
+        end
+    end)
+    
+    if not success then
+        warn("Erro na inicialização: " .. err)
+        -- Tentar novamente após 5 segundos
+        task.wait(5)
+        initialize()
+    end
+end
+
+-- Conexão segura de eventos de personagem
+local function setupCharacterEvents()
     player.CharacterAdded:Connect(function(char)
         character = char
         if autoMode then
-            task.wait(1) -- Esperar personagem carregar
-            equipRod()
+            task.wait(1) -- Esperar personagem carregar completamente
+            local tool = equipRod()
+            if not tool then
+                statusLabel.Text = "Status: Sem vara de pesca"
+            end
         end
     end)
 end
 
--- Controle por tecla (opcional)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+-- Modificação na função equipRod para mais segurança
+local function equipRod()
+    if not character then return nil end
     
-    if input.KeyCode == Enum.KeyCode.P then
-        toggleAutoMode()
+    local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
+    if tool then
+        tool.Parent = character
+        task.wait(0.3)
+        return tool
     end
-end)
+    return nil
+end
 
--- Inicialização completa
-local function initialize()
-    -- Esperar tudo carregar
-    repeat task.wait() until player.Character
-    character = player.Character
+-- Iniciar o script com proteção completa
+local function safeStart()
+    local success, err = pcall(function()
+        setupCharacterEvents()
+        initialize()
+    end)
     
-    -- Criar UI
-    createMainUI()
-    
-    -- Conectar eventos
-    connectGameEvents()
-    
-    -- Configurar botão principal
-    toggleBtn.MouseButton1Click:Connect(toggleAutoMode)
-    
-    -- Atualizar contadores iniciais
-    updateLootCounts()
-    
-    -- Verificar se já tem vara equipada
-    if character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod") then
-        statusLabel.Text = "Status: Pronto para pescar"
+    if not success then
+        warn("Erro no início do script: " .. err)
+        task.wait(3)
+        safeStart() -- Tentar novamente após 3 segundos
     end
 end
 
--- Iniciar o script
-initialize()
+-- Iniciar
+safeStart()

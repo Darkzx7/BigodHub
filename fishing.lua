@@ -5,7 +5,7 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
--- Configurações de estilo atualizadas
+-- ESTILOS MODERNOS
 local COLORS = {
     bg = Color3.fromRGB(10, 10, 15),
     bgSecondary = Color3.fromRGB(20, 20, 30),
@@ -23,32 +23,26 @@ local FONTS = {
     button = Enum.Font.GothamBold
 }
 
--- Variáveis de estado (mantidas as mesmas)
+-- VARIÁVEIS DE ESTADO
 local autoFishing = false
 local autoIndicatorEnabled = false
 local minimized = false
 local fishingTool = nil
-local blocker = nil
 local holdingClick = false
 local fishCount, trashCount, diamondCount = 0, 0, 0
-local status
-local fishIcon, trashIcon, diamondIcon
+local status, fishIcon, trashIcon, diamondIcon
 local elementsToToggle = {}
 local toggleFishingFromKey
 local heartbeatConnection
 
--- Funções auxiliares de UI
+-- FUNÇÕES DE UI (BASE)
 local function createRoundedFrame(parent, size, position, bgColor, cornerRadius)
     local frame = Instance.new("Frame", parent)
     frame.Size = size
     frame.Position = position
-    frame.BackgroundColor3 = bgColor
-    frame.BackgroundTransparency = bgColor == nil and 1 or 0
+    frame.BackgroundColor3 = bgColor or COLORS.bg
     frame.BorderSizePixel = 0
-    
-    local corner = Instance.new("UICorner", frame)
-    corner.CornerRadius = UDim.new(cornerRadius or 0.2, 0)
-    
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(cornerRadius or 0.2, 0)
     return frame
 end
 
@@ -57,12 +51,10 @@ local function createTextLabel(parent, text, size, position, font, textSize, tex
     label.Text = text
     label.Size = size
     label.Position = position
-    label.Font = font
-    label.TextSize = textSize
-    label.TextColor3 = textColor
+    label.Font = font or FONTS.body
+    label.TextSize = textSize or 14
+    label.TextColor3 = textColor or COLORS.text
     label.BackgroundTransparency = 1
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    
     return label
 end
 
@@ -76,184 +68,78 @@ local function createButton(parent, text, size, position)
     button.TextColor3 = COLORS.text
     button.BackgroundColor3 = COLORS.accent
     button.AutoButtonColor = false
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0.15, 0)
     
-    local corner = Instance.new("UICorner", button)
-    corner.CornerRadius = UDim.new(0.15, 0)
-    
-    -- Efeito hover moderno
+    -- Efeito hover
     button.MouseEnter:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.15), {
-            BackgroundColor3 = COLORS.accentHover,
-            TextColor3 = Color3.new(1, 1, 1)
-        }):Play()
+        TweenService:Create(button, TweenInfo.new(0.15), {BackgroundColor3 = COLORS.accentHover}):Play()
     end)
-    
     button.MouseLeave:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.15), {
-            BackgroundColor3 = COLORS.accent,
-            TextColor3 = COLORS.text
-        }):Play()
+        TweenService:Create(button, TweenInfo.new(0.15), {BackgroundColor3 = COLORS.accent}):Play()
     end)
-    
-    -- Efeito de clique
-    button.MouseButton1Down:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.1), {
-            BackgroundColor3 = COLORS.highlight,
-            TextColor3 = Color3.new(0.8, 0.8, 0.8)
-        }):Play()
-    end)
-    
-    button.MouseButton1Up:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.1), {
-            BackgroundColor3 = COLORS.accentHover,
-            TextColor3 = Color3.new(1, 1, 1)
-        }):Play()
-    end)
-    
     return button
 end
+-- SEÇÃO DE PERFIL (HOME)
+local function createProfileSection(parent)
+    local profileFrame = createRoundedFrame(parent, UDim2.new(0.9, 0, 0, 100), 
+        UDim2.new(0.05, 0, 0, 50), COLORS.bgSecondary, 0.15)
+    
+    -- Avatar + Nome
+    local player = Players.LocalPlayer
+    local avatar = Instance.new("ImageLabel", profileFrame)
+    avatar.Size = UDim2.new(0, 50, 0, 50)
+    avatar.Position = UDim2.new(0, 10, 0.5, -25)
+    avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=150&height=150"
+    Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
 
-local function createLootCounter(parent)
-    local container = createRoundedFrame(parent, UDim2.new(0.9, 0, 0, 50), 
-        UDim2.new(0.05, 0, 0, 80), COLORS.bgSecondary, 0.15)
+    local username = createTextLabel(profileFrame, player.Name, UDim2.new(0, 200, 0, 20), 
+        UDim2.new(0, 70, 0.3, 0), FONTS.header, 16, COLORS.text)
     
-    -- Adicionando sombra (efeito moderno)
-    local shadow = Instance.new("ImageLabel", container)
-    shadow.Name = "Shadow"
-    shadow.Size = UDim2.new(1, 10, 1, 10)
-    shadow.Position = UDim2.new(0, -5, 0, -5)
-    shadow.Image = "rbxassetid://1316045217"
-    shadow.ImageColor3 = Color3.new(0, 0, 0)
-    shadow.ImageTransparency = 0.8
-    shadow.ScaleType = Enum.ScaleType.Slice
-    shadow.SliceCenter = Rect.new(10, 10, 118, 118)
-    shadow.BackgroundTransparency = 1
-    shadow.ZIndex = -1
+    -- Status do Servidor
+    local serverInfo = createTextLabel(profileFrame, "🔹 "..#Players:GetPlayers().."/"..game.PrivateServerMaxPlayers.." jogadores", 
+        UDim2.new(0, 200, 0, 16), UDim2.new(0, 70, 0.6, 0), FONTS.body, 12, COLORS.textSecondary)
     
-    -- Divisores entre os itens
-    local divider1 = Instance.new("Frame", container)
-    divider1.Size = UDim2.new(0, 1, 0.6, 0)
-    divider1.Position = UDim2.new(0.33, 0, 0.2, 0)
-    divider1.BackgroundColor3 = COLORS.highlight
-    divider1.BorderSizePixel = 0
-    
-    local divider2 = divider1:Clone()
-    divider2.Parent = container
-    divider2.Position = UDim2.new(0.66, 0, 0.2, 0)
-    
-    -- Ícones de loot
-    fishIcon = createTextLabel(container, "🐟 0", UDim2.new(0.3, 0, 1, 0), 
-        UDim2.new(0, 0, 0, 0), FONTS.body, 18, COLORS.text)
-    fishIcon.TextXAlignment = Enum.TextXAlignment.Center
-    
-    trashIcon = createTextLabel(container, "🗑️ 0", UDim2.new(0.3, 0, 1, 0), 
-        UDim2.new(0.34, 0, 0, 0), FONTS.body, 18, COLORS.text)
-    trashIcon.TextXAlignment = Enum.TextXAlignment.Center
-    
-    diamondIcon = createTextLabel(container, "💎 0", UDim2.new(0.3, 0, 1, 0), 
-        UDim2.new(0.67, 0, 0, 0), FONTS.body, 18, COLORS.text)
-    diamondIcon.TextXAlignment = Enum.TextXAlignment.Center
-    
-    table.insert(elementsToToggle, container)
-    return container
+    table.insert(elementsToToggle, profileFrame)
+    return profileFrame
 end
 
-local function createStatusBar(parent)
-    local container = createRoundedFrame(parent, UDim2.new(0.9, 0, 0, 30), 
-        UDim2.new(0.05, 0, 0, 40), COLORS.bgSecondary, 0.15)
-    
-    status = createTextLabel(container, "STATUS: INATIVO", UDim2.new(1, -20, 1, 0), 
-        UDim2.new(0, 10, 0, 0), FONTS.header, 14, COLORS.text)
-    
-    -- Indicador de status (ponto colorido)
-    local statusDot = Instance.new("Frame", container)
-    statusDot.Size = UDim2.new(0, 8, 0, 8)
-    statusDot.Position = UDim2.new(1, -15, 0.5, -4)
-    statusDot.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
-    Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
-    
-    table.insert(elementsToToggle, container)
-    return container
-end
-
-local function updateStatus(text, color)
-    status.Text = "STATUS: " .. string.upper(text)
-    
-    local dot = status.Parent:FindFirstChildOfClass("Frame")
-    if dot then
-        TweenService:Create(dot, TweenInfo.new(0.3), {
-            BackgroundColor3 = color or Color3.fromRGB(150, 150, 150)
-        }):Play()
+-- ATUALIZAR STATUS DO SERVIDOR (OPCIONAL)
+local function updateServerInfo()
+    while task.wait(10) do
+        local playersText = "🔹 "..#Players:GetPlayers().."/"..game.PrivateServerMaxPlayers.." jogadores"
+        if profileFrame and profileFrame:FindFirstChild("TextLabel") then
+            profileFrame.TextLabel.Text = playersText
+        end
     end
 end
 
-local function createMainUI()
-    local gui = Instance.new("ScreenGui", guiRoot)
-    gui.Name = "FishingHUD"
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+-- CONTADORES DE LOOT (FISH/TRASH/DIAMOND)
+local function createLootCounters(parent)
+    local lootFrame = createRoundedFrame(parent, UDim2.new(0.9, 0, 0, 50), 
+        UDim2.new(0.05, 0, 0, 160), COLORS.bgSecondary, 0.15)
     
-    -- Frame principal com efeito de vidro
-    local mainFrame = createRoundedFrame(gui, UDim2.new(0, 300, 0, 300), 
-        UDim2.new(1, -320, 0.3, 0), COLORS.bg)
-    mainFrame.BackgroundTransparency = 0.2
+    -- Ícones
+    fishIcon = createTextLabel(lootFrame, "🐟 0", UDim2.new(0.3, 0, 1, 0), UDim2.new(0, 0, 0, 0), FONTS.body, 18, COLORS.text)
+    trashIcon = createTextLabel(lootFrame, "🗑️ 0", UDim2.new(0.3, 0, 1, 0), UDim2.new(0.34, 0, 0, 0), FONTS.body, 18, COLORS.text)
+    diamondIcon = createTextLabel(lootFrame, "💎 0", UDim2.new(0.3, 0, 1, 0), UDim2.new(0.67, 0, 0, 0), FONTS.body, 18, COLORS.text)
     
-    -- Efeito de blur (opcional, apenas se o jogo permitir)
-    local blur = Instance.new("BlurEffect", mainFrame)
-    blur.Name = "FrameBlur"
-    blur.Size = 8
-    blur.Enabled = false -- Pode ser ativado se quiser
+    table.insert(elementsToToggle, lootFrame)
+    return lootFrame
+end
+
+-- BOTÕES PRINCIPAIS (PESCA/INDICADOR)
+local function createActionButtons(parent)
+    local btnFishing = createButton(parent, "ATIVAR PESCA", UDim2.new(0.9, 0, 0, 40), UDim2.new(0.05, 0, 0, 220))
+    local btnIndicator = createButton(parent, "INDICADOR AUTO", UDim2.new(0.9, 0, 0, 40), UDim2.new(0.05, 0, 0, 270))
     
-    -- Barra de título com gradiente
-    local titleBar = createRoundedFrame(mainFrame, UDim2.new(1, 0, 0, 40), 
-        UDim2.new(0, 0, 0, 0), COLORS.accent)
-    titleBar.ZIndex = 2
-    
-    local title = createTextLabel(titleBar, "BIGODE FISHING", UDim2.new(1, -40, 1, 0), 
-        UDim2.new(0, 15, 0, 0), FONTS.title, 18, COLORS.text)
-    
-    -- Botão de minimizar moderno
-    local minimizeBtn = createRoundedFrame(titleBar, UDim2.new(0, 26, 0, 26), 
-        UDim2.new(1, -30, 0.5, -13), COLORS.highlight, 1)
-    minimizeBtn.ZIndex = 3
-    
-    local minimizeIcon = createTextLabel(minimizeBtn, "-", UDim2.new(1, 0, 1, 0), 
-        UDim2.new(0, 0, 0, 0), FONTS.header, 18, COLORS.text)
-    minimizeIcon.TextXAlignment = Enum.TextXAlignment.Center
-    
-    minimizeBtn.MouseButton1Click:Connect(function()
-        toggleMinimize(mainFrame, minimizeIcon)
-    end)
-    
-    -- Adicionando elementos ao frame principal
-    createStatusBar(mainFrame)
-    createLootCounter(mainFrame)
-    
-    -- Botões de ação
-    local btnFishing = createButton(mainFrame, "ATIVAR PESCA AUTOMÁTICA", 
-        UDim2.new(0.9, 0, 0, 40), UDim2.new(0.05, 0, 0, 140))
-    table.insert(elementsToToggle, btnFishing)
-    
-    local btnIndicator = createButton(mainFrame, "ATIVAR INDICADOR AUTOMÁTICO", 
-        UDim2.new(0.9, 0, 0, 40), UDim2.new(0.05, 0, 0, 190))
-    btnIndicator.BackgroundColor3 = COLORS.highlight
-    table.insert(elementsToToggle, btnIndicator)
-    
-    -- Rodapé com aviso
-    local footer = createTextLabel(mainFrame, "Pressione P para ativar/desativar rapidamente", 
-        UDim2.new(0.9, 0, 0, 30), UDim2.new(0.05, 0, 1, -35), FONTS.body, 12, COLORS.textSecondary)
-    footer.TextXAlignment = Enum.TextXAlignment.Center
-    table.insert(elementsToToggle, footer)
-    
-    -- Conectando os botões às funções existentes
+    -- Conectar funções existentes
     btnFishing.MouseButton1Click:Connect(function()
         toggleFishingFromKey(btnFishing)
     end)
     
     btnIndicator.MouseButton1Click:Connect(function()
         autoIndicatorEnabled = not autoIndicatorEnabled
-        btnIndicator.Text = autoIndicatorEnabled and "DESATIVAR INDICADOR" or "ATIVAR INDICADOR AUTOMÁTICO"
-        btnIndicator.BackgroundColor3 = autoIndicatorEnabled and COLORS.accent or COLORS.highlight
-        
+        btnIndicator.Text = autoIndicatorEnabled and "DESATIVAR INDICADOR" or "INDICADOR AUTO"
         if autoIndicatorEnabled then
             ensureIndicatorControl()
         else
@@ -261,45 +147,24 @@ local function createMainUI()
         end
     end)
     
+    table.insert(elementsToToggle, btnFishing)
+    table.insert(elementsToToggle, btnIndicator)
+end
+
+-- FUNÇÃO PRINCIPAL PARA CRIAR UI
+local function createModernUI()
+    local gui = Instance.new("ScreenGui", player.PlayerGui)
+    gui.Name = "BigodeFishingUI"
+    
+    local mainFrame = createRoundedFrame(gui, UDim2.new(0, 300, 0, 400), 
+        UDim2.new(1, -320, 0.5, -200), COLORS.bg)
+    
+    -- Adicionar seções
+    createProfileSection(mainFrame)
+    createLootCounters(mainFrame)
+    createActionButtons(mainFrame)
+    
+    -- Iniciar atualização de status
+    spawn(updateServerInfo)
     return gui
-end
-
--- Função de animação de loot atualizada
-local function animateLoot(icon)
-    local originalSize = icon.TextSize
-    local originalPos = icon.Position
-    
-    -- Animação mais suave com escalonamento
-    TweenService:Create(icon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        TextSize = originalSize + 4,
-        Position = originalPos - UDim2.new(0, 0, 0.05, 0)
-    }):Play()
-    
-    task.wait(0.15)
-    
-    TweenService:Create(icon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-        TextSize = originalSize,
-        Position = originalPos
-    }):Play()
-end
-
--- Atualização da função toggleMinimize para a nova UI
-local function toggleMinimize(frame, minimizeIcon)
-    minimized = not minimized
-    
-    for _, ui in ipairs(elementsToToggle) do
-        if ui ~= frame and ui.Parent == frame then
-            ui.Visible = not minimized
-        end
-    end
-    
-    frame.Size = minimized and UDim2.new(0, 50, 0, 50) or UDim2.new(0, 300, 0, 300)
-    minimizeIcon.Text = minimized and "+" or "-"
-    
-    -- Ajustar posição do botão de minimizar quando minimizado
-    if minimized then
-        minimizeIcon.Parent.Position = UDim2.new(0.5, -13, 0.5, -13)
-    else
-        minimizeIcon.Parent.Position = UDim2.new(1, -30, 0.5, -13)
-    end
 end

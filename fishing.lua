@@ -389,124 +389,92 @@ local function updateLootCounts()
     -- Animação simples
     spawn(function()
         local originalSize = fishIcon.TextSize
-        TweenService:Create(fishIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
-        TweenService:Create(trashIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
-        TweenService:Create(diamondIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
-        task.wait(0.15)
-        TweenService:Create(fishIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
-        TweenService:Create(trashIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
-        TweenService:Create(diamondIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+        local success, err = pcall(function()
+            TweenService:Create(fishIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
+            TweenService:Create(trashIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
+            TweenService:Create(diamondIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
+            task.wait(0.15)
+            TweenService:Create(fishIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+            TweenService:Create(trashIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+            TweenService:Create(diamondIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+        end)
+        if not success then
+            warn("Erro na animação de loot: "..err)
+        end
     end)
 end
 
--- Conexão com eventos do jogo
+-- Conexão com eventos do jogo (versão simplificada e segura)
 local function connectGameEvents()
-    ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
-        if data and data.fishing then
-            fishCount = data.fishing.Fish or fishCount
-            trashCount = data.fishing.Trash or trashCount
-            diamondCount = data.fishing.Diamond or diamondCount
-            updateLootCounts()
-        end
-    end)
-    
-    -- Função para esperar o personagem de forma segura
-local function waitForCharacter()
-    local maxAttempts = 10
-    local attempts = 0
-    
-    while attempts < maxAttempts do
-        if player.Character then
-            return player.Character
-        end
-        attempts += 1
-        task.wait(1) -- Esperar 1 segundo entre tentativas
-    end
-    return nil
-end
-
--- Inicialização completa revisada
-local function initialize()
-    -- Esperar o personagem de forma segura
-    character = waitForCharacter()
-    
-    if not character then
-        warn("Falha ao carregar personagem após 10 segundos")
-        return
-    end
-
-    -- Verificar se a GUI já existe
-    if player.PlayerGui:FindFirstChild("BGHubFishing") then
-        player.PlayerGui.BGHubFishing:Destroy()
-    end
-
-    -- Criar UI com tratamento de erro
-    local success, err = pcall(function()
-        createMainUI()
-        connectGameEvents()
-        
-        -- Configurar botão principal
-        toggleBtn.MouseButton1Click:Connect(toggleAutoMode)
-        
-        -- Atualizar contadores iniciais
-        updateLootCounts()
-        
-        -- Verificar equipamento inicial
-        if character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod") then
-            statusLabel.Text = "Status: Pronto para pescar"
-        else
-            statusLabel.Text = "Status: Sem vara de pesca"
-        end
-    end)
-    
-    if not success then
-        warn("Erro na inicialização: " .. err)
-        -- Tentar novamente após 5 segundos
-        task.wait(5)
-        initialize()
-    end
-end
-
--- Conexão segura de eventos de personagem
-local function setupCharacterEvents()
-    player.CharacterAdded:Connect(function(char)
-        character = char
-        if autoMode then
-            task.wait(1) -- Esperar personagem carregar completamente
-            local tool = equipRod()
-            if not tool then
-                statusLabel.Text = "Status: Sem vara de pesca"
+    -- Verificar se o RemoteEvent existe
+    local remote = ReplicatedStorage:FindFirstChild("RemoteEvents")
+    if remote and remote:FindFirstChild("replicatedValue") then
+        remote.replicatedValue.OnClientEvent:Connect(function(data)
+            if data and data.fishing then
+                fishCount = data.fishing.Fish or fishCount
+                trashCount = data.fishing.Trash or trashCount
+                diamondCount = data.fishing.Diamond or diamondCount
+                updateLootCounts()
             end
+        end)
+    else
+        warn("RemoteEvent 'replicatedValue' não encontrado!")
+    end
+end
+
+-- Versão simplificada do controle de personagem
+local function handleCharacter()
+    character = player.Character
+    if not character then
+        -- Espera apenas uma vez, sem loops complexos
+        player.CharacterAdded:Wait()
+        character = player.Character
+    end
+    
+    -- Conexão simples para quando o personagem mudar
+    player.CharacterAdded:Connect(function(newChar)
+        character = newChar
+        if autoMode then
+            task.wait(1) -- Espera breve para equipar
+            equipRod()
         end
     end)
 end
 
--- Modificação na função equipRod para mais segurança
-local function equipRod()
-    if not character then return nil end
+-- Inicialização direta e segura
+local function initialize()
+    -- Primeiro garante que temos o personagem
+    handleCharacter()
     
-    local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
-    if tool then
-        tool.Parent = character
-        task.wait(0.3)
-        return tool
-    end
-    return nil
-end
-
--- Iniciar o script com proteção completa
-local function safeStart()
-    local success, err = pcall(function()
-        setupCharacterEvents()
-        initialize()
-    end)
-    
+    -- Depois cria a interface
+    local success, err = pcall(createMainUI)
     if not success then
-        warn("Erro no início do script: " .. err)
-        task.wait(3)
-        safeStart() -- Tentar novamente após 3 segundos
+        return warn("Falha ao criar UI: "..err)
+    end
+    
+    -- Conecta os eventos do jogo
+    connectGameEvents()
+    
+    -- Configura o botão principal
+    toggleBtn.MouseButton1Click:Connect(toggleAutoMode)
+    
+    -- Atualiza os contadores
+    updateLootCounts()
+    
+    -- Verifica o estado inicial
+    if character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod") then
+        statusLabel.Text = "Status: Pronto"
+    else
+        statusLabel.Text = "Equipe uma vara"
     end
 end
 
--- Iniciar
-safeStart()
+-- Inicia o script com tratamento básico de erro
+local success, err = pcall(initialize)
+if not success then
+    warn("Erro ao iniciar: "..err)
+    
+    -- Tenta novamente após 5 segundos
+    task.wait(5)
+    pcall(initialize)
+end

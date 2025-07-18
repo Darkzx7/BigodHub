@@ -5,35 +5,267 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
--- Variáveis essenciais
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local backpack = player:WaitForChild("Backpack")
-local guiRoot = player:WaitForChild("PlayerGui")
-
--- Estados do script
-local autoFishing = false
-local autoIndicatorEnabled = false
-local fishingTool = nil
-local blocker = nil
-local holdingClick = false
-local fishCount, trashCount, diamondCount = 0, 0, 0
-
--- Configurações de cores
+-- Configurações de estilo
 local COLORS = {
-    bg = Color3.fromRGB(15, 15, 15),
-    title = Color3.fromRGB(255, 40, 40),
-    buttonPrimary = Color3.fromRGB(200, 50, 50),
-    buttonSecondary = Color3.fromRGB(60, 60, 60),
-    text = Color3.new(1, 1, 1)
+    bg = Color3.fromRGB(30, 30, 35),
+    title = Color3.fromRGB(180, 180, 190),
+    button = Color3.fromRGB(50, 50, 60),
+    button_active = Color3.fromRGB(80, 80, 90),
+    text = Color3.fromRGB(220, 220, 230),
+    accent = Color3.fromRGB(100, 100, 110)
 }
 
--- Funções básicas de pesca (inalteradas)
+local FONTS = {
+    title = Enum.Font.SourceSansBold,
+    main = Enum.Font.SourceSans,
+    buttons = Enum.Font.SourceSansSemibold
+}
+
+-- Variáveis de estado
+local autoMode = false -- Combina pesca e indicador
+local fishingTool = nil
+local holdingClick = false
+local minimized = false
+local fishCount, trashCount, diamondCount = 0, 0, 0
+
+-- Elementos da UI
+local mainFrame, toggleBtn, statusLabel, lootContainer
+local elementsToToggle = {}
+
+-- Função para criar sombra
+local function createShadow(parent)
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.Image = "rbxassetid://1316045217"
+    shadow.ImageColor3 = Color3.new(0, 0, 0)
+    shadow.ImageTransparency = 0.7
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+    shadow.Size = UDim2.new(1, 10, 1, 10)
+    shadow.Position = UDim2.new(0, -5, 0, -5)
+    shadow.BackgroundTransparency = 1
+    shadow.ZIndex = parent.ZIndex - 1
+    shadow.Parent = parent
+    return shadow
+end
+
+-- Função para criar botão estilizado
+local function createStyledButton(name, text, size, position, parent)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = size
+    button.Position = position
+    button.BackgroundColor3 = COLORS.button
+    button.TextColor3 = COLORS.text
+    button.Font = FONTS.buttons
+    button.TextSize = 14
+    button.Text = text
+    button.AutoButtonColor = false
+    button.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
+    
+    -- Efeitos hover
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = COLORS.button_active,
+            TextColor3 = Color3.new(1, 1, 1)
+        }):Play()
+    end)
+    
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = COLORS.button,
+            TextColor3 = COLORS.text
+        }):Play()
+    end)
+    
+    button.MouseButton1Down:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.1), {
+            BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        }):Play()
+    end)
+    
+    button.MouseButton1Up:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.1), {
+            BackgroundColor3 = COLORS.button_active
+        }):Play()
+    end)
+    
+    createShadow(button)
+    return button
+end
+
+-- Função para criar a estrutura principal da UI
+local function createMainUI()
+    -- Limpar UI existente
+    local oldUI = player.PlayerGui:FindFirstChild("BGHubFishing")
+    if oldUI then oldUI:Destroy() end
+    
+    -- Criar container principal
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "BGHubFishing"
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    gui.ResetOnSpawn = false
+    gui.Parent = player.PlayerGui
+    
+    -- Frame principal
+    mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 280, 0, 180)
+    mainFrame.Position = UDim2.new(1, -300, 0.5, -90)
+    mainFrame.BackgroundColor3 = COLORS.bg
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = gui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = mainFrame
+    
+    createShadow(mainFrame)
+    
+    -- Barra de título
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 32)
+    titleBar.BackgroundColor3 = COLORS.accent
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 8)
+    titleCorner.Parent = titleBar
+    
+    local titleText = Instance.new("TextLabel")
+    titleText.Size = UDim2.new(0.7, 0, 1, 0)
+    titleText.Position = UDim2.new(0.1, 0, 0, 0)
+    titleText.Text = "BG HUB - PESCA"
+    titleText.Font = FONTS.title
+    titleText.TextColor3 = COLORS.title
+    titleText.TextSize = 16
+    titleText.BackgroundTransparency = 1
+    titleText.TextXAlignment = Enum.TextXAlignment.Left
+    titleText.Parent = titleBar
+    
+    -- Botão de minimizar
+    local minimizeBtn = Instance.new("TextButton")
+    minimizeBtn.Name = "MinimizeBtn"
+    minimizeBtn.Size = UDim2.new(0, 26, 0, 26)
+    minimizeBtn.Position = UDim2.new(1, -32, 0.5, -13)
+    minimizeBtn.BackgroundColor3 = COLORS.button
+    minimizeBtn.TextColor3 = COLORS.text
+    minimizeBtn.Font = FONTS.buttons
+    minimizeBtn.TextSize = 16
+    minimizeBtn.Text = "-"
+    minimizeBtn.Parent = titleBar
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(1, 0)
+    btnCorner.Parent = minimizeBtn
+    
+    -- Botão principal de controle
+    toggleBtn = createStyledButton("ToggleBtn", "Auto Farm", UDim2.new(0.9, 0, 0, 40), UDim2.new(0.05, 0, 0.2, 0), mainFrame)
+    table.insert(elementsToToggle, toggleBtn)
+    
+    -- Status
+    statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(0.9, 0, 0, 20)
+    statusLabel.Position = UDim2.new(0.05, 0, 0.55, 0)
+    statusLabel.Text = "Status: Inativo"
+    statusLabel.Font = FONTS.main
+    statusLabel.TextColor3 = COLORS.text
+    statusLabel.TextSize = 14
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = mainFrame
+    table.insert(elementsToToggle, statusLabel)
+    
+    -- Container de loot
+    lootContainer = Instance.new("Frame")
+    lootContainer.Name = "LootContainer"
+    lootContainer.Size = UDim2.new(0.9, 0, 0, 30)
+    lootContainer.Position = UDim2.new(0.05, 0, 0.75, 0)
+    lootContainer.BackgroundColor3 = COLORS.accent
+    lootContainer.BackgroundTransparency = 0.9
+    lootContainer.Parent = mainFrame
+    table.insert(elementsToToggle, lootContainer)
+    
+    local lootCorner = Instance.new("UICorner")
+    lootCorner.CornerRadius = UDim.new(0, 6)
+    lootCorner.Parent = lootContainer
+    
+    -- Configurar layout do loot
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Horizontal
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Center
+    layout.Padding = UDim.new(0, 15)
+    layout.Parent = lootContainer
+    
+    -- Adicionar ícones de loot (serão atualizados depois)
+    local fishIcon = Instance.new("TextLabel")
+    fishIcon.Name = "FishIcon"
+    fishIcon.Size = UDim2.new(0, 80, 0, 30)
+    fishIcon.Text = "🐟 0"
+    fishIcon.Font = FONTS.main
+    fishIcon.TextColor3 = COLORS.text
+    fishIcon.TextSize = 14
+    fishIcon.BackgroundTransparency = 1
+    fishIcon.Parent = lootContainer
+    
+    local trashIcon = Instance.new("TextLabel")
+    trashIcon.Name = "TrashIcon"
+    trashIcon.Size = UDim2.new(0, 80, 0, 30)
+    trashIcon.Text = "🗑️ 0"
+    trashIcon.Font = FONTS.main
+    trashIcon.TextColor3 = COLORS.text
+    trashIcon.TextSize = 14
+    trashIcon.BackgroundTransparency = 1
+    trashIcon.Parent = lootContainer
+    
+    local diamondIcon = Instance.new("TextLabel")
+    diamondIcon.Name = "DiamondIcon"
+    diamondIcon.Size = UDim2.new(0, 80, 0, 30)
+    diamondIcon.Text = "💎 0"
+    diamondIcon.Font = FONTS.main
+    diamondIcon.TextColor3 = COLORS.text
+    diamondIcon.TextSize = 14
+    diamondIcon.BackgroundTransparency = 1
+    diamondIcon.Parent = lootContainer
+    
+    -- Função de minimizar
+    minimizeBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        
+        for _, element in ipairs(elementsToToggle) do
+            element.Visible = not minimized
+        end
+        
+        if minimized then
+            mainFrame.Size = UDim2.new(0, 60, 0, 40)
+            minimizeBtn.Text = "+"
+            minimizeBtn.Position = UDim2.new(0.5, -13, 0.5, -13)
+        else
+            mainFrame.Size = UDim2.new(0, 280, 0, 180)
+            minimizeBtn.Text = "-"
+            minimizeBtn.Position = UDim2.new(1, -32, 0.5, -13)
+        end
+    end)
+    
+    return gui
+end
+
+-- Funções essenciais de pesca
 local function equipRod()
     local tool = character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
     if tool then
         tool.Parent = character
-        task.wait(0.3)
+        task.wait(0.3) -- Tempo para equipar
         return tool
     end
     return nil
@@ -43,9 +275,11 @@ local function launchLine()
     fishingTool = equipRod()
     if fishingTool and fishingTool:IsDescendantOf(character) then
         fishingTool:Activate()
+        statusLabel.Text = "Status: Linha lançada!"
     end
 end
 
+-- Bloqueador de clicks
 local function createBlocker()
     if blocker then blocker:Destroy() end
     
@@ -57,11 +291,11 @@ local function createBlocker()
     blocker.BackgroundTransparency = 1
     blocker.AutoButtonColor = false
     blocker.ZIndex = 9999
-    blocker.Parent = guiRoot
+    blocker.Parent = player.PlayerGui
     blocker.Visible = false
 end
 
--- Controle do indicador (inalterado)
+-- Controle do indicador
 local function getIndicatorState()
     local fishing = workspace:FindFirstChild("fishing")
     if not fishing then return "missing" end
@@ -75,154 +309,149 @@ local function getIndicatorState()
     local safeH = safeArea.Size.Y.Scale
     local indicatorY = indicator.Position.Y.Scale
     
-    if indicatorY < safeY or indicatorY > (safeY + safeH) then
+    -- Margens ajustáveis
+    local margin = safeH * 0.15
+    local warningMargin = safeH * 0.3
+    
+    if indicatorY < (safeY - margin) or indicatorY > (safeY + safeH + margin) then
         return "out"
-    elseif indicatorY < (safeY + safeH * 0.2) or indicatorY > (safeY + safeH * 0.8) then
-        return "risk"
+    elseif indicatorY < (safeY + warningMargin) or indicatorY > (safeY + safeH - warningMargin) then
+        return "warning"
     else
         return "safe"
     end
 end
 
--- UI simplificada e robusta
-local function createGUI()
-    -- Limpar GUI existente
-    local oldGUI = guiRoot:FindFirstChild("FishingHUD")
-    if oldGUI then oldGUI:Destroy() end
-
-    -- Criar elementos básicos
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "FishingHUD"
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-    gui.ResetOnSpawn = false
-    gui.Parent = guiRoot
-
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 250, 0, 200)
-    mainFrame.Position = UDim2.new(1, -260, 0.5, -100)
-    mainFrame.BackgroundColor3 = COLORS.bg
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Active = true
-    mainFrame.Draggable = true
-    mainFrame.Parent = gui
-
-    Instance.new("UICorner", mainFrame)
-
-    -- Barra de título
-    local titleBar = Instance.new("Frame")
-    titleBar.Size = UDim2.new(1, 0, 0, 30)
-    titleBar.BackgroundColor3 = COLORS.title
-    titleBar.BorderSizePixel = 0
-    titleBar.Parent = mainFrame
-    Instance.new("UICorner", titleBar)
-
-    local titleText = Instance.new("TextLabel")
-    titleText.Size = UDim2.new(1, -40, 1, 0)
-    titleText.Position = UDim2.new(0, 10, 0, 0)
-    titleText.Text = "PESCA AUTOMÁTICA"
-    titleText.Font = Enum.Font.GothamBold
-    titleText.TextColor3 = COLORS.text
-    titleText.TextSize = 14
-    titleText.BackgroundTransparency = 1
-    titleText.Parent = titleBar
-
-    -- Botão de pesca
-    local fishingBtn = Instance.new("TextButton")
-    fishingBtn.Size = UDim2.new(0.9, 0, 0, 40)
-    fishingBtn.Position = UDim2.new(0.05, 0, 0.2, 0)
-    fishingBtn.Text = autoFishing and "DESATIVAR PESCA" or "ATIVAR PESCA"
-    fishingBtn.BackgroundColor3 = autoFishing and COLORS.buttonPrimary or COLORS.buttonSecondary
-    fishingBtn.TextColor3 = COLORS.text
-    fishingBtn.Font = Enum.Font.GothamMedium
-    fishingBtn.TextSize = 14
-    fishingBtn.Parent = mainFrame
-    Instance.new("UICorner", fishingBtn)
-
-    -- Botão de indicador
-    local indicatorBtn = Instance.new("TextButton")
-    indicatorBtn.Size = UDim2.new(0.9, 0, 0, 40)
-    indicatorBtn.Position = UDim2.new(0.05, 0, 0.5, 0)
-    indicatorBtn.Text = autoIndicatorEnabled and "DESATIVAR INDICADOR" or "ATIVAR INDICADOR"
-    indicatorBtn.BackgroundColor3 = autoIndicatorEnabled and COLORS.buttonPrimary or COLORS.buttonSecondary
-    indicatorBtn.TextColor3 = COLORS.text
-    indicatorBtn.Font = Enum.Font.GothamMedium
-    indicatorBtn.TextSize = 14
-    indicatorBtn.Parent = mainFrame
-    Instance.new("UICorner", indicatorBtn)
-
-    -- Status
-    local statusText = Instance.new("TextLabel")
-    statusText.Size = UDim2.new(0.9, 0, 0, 20)
-    statusText.Position = UDim2.new(0.05, 0, 0.8, 0)
-    statusText.Text = "Status: Pronto"
-    statusText.Font = Enum.Font.Gotham
-    statusText.TextColor3 = COLORS.text
-    statusText.TextSize = 12
-    statusText.BackgroundTransparency = 1
-    statusText.TextXAlignment = Enum.TextXAlignment.Left
-    statusText.Parent = mainFrame
-
-    -- Conexões de eventos
-    fishingBtn.MouseButton1Click:Connect(function()
-        autoFishing = not autoFishing
-        fishingBtn.Text = autoFishing and "DESATIVAR PESCA" or "ATIVAR PESCA"
-        fishingBtn.BackgroundColor3 = autoFishing and COLORS.buttonPrimary or COLORS.buttonSecondary
-        
-        if autoFishing then
-            createBlocker()
-            blocker.Visible = true
-            spawn(function()
-                while autoFishing do
-                    launchLine()
-                    task.wait(62)
-                end
-            end)
-        else
-            if blocker then blocker.Visible = false end
-        end
-    end)
-
-    indicatorBtn.MouseButton1Click:Connect(function()
-        autoIndicatorEnabled = not autoIndicatorEnabled
-        indicatorBtn.Text = autoIndicatorEnabled and "DESATIVAR INDICADOR" or "ATIVAR INDICADOR"
-        indicatorBtn.BackgroundColor3 = autoIndicatorEnabled and COLORS.buttonPrimary or COLORS.buttonSecondary
-    end)
-
-    return gui
-end
-
--- Loop principal do indicador
-RunService.Heartbeat:Connect(function()
-    if not autoIndicatorEnabled then return end
+-- Sistema combinado de pesca e indicador
+local function toggleAutoMode()
+    autoMode = not autoMode
     
-    local state = getIndicatorState()
-    if state == "risk" or state == "out" then
-        if not holdingClick then
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-            holdingClick = true
-        end
+    if autoMode then
+        -- Modo ativado
+        toggleBtn.Text = "Disable Auto Farm"
+        statusLabel.Text = "Status: Automático"
+        createBlocker()
+        blocker.Visible = true
+        
+        -- Iniciar loop de pesca
+        spawn(function()
+            while autoMode do
+                launchLine()
+                task.wait(62) -- Intervalo entre pescas
+            end
+        end)
+        
+        -- Iniciar controle do indicador
+        RunService.Heartbeat:Connect(function()
+            if not autoMode then return end
+            
+            local state = getIndicatorState()
+            if state == "warning" or state == "out" then
+                if not holdingClick then
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
+                    holdingClick = true
+                end
+            else
+                if holdingClick then
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
+                    holdingClick = false
+                end
+            end
+        end)
     else
+        -- Modo desativado
+        toggleBtn.Text = "Auto Farm"
+        statusLabel.Text = "Status: Inativo"
+        if blocker then blocker.Visible = false end
         if holdingClick then
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
             holdingClick = false
         end
     end
+    
+    -- Atualizar aparência do botão
+    TweenService:Create(toggleBtn, TweenInfo.new(0.3), {
+        BackgroundColor3 = autoMode and COLORS.button_active or COLORS.button,
+        TextColor3 = autoMode and Color3.new(1, 1, 1) or COLORS.text
+    }):Play()
+end
+
+-- Atualizar contadores de loot
+local function updateLootCounts()
+    local fishIcon = lootContainer:FindFirstChild("FishIcon")
+    local trashIcon = lootContainer:FindFirstChild("TrashIcon")
+    local diamondIcon = lootContainer:FindFirstChild("DiamondIcon")
+    
+    if fishIcon then fishIcon.Text = "🐟 "..fishCount end
+    if trashIcon then trashIcon.Text = "🗑️ "..trashCount end
+    if diamondIcon then diamondIcon.Text = "💎 "..diamondCount end
+    
+    -- Animação simples
+    spawn(function()
+        local originalSize = fishIcon.TextSize
+        TweenService:Create(fishIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
+        TweenService:Create(trashIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
+        TweenService:Create(diamondIcon, TweenInfo.new(0.15), {TextSize = originalSize + 4}):Play()
+        task.wait(0.15)
+        TweenService:Create(fishIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+        TweenService:Create(trashIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+        TweenService:Create(diamondIcon, TweenInfo.new(0.15), {TextSize = originalSize}):Play()
+    end)
+end
+
+-- Conexão com eventos do jogo
+local function connectGameEvents()
+    ReplicatedStorage.Remotes.RemoteEvents.replicatedValue.OnClientEvent:Connect(function(data)
+        if data and data.fishing then
+            fishCount = data.fishing.Fish or fishCount
+            trashCount = data.fishing.Trash or trashCount
+            diamondCount = data.fishing.Diamond or diamondCount
+            updateLootCounts()
+        end
+    end)
+    
+    -- Atualizar quando o personagem muda
+    player.CharacterAdded:Connect(function(char)
+        character = char
+        if autoMode then
+            task.wait(1) -- Esperar personagem carregar
+            equipRod()
+        end
+    end)
+end
+
+-- Controle por tecla (opcional)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.P then
+        toggleAutoMode()
+    end
 end)
 
--- Inicialização segura
+-- Inicialização completa
 local function initialize()
     -- Esperar tudo carregar
-    task.wait(3)
+    repeat task.wait() until player.Character
+    character = player.Character
     
-    -- Criar a UI
-    local success, err = pcall(createGUI)
-    if not success then
-        warn("Erro ao criar UI: " .. err)
-        task.wait(2)
-        initialize() -- Tentar novamente
+    -- Criar UI
+    createMainUI()
+    
+    -- Conectar eventos
+    connectGameEvents()
+    
+    -- Configurar botão principal
+    toggleBtn.MouseButton1Click:Connect(toggleAutoMode)
+    
+    -- Atualizar contadores iniciais
+    updateLootCounts()
+    
+    -- Verificar se já tem vara equipada
+    if character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod") then
+        statusLabel.Text = "Status: Pronto para pescar"
     end
 end
 
--- Iniciar
+-- Iniciar o script
 initialize()

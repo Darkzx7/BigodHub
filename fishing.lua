@@ -1,4 +1,4 @@
--- ADVANCED AUTO FISHING SYSTEM - FIXED VERSION
+-- ADVANCED AUTO FISHING SYSTEM - PERFECT VERSION
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -21,10 +21,12 @@ local totalCasts = 0
 local lastCastTime = 0
 local fishingInProgress = false
 local lastClickTime = 0
+local waitingForCatch = false
 
 -- Connections
 local indicatorConnection = nil
 local fishingLoop = nil
+local catchConnection = nil
 
 -- UI Elements
 local gui = nil
@@ -36,27 +38,30 @@ local statsFrame = nil
 -- Precision Config
 local PRECISION = {
     checkInterval = 0.016,
-    safeMargin = 0.08,
-    responseDelay = 0.05,
-    castCooldown = 3,
-    fishingTimeout = 70
+    safeMargin = 0.12,
+    responseDelay = 0.03,
+    castCooldown = 2.5,
+    fishingTimeout = 60,
+    catchDelay = 2
 }
 
--- Modern Theme
+-- Purple Theme
 local THEME = {
-    primary = Color3.fromRGB(88, 101, 242),
-    secondary = Color3.fromRGB(114, 137, 218),
-    success = Color3.fromRGB(67, 181, 129),
-    warning = Color3.fromRGB(250, 166, 26),
-    danger = Color3.fromRGB(237, 66, 69),
-    bg_primary = Color3.fromRGB(32, 34, 37),
-    bg_secondary = Color3.fromRGB(40, 43, 48),
-    bg_tertiary = Color3.fromRGB(47, 49, 54),
+    primary = Color3.fromRGB(138, 43, 226),
+    secondary = Color3.fromRGB(147, 112, 219),
+    accent = Color3.fromRGB(186, 85, 211),
+    success = Color3.fromRGB(102, 205, 170),
+    warning = Color3.fromRGB(255, 193, 7),
+    danger = Color3.fromRGB(220, 53, 69),
+    bg_primary = Color3.fromRGB(25, 25, 35),
+    bg_secondary = Color3.fromRGB(35, 35, 50),
+    bg_tertiary = Color3.fromRGB(45, 45, 65),
+    bg_card = Color3.fromRGB(40, 40, 60),
     text_primary = Color3.fromRGB(255, 255, 255),
-    text_secondary = Color3.fromRGB(185, 187, 190),
-    text_muted = Color3.fromRGB(114, 118, 125),
-    accent = Color3.fromRGB(255, 255, 255),
-    border = Color3.fromRGB(79, 84, 92)
+    text_secondary = Color3.fromRGB(200, 200, 220),
+    text_muted = Color3.fromRGB(150, 150, 170),
+    border = Color3.fromRGB(138, 43, 226),
+    glow = Color3.fromRGB(186, 85, 211)
 }
 
 -- Logging System
@@ -77,11 +82,17 @@ local function updateStatus(text, color, icon)
     if statusLabel then
         statusLabel.Text = (icon or "●") .. " " .. text
         statusLabel.TextColor3 = color or THEME.text_secondary
+        
+        -- Animate status change
+        local tween = TweenService:Create(statusLabel, TweenInfo.new(0.3), {
+            TextTransparency = 0
+        })
+        tween:Play()
     end
     log(text)
 end
 
--- Create Modern Button
+-- Create Modern Button with Glow
 local function createButton(parent, config)
     local button = Instance.new("TextButton")
     button.Name = config.name or "Button"
@@ -91,75 +102,106 @@ local function createButton(parent, config)
     button.BorderSizePixel = 0
     button.Text = config.text or "Button"
     button.TextColor3 = THEME.text_primary
-    button.Font = Enum.Font.GothamSemibold
+    button.Font = Enum.Font.GothamBold
     button.TextSize = config.textSize or 14
     button.AutoButtonColor = false
     button.Parent = parent
     
+    -- Rounded corners
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, 12)
     corner.Parent = button
     
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = THEME.border
-    stroke.Thickness = 1
-    stroke.Transparency = 0.8
-    stroke.Parent = button
+    -- Gradient effect
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, config.color or THEME.primary),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(
+            math.min(255, (config.color or THEME.primary).R * 255 + 30),
+            math.min(255, (config.color or THEME.primary).G * 255 + 30),
+            math.min(255, (config.color or THEME.primary).B * 255 + 30)
+        ))
+    }
+    gradient.Rotation = 45
+    gradient.Parent = button
+    
+    -- Glow effect
+    local glow = Instance.new("UIStroke")
+    glow.Color = THEME.glow
+    glow.Thickness = 2
+    glow.Transparency = 0.7
+    glow.Parent = button
     
     -- Hover Effects
     button.MouseEnter:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(
-                math.min(255, config.color.R * 255 + 20),
-                math.min(255, config.color.G * 255 + 20), 
-                math.min(255, config.color.B * 255 + 20)
-            )
-        }):Play()
+        local hoverTween = TweenService:Create(button, TweenInfo.new(0.2), {
+            Size = UDim2.new(config.size.X.Scale, config.size.X.Offset + 5, config.size.Y.Scale, config.size.Y.Offset + 2)
+        })
+        local glowTween = TweenService:Create(glow, TweenInfo.new(0.2), {
+            Transparency = 0.3
+        })
+        hoverTween:Play()
+        glowTween:Play()
     end)
     
     button.MouseLeave:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundColor3 = config.color
-        }):Play()
+        local hoverTween = TweenService:Create(button, TweenInfo.new(0.2), {
+            Size = config.size
+        })
+        local glowTween = TweenService:Create(glow, TweenInfo.new(0.2), {
+            Transparency = 0.7
+        })
+        hoverTween:Play()
+        glowTween:Play()
     end)
     
     return button
 end
 
--- Create Stat Card
+-- Create Enhanced Stat Card
 local function createStatCard(parent, config)
     local card = Instance.new("Frame")
     card.Name = config.name
     card.Size = UDim2.new(0, 85, 1, 0)
-    card.BackgroundColor3 = THEME.bg_secondary
+    card.BackgroundColor3 = THEME.bg_card
     card.BorderSizePixel = 0
     card.Parent = parent
     
+    -- Rounded corners
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
+    corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = card
     
+    -- Subtle glow
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = config.color or THEME.border
+    stroke.Thickness = 1
+    stroke.Transparency = 0.8
+    stroke.Parent = card
+    
+    -- Icon with glow
     local icon = Instance.new("TextLabel")
     icon.Name = "Icon"
-    icon.Size = UDim2.new(1, 0, 0.6, 0)
+    icon.Size = UDim2.new(1, 0, 0.55, 0)
     icon.Position = UDim2.new(0, 0, 0, 0)
     icon.BackgroundTransparency = 1
     icon.Text = config.icon
     icon.TextColor3 = config.color or THEME.text_secondary
-    icon.TextSize = 16
-    icon.Font = Enum.Font.Gotham
+    icon.TextSize = 18
+    icon.Font = Enum.Font.GothamBold
     icon.TextXAlignment = Enum.TextXAlignment.Center
     icon.TextYAlignment = Enum.TextYAlignment.Center
     icon.Parent = card
     
+    -- Counter
     local counter = Instance.new("TextLabel")
     counter.Name = "Counter"
-    counter.Size = UDim2.new(1, 0, 0.4, 0)
-    counter.Position = UDim2.new(0, 0, 0.6, 0)
+    counter.Size = UDim2.new(1, 0, 0.45, 0)
+    counter.Position = UDim2.new(0, 0, 0.55, 0)
     counter.BackgroundTransparency = 1
     counter.Text = "0"
     counter.TextColor3 = THEME.text_primary
-    counter.TextSize = 14
+    counter.TextSize = 16
     counter.Font = Enum.Font.GothamBold
     counter.TextXAlignment = Enum.TextXAlignment.Center
     counter.TextYAlignment = Enum.TextYAlignment.Center
@@ -168,7 +210,7 @@ local function createStatCard(parent, config)
     return card
 end
 
--- Create Advanced UI
+-- Create Enhanced UI
 local function createUI()
     -- Clean old UI
     if player.PlayerGui:FindFirstChild("AdvancedFishingHub") then
@@ -182,69 +224,86 @@ local function createUI()
     gui.ResetOnSpawn = false
     gui.Parent = player.PlayerGui
     
-    -- Main Frame
+    -- Main Frame with enhanced styling
     mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 320, 0, 200)
-    mainFrame.Position = UDim2.new(1, -340, 0.5, -100)
+    mainFrame.Size = UDim2.new(0, 340, 0, 220)
+    mainFrame.Position = UDim2.new(1, -360, 0.5, -110)
     mainFrame.BackgroundColor3 = THEME.bg_primary
     mainFrame.BorderSizePixel = 0
     mainFrame.Active = true
     mainFrame.Draggable = true
     mainFrame.Parent = gui
     
+    -- Enhanced corner radius
     local mainCorner = Instance.new("UICorner")
-    mainCorner.CornerRadius = UDim.new(0, 12)
+    mainCorner.CornerRadius = UDim.new(0, 16)
     mainCorner.Parent = mainFrame
     
+    -- Glowing border
     local mainStroke = Instance.new("UIStroke")
     mainStroke.Color = THEME.primary
-    mainStroke.Thickness = 1
-    mainStroke.Transparency = 0.7
+    mainStroke.Thickness = 2
+    mainStroke.Transparency = 0.5
     mainStroke.Parent = mainFrame
     
-    -- Header
+    -- Animated glow effect
+    task.spawn(function()
+        while mainFrame.Parent do
+            for i = 1, 60 do
+                if mainStroke and mainStroke.Parent then
+                    mainStroke.Transparency = 0.3 + (math.sin(i * 0.1) * 0.2)
+                end
+                task.wait(0.05)
+            end
+        end
+    end)
+    
+    -- Header with gradient
     local header = Instance.new("Frame")
     header.Name = "Header"
-    header.Size = UDim2.new(1, 0, 0, 45)
+    header.Size = UDim2.new(1, 0, 0, 50)
     header.BackgroundColor3 = THEME.bg_secondary
     header.BorderSizePixel = 0
     header.Parent = mainFrame
     
     local headerCorner = Instance.new("UICorner")
-    headerCorner.CornerRadius = UDim.new(0, 12)
+    headerCorner.CornerRadius = UDim.new(0, 16)
     headerCorner.Parent = header
     
+    -- Purple gradient
     local headerGradient = Instance.new("UIGradient")
     headerGradient.Color = ColorSequence.new{
         ColorSequenceKeypoint.new(0, THEME.primary),
-        ColorSequenceKeypoint.new(1, THEME.secondary)
+        ColorSequenceKeypoint.new(0.5, THEME.secondary),
+        ColorSequenceKeypoint.new(1, THEME.accent)
     }
-    headerGradient.Rotation = 45
+    headerGradient.Rotation = 90
     headerGradient.Parent = header
     
-    -- Title
+    -- Title with glow effect
     local titleText = Instance.new("TextLabel")
     titleText.Size = UDim2.new(0.7, 0, 1, 0)
     titleText.Position = UDim2.new(0.05, 0, 0, 0)
     titleText.BackgroundTransparency = 1
-    titleText.Text = "🎣 ADVANCED FISHING"
+    titleText.Text = "🎣 FISHING HUB PRO"
     titleText.Font = Enum.Font.GothamBold
     titleText.TextColor3 = THEME.text_primary
-    titleText.TextSize = 16
+    titleText.TextSize = 18
     titleText.TextXAlignment = Enum.TextXAlignment.Left
+    titleText.TextYAlignment = Enum.TextYAlignment.Center
     titleText.Parent = header
     
     -- Minimize Button
     local minimizeBtn = Instance.new("TextButton")
-    minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
-    minimizeBtn.Position = UDim2.new(1, -38, 0.5, -15)
+    minimizeBtn.Size = UDim2.new(0, 35, 0, 35)
+    minimizeBtn.Position = UDim2.new(1, -42, 0.5, -17)
     minimizeBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    minimizeBtn.BackgroundTransparency = 0.9
+    minimizeBtn.BackgroundTransparency = 0.1
     minimizeBtn.BorderSizePixel = 0
     minimizeBtn.Text = "─"
     minimizeBtn.TextColor3 = THEME.text_primary
-    minimizeBtn.TextSize = 16
+    minimizeBtn.TextSize = 18
     minimizeBtn.Font = Enum.Font.GothamBold
     minimizeBtn.Parent = header
     
@@ -252,54 +311,54 @@ local function createUI()
     minCorner.CornerRadius = UDim.new(1, 0)
     minCorner.Parent = minimizeBtn
     
-    -- Toggle Button
+    -- Toggle Button with enhanced styling
     toggleBtn = createButton(mainFrame, {
         name = "ToggleButton",
-        size = UDim2.new(0.9, 0, 0, 45),
-        position = UDim2.new(0.05, 0, 0.3, 0),
+        size = UDim2.new(0.9, 0, 0, 48),
+        position = UDim2.new(0.05, 0, 0.28, 0),
         text = "▶ START AUTO FISHING",
-        textSize = 14,
+        textSize = 16,
         color = THEME.success
     })
     
-    -- Status Container
+    -- Status Container with glow
     local statusContainer = Instance.new("Frame")
-    statusContainer.Size = UDim2.new(0.9, 0, 0, 25)
-    statusContainer.Position = UDim2.new(0.05, 0, 0.6, 0)
+    statusContainer.Size = UDim2.new(0.9, 0, 0, 30)
+    statusContainer.Position = UDim2.new(0.05, 0, 0.58, 0)
     statusContainer.BackgroundColor3 = THEME.bg_tertiary
     statusContainer.BorderSizePixel = 0
     statusContainer.Parent = mainFrame
     
     local statusCorner = Instance.new("UICorner")
-    statusCorner.CornerRadius = UDim.new(0, 6)
+    statusCorner.CornerRadius = UDim.new(0, 8)
     statusCorner.Parent = statusContainer
+    
+    local statusStroke = Instance.new("UIStroke")
+    statusStroke.Color = THEME.border
+    statusStroke.Thickness = 1
+    statusStroke.Transparency = 0.7
+    statusStroke.Parent = statusContainer
     
     statusLabel = Instance.new("TextLabel")
     statusLabel.Size = UDim2.new(1, -10, 1, 0)
     statusLabel.Position = UDim2.new(0, 5, 0, 0)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "● Ready to fish"
-    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.Font = Enum.Font.GothamSemibold
     statusLabel.TextColor3 = THEME.text_secondary
-    statusLabel.TextSize = 12
+    statusLabel.TextSize = 14
     statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.TextYAlignment = Enum.TextYAlignment.Center
     statusLabel.Parent = statusContainer
     
     -- Stats Frame
     statsFrame = Instance.new("Frame")
-    statsFrame.Size = UDim2.new(0.9, 0, 0, 40)
-    statsFrame.Position = UDim2.new(0.05, 0, 0.78, 0)
+    statsFrame.Size = UDim2.new(0.9, 0, 0, 45)
+    statsFrame.Position = UDim2.new(0.05, 0, 0.75, 0)
     statsFrame.BackgroundTransparency = 1
     statsFrame.Parent = mainFrame
     
-    local statsLayout = Instance.new("UIListLayout")
-    statsLayout.FillDirection = Enum.FillDirection.Horizontal
-    statsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    statsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    statsLayout.Padding = UDim.new(0, 8)
-    statsLayout.Parent = statsFrame
-    
-    -- Stat Cards with proper spacing
+    -- Stat Cards with manual positioning
     local fishCard = createStatCard(statsFrame, {
         name = "FishCard",
         icon = "🐟",
@@ -312,14 +371,14 @@ local function createUI()
         icon = "🗑️",
         color = THEME.warning
     })
-    trashCard.Position = UDim2.new(0, 93, 0, 0)
+    trashCard.Position = UDim2.new(0, 95, 0, 0)
     
     local diamondCard = createStatCard(statsFrame, {
         name = "DiamondCard",
         icon = "💎", 
-        color = THEME.primary
+        color = THEME.accent
     })
-    diamondCard.Position = UDim2.new(0, 186, 0, 0)
+    diamondCard.Position = UDim2.new(0, 190, 0, 0)
     
     -- Minimize Function
     local elementsToHide = {toggleBtn, statusContainer, statsFrame}
@@ -327,11 +386,11 @@ local function createUI()
     minimizeBtn.MouseButton1Click:Connect(function()
         minimized = not minimized
         
-        local targetSize = minimized and UDim2.new(0, 200, 0, 45) or UDim2.new(0, 320, 0, 200)
+        local targetSize = minimized and UDim2.new(0, 220, 0, 50) or UDim2.new(0, 340, 0, 220)
         local targetText = minimized and "+" or "─"
-        local targetTitle = minimized and "FISHING" or "🎣 ADVANCED FISHING"
+        local targetTitle = minimized and "FISHING HUB" or "🎣 FISHING HUB PRO"
         
-        TweenService:Create(mainFrame, TweenInfo.new(0.3), {
+        TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
             Size = targetSize
         }):Play()
         
@@ -345,10 +404,10 @@ local function createUI()
         titleText.Text = targetTitle
     end)
     
-    log("Advanced UI created successfully")
+    log("Enhanced Purple UI created successfully")
 end
 
--- Fishing Functions
+-- Enhanced Fishing Functions
 local function findRod()
     return character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
 end
@@ -359,7 +418,7 @@ local function equipRod()
         if rod.Parent == backpack then
             rod.Parent = character
             task.wait(0.5)
-            log("Rod equipped")
+            log("Rod equipped successfully")
         end
         return rod
     end
@@ -372,7 +431,7 @@ local function castLine()
         return false
     end
     
-    if fishingInProgress then
+    if fishingInProgress or waitingForCatch then
         return false
     end
     
@@ -381,16 +440,19 @@ local function castLine()
         rod:Activate()
         lastCastTime = currentTime
         fishingInProgress = true
+        waitingForCatch = false
         totalCasts = totalCasts + 1
         
-        updateStatus("Casting line... 🎣", THEME.primary, "🎯")
+        updateStatus("Casting line... (Cast #" .. totalCasts .. ")", THEME.primary, "🎯")
         log("Line cast successfully (Cast #" .. totalCasts .. ")")
         
+        -- Reset fishing after timeout
         task.spawn(function()
             task.wait(PRECISION.fishingTimeout)
             if fishingInProgress then
                 fishingInProgress = false
-                log("Fishing timeout reached")
+                waitingForCatch = false
+                log("Fishing timeout - resetting")
             end
         end)
         
@@ -401,7 +463,7 @@ local function castLine()
     end
 end
 
--- Indicator Control
+-- Enhanced Indicator Control
 local function getFishingUI()
     local fishing = workspace:FindFirstChild("fishing")
     if not fishing then return nil end
@@ -449,7 +511,7 @@ local function controlIndicator()
     end
 end
 
--- Update Stats
+-- Enhanced Stats Update with Animation
 local function updateStats()
     if not statsFrame then return end
     
@@ -457,24 +519,31 @@ local function updateStats()
     local trashCard = statsFrame:FindFirstChild("TrashCard")
     local diamondCard = statsFrame:FindFirstChild("DiamondCard")
     
-    if fishCard then
-        local counter = fishCard:FindFirstChild("Counter")
-        if counter then counter.Text = tostring(fishCount) end
+    local function animateCounter(card, newValue)
+        if card then
+            local counter = card:FindFirstChild("Counter")
+            if counter then
+                counter.Text = tostring(newValue)
+                
+                -- Animate the update
+                local originalSize = counter.TextSize
+                counter.TextSize = originalSize + 4
+                
+                TweenService:Create(counter, TweenInfo.new(0.3), {
+                    TextSize = originalSize
+                }):Play()
+            end
+        end
     end
     
-    if trashCard then
-        local counter = trashCard:FindFirstChild("Counter")
-        if counter then counter.Text = tostring(trashCount) end
-    end
-    
-    if diamondCard then
-        local counter = diamondCard:FindFirstChild("Counter")
-        if counter then counter.Text = tostring(diamondCount) end
-    end
+    animateCounter(fishCard, fishCount)
+    animateCounter(trashCard, trashCount)
+    animateCounter(diamondCard, diamondCount)
 end
 
--- Loot Detection
+-- Enhanced Loot Detection
 local function setupLootDetection()
+    -- Method 1: Remote Events
     task.spawn(function()
         local success, err = pcall(function()
             local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -499,49 +568,126 @@ local function setupLootDetection()
                             
                             if updated then
                                 updateStats()
+                                log("Stats updated: Fish=" .. fishCount .. ", Trash=" .. trashCount .. ", Diamonds=" .. diamondCount)
+                                
+                                -- Reset fishing state after catch
+                                task.wait(PRECISION.catchDelay)
                                 fishingInProgress = false
+                                waitingForCatch = false
                             end
                         end
                     end)
-                    log("Loot detection connected")
+                    log("Loot detection (RemoteEvents) connected")
                 end
             end
         end)
         
         if not success then
-            log("Loot detection failed: " .. tostring(err))
+            log("RemoteEvents loot detection failed: " .. tostring(err))
+        end
+    end)
+    
+    -- Method 2: Leaderstats monitoring
+    task.spawn(function()
+        local success, err = pcall(function()
+            local leaderstats = player:FindFirstChild("leaderstats")
+            if leaderstats then
+                local fish = leaderstats:FindFirstChild("Fish")
+                local trash = leaderstats:FindFirstChild("Trash") 
+                local diamond = leaderstats:FindFirstChild("Diamond")
+                
+                if fish then
+                    fish.Changed:Connect(function(newValue)
+                        fishCount = tonumber(newValue) or fishCount
+                        updateStats()
+                        fishingInProgress = false
+                        waitingForCatch = false
+                        log("Fish count updated: " .. fishCount)
+                    end)
+                end
+                
+                if trash then
+                    trash.Changed:Connect(function(newValue)
+                        trashCount = tonumber(newValue) or trashCount
+                        updateStats()
+                        fishingInProgress = false
+                        waitingForCatch = false
+                        log("Trash count updated: " .. trashCount)
+                    end)
+                end
+                
+                if diamond then
+                    diamond.Changed:Connect(function(newValue)
+                        diamondCount = tonumber(newValue) or diamondCount
+                        updateStats()
+                        fishingInProgress = false
+                        waitingForCatch = false
+                        log("Diamond count updated: " .. diamondCount)
+                    end)
+                end
+                
+                log("Loot detection (leaderstats) connected")
+            end
+        end)
+        
+        if not success then
+            log("Leaderstats loot detection failed: " .. tostring(err))
+        end
+    end)
+    
+    -- Method 3: UI monitoring for catch completion
+    task.spawn(function()
+        while true do
+            if fishingInProgress and not waitingForCatch then
+                local fishingUI = getFishingUI()
+                if not fishingUI or not fishingUI.safeArea then
+                    -- Fishing UI disappeared, likely caught something
+                    waitingForCatch = true
+                    task.wait(PRECISION.catchDelay)
+                    fishingInProgress = false
+                    waitingForCatch = false
+                    log("Fishing completed - UI disappeared")
+                end
+            end
+            task.wait(0.5)
         end
     end)
 end
 
--- Auto Fishing
+-- Enhanced Auto Fishing Loop
 local function startFishing()
-    updateStatus("Starting fishing system...", THEME.warning, "⚙️")
+    updateStatus("Initializing fishing system...", THEME.warning, "⚙️")
     
     fishingLoop = task.spawn(function()
         while autoMode do
+            -- Check for rod
             if not findRod() then
                 updateStatus("Please equip a fishing rod!", THEME.danger, "❌")
                 task.wait(5)
                 continue
             end
             
-            if not fishingInProgress then
+            -- Cast line if not fishing
+            if not fishingInProgress and not waitingForCatch then
                 local success = castLine()
                 if success then
                     updateStatus("Fishing in progress... 🎣", THEME.success, "🎣")
                 else
-                    task.wait(3)
+                    task.wait(1)
                 end
+            else
+                updateStatus("Waiting for catch... ⏳", THEME.accent, "⏳")
             end
             
-            task.wait(2)
+            task.wait(1)
         end
     end)
     
+    -- Start indicator control
     indicatorConnection = RunService.Heartbeat:Connect(controlIndicator)
     
     updateStatus("Auto Fishing Active! 🚀", THEME.success, "🚀")
+    log("Fishing system started successfully")
 end
 
 local function stopFishing()
@@ -563,7 +709,9 @@ local function stopFishing()
     end
     
     fishingInProgress = false
+    waitingForCatch = false
     updateStatus("Auto Fishing Stopped", THEME.text_secondary, "⏸️")
+    log("Fishing system stopped")
 end
 
 -- Toggle Function
@@ -579,6 +727,8 @@ local function toggleFishing()
         toggleBtn.BackgroundColor3 = THEME.success
         stopFishing()
     end
+    
+    log("Fishing toggled: " .. (autoMode and "ON" or "OFF"))
 end
 
 -- Character Management
@@ -586,18 +736,21 @@ local function handleCharacter()
     player.CharacterAdded:Connect(function(newChar)
         character = newChar
         backpack = player:WaitForChild("Backpack")
-        log("Character respawned")
+        log("Character respawned - resetting states")
+        
+        fishingInProgress = false
+        waitingForCatch = false
         
         if autoMode then
             task.wait(3)
-            fishingInProgress = false
+            updateStatus("Ready after respawn", THEME.success, "✅")
         end
     end)
 end
 
 -- Initialize System
 local function initialize()
-    log("Starting Advanced Fishing System...")
+    log("Starting Advanced Fishing System v2.0...")
     
     handleCharacter()
     createUI()
@@ -609,6 +762,7 @@ local function initialize()
     setupLootDetection()
     updateStats()
     
+    -- Initial status
     if findRod() then
         updateStatus("Ready to fish! 🎣", THEME.success, "✅")
     else
@@ -633,13 +787,18 @@ local function startMonitor()
             task.wait(30)
             
             if autoMode then
+                -- Memory cleanup
                 local memoryUsage = gcinfo()
                 if memoryUsage > 50000 then
                     collectgarbage("collect")
+                    log("Memory cleanup performed")
                 end
                 
+                -- Reset stuck states
                 if fishingInProgress and (tick() - lastCastTime) > PRECISION.fishingTimeout then
                     fishingInProgress = false
+                    waitingForCatch = false
+                    log("Reset stuck fishing state")
                 end
             end
         end
@@ -651,7 +810,8 @@ local function main()
     local success, error = pcall(initialize)
     
     if success then
-        print("🎣 ADVANCED FISHING HUB - Loaded Successfully!")
+        print("🎣 FISHING HUB PRO v2.0 - Loaded Successfully!")
+        print("✨ Enhanced with Purple Theme & Perfect Auto-Loop!")
         startMonitor()
     else
         warn("❌ Failed to initialize: " .. tostring(error))
@@ -660,6 +820,9 @@ local function main()
         local retrySuccess, retryError = pcall(initialize)
         if not retrySuccess then
             warn("❌ Retry failed: " .. tostring(retryError))
+        else
+            print("🔄 Successfully initialized on retry!")
+            startMonitor()
         end
     end
 end

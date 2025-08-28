@@ -37,7 +37,7 @@ local toggleBtn = nil
 local statusLabel = nil
 local statsFrame = nil
 
--- Configuração de Precisão Aprimorada
+-- Configuração de Precisão Aprimorada (MANTIDA ORIGINAL)
 local PRECISION = {
     checkInterval = 0.016,
     safeMargin = 0.15,
@@ -381,7 +381,7 @@ local function createUI()
     end)
 end
 
--- Funções de Pesca Aprimoradas
+-- Funções de Pesca Aprimoradas (MANTIDAS ORIGINAIS)
 local function findRod()
     return character:FindFirstChild("Fishing Rod") or backpack:FindFirstChild("Fishing Rod")
 end
@@ -398,7 +398,7 @@ local function equipRod()
     return nil
 end
 
--- Lançar linha com gerenciamento de estado
+-- Lançar linha com gerenciamento de estado (MANTIDA ORIGINAL)
 local function castLine()
     local currentTime = tick()
     if currentTime - lastCastTime < PRECISION.castCooldown then
@@ -426,7 +426,7 @@ local function castLine()
     return true, "Sucesso"
 end
 
--- Detecção de UI aprimorada
+-- Detecção de UI aprimorada (MANTIDA ORIGINAL)
 local function getFishingUI()
     local fishing = workspace:FindFirstChild("fishing")
     if not fishing then return nil end
@@ -447,7 +447,7 @@ local function getFishingUI()
     }
 end
 
--- Controle do indicador
+-- FUNÇÃO PRINCIPAL DE CONTROLE DO INDICADOR (MANTIDA COMPLETAMENTE ORIGINAL)
 local function controlIndicator()
     if not autoMode or not fishingInProgress then return end
     
@@ -468,7 +468,7 @@ local function controlIndicator()
     local safeHeight = safeArea.Size.Y.Scale
     local indicatorY = indicator.Position.Y.Scale
     
-    -- Cálculo de zona segura aprimorado
+    -- Cálculo de zona segura aprimorado (ORIGINAL)
     local margin = safeHeight * PRECISION.safeMargin
     local safeTop = safeY + margin
     local safeBottom = safeY + safeHeight - margin
@@ -476,7 +476,7 @@ local function controlIndicator()
     local isInSafeZone = indicatorY >= safeTop and indicatorY <= safeBottom
     local currentTime = tick()
     
-    -- Lógica de clique inteligente
+    -- Lógica de clique inteligente (MANTIDA ORIGINAL)
     if not isInSafeZone and not holdingClick and (currentTime - lastClickTime) > PRECISION.clickCooldown then
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
         holdingClick = true
@@ -517,16 +517,21 @@ local function updateStats()
     animateCounter(diamondCard, diamondCount)
 end
 
--- Detecção de loot aprimorada com múltiplos métodos
+-- Detecção de loot aprimorada com múltiplos métodos (CORRIGIDA)
 local function setupLootDetection()
     -- Método 1: Monitoramento de leaderstats
     task.spawn(function()
         local leaderstats = player:WaitForChild("leaderstats", 10)
         if leaderstats then
+            
+            local function findStat(name)
+                return leaderstats:FindFirstChild(name) or leaderstats:FindFirstChild(name:lower()) or leaderstats:FindFirstChild(name:upper())
+            end
+            
             local stats = {
-                Fish = leaderstats:FindFirstChild("Fish"),
-                Trash = leaderstats:FindFirstChild("Trash"),
-                Diamond = leaderstats:FindFirstChild("Diamond")
+                Fish = findStat("Fish"),
+                Trash = findStat("Trash"),  
+                Diamond = findStat("Diamond")
             }
             
             -- Inicializar contadores com valores atuais
@@ -575,7 +580,6 @@ local function setupLootDetection()
             if fishingInProgress and uiAppeared then
                 local fishingUI = getFishingUI()
                 if not fishingUI then
-                    -- UI desapareceu - provavelmente capturou algo
                     task.wait(PRECISION.catchDelay)
                     fishingInProgress = false
                     waitingForUI = false
@@ -594,7 +598,7 @@ local function setupLootDetection()
     end)
 end
 
--- Loop de pesca inteligente
+-- Loop de pesca inteligente (MANTIDO ORIGINAL)
 local function startFishing()
     updateStatus("Iniciando sistema de pesca...", THEME.warning)
     
@@ -631,7 +635,7 @@ local function startFishing()
         end
     end)
     
-    -- Iniciar controle do indicador
+    -- INICIAR CONTROLE DO INDICADOR (CRUCIAL!)
     indicatorConnection = RunService.Heartbeat:Connect(controlIndicator)
     
     updateStatus("Pesca Automática Ativa!", THEME.success)
@@ -727,7 +731,7 @@ player.AncestryChanged:Connect(function()
     end
 end)
 
--- Monitor de performance
+-- Monitor de performance (MANTIDO ORIGINAL)
 local function startMonitor()
     task.spawn(function()
         while true do

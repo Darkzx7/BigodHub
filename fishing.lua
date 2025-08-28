@@ -1,4 +1,4 @@
--- ADVANCED AUTO FISHING SYSTEM - PERFECT VERSION
+-- ADVANCED AUTO FISHING SYSTEM - PERFECTED VERSION
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -10,7 +10,7 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local backpack = player:WaitForChild("Backpack")
 
--- State
+-- State Management
 local autoMode = false
 local holdingClick = false
 local minimized = false
@@ -20,13 +20,15 @@ local diamondCount = 0
 local totalCasts = 0
 local lastCastTime = 0
 local fishingInProgress = false
+local waitingForUI = false
+local uiAppeared = false
 local lastClickTime = 0
-local waitingForCatch = false
 
 -- Connections
 local indicatorConnection = nil
 local fishingLoop = nil
-local catchConnection = nil
+local uiWatcher = nil
+local catchWatcher = nil
 
 -- UI Elements
 local gui = nil
@@ -35,17 +37,19 @@ local toggleBtn = nil
 local statusLabel = nil
 local statsFrame = nil
 
--- Precision Config
+-- Enhanced Precision Config Based on Data Analysis
 local PRECISION = {
     checkInterval = 0.016,
-    safeMargin = 0.12,
-    responseDelay = 0.03,
-    castCooldown = 2.5,
-    fishingTimeout = 60,
-    catchDelay = 2
+    safeMargin = 0.15, -- Increased margin to prevent premature clicking
+    responseDelay = 0.08, -- Slower response to prevent rod retraction
+    castCooldown = 3,
+    uiTimeout = 50, -- UI can take up to 50 seconds to appear
+    fishingTimeout = 80, -- Longer timeout based on data
+    catchDelay = 3,
+    clickCooldown = 0.5 -- Prevent rapid clicking
 }
 
--- Purple Theme
+-- Enhanced Purple Theme
 local THEME = {
     primary = Color3.fromRGB(138, 43, 226),
     secondary = Color3.fromRGB(147, 112, 219),
@@ -64,35 +68,45 @@ local THEME = {
     glow = Color3.fromRGB(186, 85, 211)
 }
 
--- Logging System
+-- Enhanced Logging System
 local function log(message, level)
     level = level or "INFO"
     local timestamp = os.date("%H:%M:%S")
-    local logMessage = string.format("[%s] [AUTO FISHING] %s", timestamp, tostring(message))
+    local logMessage = string.format("[%s] [FISHING PRO] %s", timestamp, tostring(message))
     
     if level == "ERROR" then
         warn(logMessage)
+    elseif level == "SUCCESS" then
+        print("✅ " .. logMessage)
+    elseif level == "WARNING" then
+        warn("⚠️ " .. logMessage)
     else
         print(logMessage)
     end
 end
 
--- Update Status
+-- Enhanced Status Updates
 local function updateStatus(text, color, icon)
     if statusLabel then
         statusLabel.Text = (icon or "●") .. " " .. text
         statusLabel.TextColor3 = color or THEME.text_secondary
         
-        -- Animate status change
-        local tween = TweenService:Create(statusLabel, TweenInfo.new(0.3), {
-            TextTransparency = 0
-        })
-        tween:Play()
+        -- Pulse animation for important status
+        if icon == "🎯" or icon == "🎣" or icon == "✅" then
+            local pulse = TweenService:Create(statusLabel, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+                TextTransparency = 0.3
+            })
+            pulse:Play()
+            
+            task.wait(2)
+            pulse:Cancel()
+            statusLabel.TextTransparency = 0
+        end
     end
-    log(text)
+    log(text, icon == "❌" and "ERROR" or (icon == "⚠️" and "WARNING" or "INFO"))
 end
 
--- Create Modern Button with Glow
+-- Create Enhanced Button
 local function createButton(parent, config)
     local button = Instance.new("TextButton")
     button.Name = config.name or "Button"
@@ -107,12 +121,10 @@ local function createButton(parent, config)
     button.AutoButtonColor = false
     button.Parent = parent
     
-    -- Rounded corners
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 12)
     corner.Parent = button
     
-    -- Gradient effect
     local gradient = Instance.new("UIGradient")
     gradient.Color = ColorSequence.new{
         ColorSequenceKeypoint.new(0, config.color or THEME.primary),
@@ -125,40 +137,29 @@ local function createButton(parent, config)
     gradient.Rotation = 45
     gradient.Parent = button
     
-    -- Glow effect
     local glow = Instance.new("UIStroke")
     glow.Color = THEME.glow
     glow.Thickness = 2
     glow.Transparency = 0.7
     glow.Parent = button
     
-    -- Hover Effects
+    -- Enhanced hover effects
     button.MouseEnter:Connect(function()
-        local hoverTween = TweenService:Create(button, TweenInfo.new(0.2), {
+        TweenService:Create(button, TweenInfo.new(0.2), {
             Size = UDim2.new(config.size.X.Scale, config.size.X.Offset + 5, config.size.Y.Scale, config.size.Y.Offset + 2)
-        })
-        local glowTween = TweenService:Create(glow, TweenInfo.new(0.2), {
-            Transparency = 0.3
-        })
-        hoverTween:Play()
-        glowTween:Play()
+        }):Play()
+        TweenService:Create(glow, TweenInfo.new(0.2), {Transparency = 0.3}):Play()
     end)
     
     button.MouseLeave:Connect(function()
-        local hoverTween = TweenService:Create(button, TweenInfo.new(0.2), {
-            Size = config.size
-        })
-        local glowTween = TweenService:Create(glow, TweenInfo.new(0.2), {
-            Transparency = 0.7
-        })
-        hoverTween:Play()
-        glowTween:Play()
+        TweenService:Create(button, TweenInfo.new(0.2), {Size = config.size}):Play()
+        TweenService:Create(glow, TweenInfo.new(0.2), {Transparency = 0.7}):Play()
     end)
     
     return button
 end
 
--- Create Enhanced Stat Card
+-- Create Stat Card with Animations
 local function createStatCard(parent, config)
     local card = Instance.new("Frame")
     card.Name = config.name
@@ -167,19 +168,16 @@ local function createStatCard(parent, config)
     card.BorderSizePixel = 0
     card.Parent = parent
     
-    -- Rounded corners
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = card
     
-    -- Subtle glow
     local stroke = Instance.new("UIStroke")
     stroke.Color = config.color or THEME.border
     stroke.Thickness = 1
     stroke.Transparency = 0.8
     stroke.Parent = card
     
-    -- Icon with glow
     local icon = Instance.new("TextLabel")
     icon.Name = "Icon"
     icon.Size = UDim2.new(1, 0, 0.55, 0)
@@ -193,7 +191,6 @@ local function createStatCard(parent, config)
     icon.TextYAlignment = Enum.TextYAlignment.Center
     icon.Parent = card
     
-    -- Counter
     local counter = Instance.new("TextLabel")
     counter.Name = "Counter"
     counter.Size = UDim2.new(1, 0, 0.45, 0)
@@ -212,45 +209,40 @@ end
 
 -- Create Enhanced UI
 local function createUI()
-    -- Clean old UI
     if player.PlayerGui:FindFirstChild("AdvancedFishingHub") then
         player.PlayerGui.AdvancedFishingHub:Destroy()
         task.wait(0.1)
     end
     
-    -- Main Container
     gui = Instance.new("ScreenGui")
     gui.Name = "AdvancedFishingHub"
     gui.ResetOnSpawn = false
     gui.Parent = player.PlayerGui
     
-    -- Main Frame with enhanced styling
     mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 340, 0, 220)
-    mainFrame.Position = UDim2.new(1, -360, 0.5, -110)
+    mainFrame.Size = UDim2.new(0, 360, 0, 240)
+    mainFrame.Position = UDim2.new(1, -380, 0.5, -120)
     mainFrame.BackgroundColor3 = THEME.bg_primary
     mainFrame.BorderSizePixel = 0
     mainFrame.Active = true
     mainFrame.Draggable = true
     mainFrame.Parent = gui
     
-    -- Enhanced corner radius
     local mainCorner = Instance.new("UICorner")
     mainCorner.CornerRadius = UDim.new(0, 16)
     mainCorner.Parent = mainFrame
     
-    -- Glowing border
     local mainStroke = Instance.new("UIStroke")
     mainStroke.Color = THEME.primary
     mainStroke.Thickness = 2
     mainStroke.Transparency = 0.5
     mainStroke.Parent = mainFrame
     
-    -- Animated glow effect
+    -- Animated border glow
     task.spawn(function()
         while mainFrame.Parent do
-            for i = 1, 60 do
+            for i = 1, 100 do
                 if mainStroke and mainStroke.Parent then
                     mainStroke.Transparency = 0.3 + (math.sin(i * 0.1) * 0.2)
                 end
@@ -259,10 +251,10 @@ local function createUI()
         end
     end)
     
-    -- Header with gradient
+    -- Enhanced Header
     local header = Instance.new("Frame")
     header.Name = "Header"
-    header.Size = UDim2.new(1, 0, 0, 50)
+    header.Size = UDim2.new(1, 0, 0, 55)
     header.BackgroundColor3 = THEME.bg_secondary
     header.BorderSizePixel = 0
     header.Parent = mainFrame
@@ -271,7 +263,6 @@ local function createUI()
     headerCorner.CornerRadius = UDim.new(0, 16)
     headerCorner.Parent = header
     
-    -- Purple gradient
     local headerGradient = Instance.new("UIGradient")
     headerGradient.Color = ColorSequence.new{
         ColorSequenceKeypoint.new(0, THEME.primary),
@@ -281,20 +272,18 @@ local function createUI()
     headerGradient.Rotation = 90
     headerGradient.Parent = header
     
-    -- Title with glow effect
     local titleText = Instance.new("TextLabel")
     titleText.Size = UDim2.new(0.7, 0, 1, 0)
     titleText.Position = UDim2.new(0.05, 0, 0, 0)
     titleText.BackgroundTransparency = 1
-    titleText.Text = "🎣 FISHING HUB PRO"
+    titleText.Text = "🎣 FISHING HUB PRO+"
     titleText.Font = Enum.Font.GothamBold
     titleText.TextColor3 = THEME.text_primary
-    titleText.TextSize = 18
+    titleText.TextSize = 19
     titleText.TextXAlignment = Enum.TextXAlignment.Left
     titleText.TextYAlignment = Enum.TextYAlignment.Center
     titleText.Parent = header
     
-    -- Minimize Button
     local minimizeBtn = Instance.new("TextButton")
     minimizeBtn.Size = UDim2.new(0, 35, 0, 35)
     minimizeBtn.Position = UDim2.new(1, -42, 0.5, -17)
@@ -311,19 +300,19 @@ local function createUI()
     minCorner.CornerRadius = UDim.new(1, 0)
     minCorner.Parent = minimizeBtn
     
-    -- Toggle Button with enhanced styling
+    -- Enhanced Toggle Button
     toggleBtn = createButton(mainFrame, {
         name = "ToggleButton",
-        size = UDim2.new(0.9, 0, 0, 48),
+        size = UDim2.new(0.9, 0, 0, 50),
         position = UDim2.new(0.05, 0, 0.28, 0),
-        text = "▶ START AUTO FISHING",
+        text = "▶ START SMART FISHING",
         textSize = 16,
         color = THEME.success
     })
     
-    -- Status Container with glow
+    -- Enhanced Status Container
     local statusContainer = Instance.new("Frame")
-    statusContainer.Size = UDim2.new(0.9, 0, 0, 30)
+    statusContainer.Size = UDim2.new(0.9, 0, 0, 35)
     statusContainer.Position = UDim2.new(0.05, 0, 0.58, 0)
     statusContainer.BackgroundColor3 = THEME.bg_tertiary
     statusContainer.BorderSizePixel = 0
@@ -343,7 +332,7 @@ local function createUI()
     statusLabel.Size = UDim2.new(1, -10, 1, 0)
     statusLabel.Position = UDim2.new(0, 5, 0, 0)
     statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "● Ready to fish"
+    statusLabel.Text = "● Ready for smart fishing"
     statusLabel.Font = Enum.Font.GothamSemibold
     statusLabel.TextColor3 = THEME.text_secondary
     statusLabel.TextSize = 14
@@ -351,14 +340,13 @@ local function createUI()
     statusLabel.TextYAlignment = Enum.TextYAlignment.Center
     statusLabel.Parent = statusContainer
     
-    -- Stats Frame
+    -- Enhanced Stats Frame
     statsFrame = Instance.new("Frame")
-    statsFrame.Size = UDim2.new(0.9, 0, 0, 45)
+    statsFrame.Size = UDim2.new(0.9, 0, 0, 50)
     statsFrame.Position = UDim2.new(0.05, 0, 0.75, 0)
     statsFrame.BackgroundTransparency = 1
     statsFrame.Parent = mainFrame
     
-    -- Stat Cards with manual positioning
     local fishCard = createStatCard(statsFrame, {
         name = "FishCard",
         icon = "🐟",
@@ -380,15 +368,15 @@ local function createUI()
     })
     diamondCard.Position = UDim2.new(0, 190, 0, 0)
     
-    -- Minimize Function
+    -- Minimize functionality
     local elementsToHide = {toggleBtn, statusContainer, statsFrame}
     
     minimizeBtn.MouseButton1Click:Connect(function()
         minimized = not minimized
         
-        local targetSize = minimized and UDim2.new(0, 220, 0, 50) or UDim2.new(0, 340, 0, 220)
+        local targetSize = minimized and UDim2.new(0, 240, 0, 55) or UDim2.new(0, 360, 0, 240)
         local targetText = minimized and "+" or "─"
-        local targetTitle = minimized and "FISHING HUB" or "🎣 FISHING HUB PRO"
+        local targetTitle = minimized and "FISHING PRO" or "🎣 FISHING HUB PRO+"
         
         TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
             Size = targetSize
@@ -404,7 +392,7 @@ local function createUI()
         titleText.Text = targetTitle
     end)
     
-    log("Enhanced Purple UI created successfully")
+    log("Enhanced UI created successfully", "SUCCESS")
 end
 
 -- Enhanced Fishing Functions
@@ -425,45 +413,36 @@ local function equipRod()
     return nil
 end
 
+-- Smart cast line with proper state management
 local function castLine()
     local currentTime = tick()
     if currentTime - lastCastTime < PRECISION.castCooldown then
-        return false
+        return false, "Cooldown active"
     end
     
-    if fishingInProgress or waitingForCatch then
-        return false
+    if fishingInProgress or waitingForUI then
+        return false, "Already fishing"
     end
     
     local rod = equipRod()
-    if rod and rod.Parent == character then
-        rod:Activate()
-        lastCastTime = currentTime
-        fishingInProgress = true
-        waitingForCatch = false
-        totalCasts = totalCasts + 1
-        
-        updateStatus("Casting line... (Cast #" .. totalCasts .. ")", THEME.primary, "🎯")
-        log("Line cast successfully (Cast #" .. totalCasts .. ")")
-        
-        -- Reset fishing after timeout
-        task.spawn(function()
-            task.wait(PRECISION.fishingTimeout)
-            if fishingInProgress then
-                fishingInProgress = false
-                waitingForCatch = false
-                log("Fishing timeout - resetting")
-            end
-        end)
-        
-        return true
-    else
-        updateStatus("No fishing rod found!", THEME.danger, "❌")
-        return false
+    if not rod or rod.Parent ~= character then
+        return false, "No rod available"
     end
+    
+    rod:Activate()
+    lastCastTime = currentTime
+    fishingInProgress = true
+    waitingForUI = true
+    uiAppeared = false
+    totalCasts = totalCasts + 1
+    
+    updateStatus("Line cast! Waiting for UI... (Cast #" .. totalCasts .. ")", THEME.primary, "🎯")
+    log("Line cast successfully - Cast #" .. totalCasts)
+    
+    return true, "Success"
 end
 
--- Enhanced Indicator Control
+-- Enhanced UI detection based on data analysis
 local function getFishingUI()
     local fishing = workspace:FindFirstChild("fishing")
     if not fishing then return nil end
@@ -471,18 +450,32 @@ local function getFishingUI()
     local bar = fishing:FindFirstChild("bar")
     if not bar then return nil end
     
+    local safeArea = bar:FindFirstChild("safeArea")
+    local indicator = bar:FindFirstChild("indicator")
+    
+    if not safeArea or not indicator then return nil end
+    
     return {
-        safeArea = bar:FindFirstChild("safeArea"),
-        indicator = bar:FindFirstChild("indicator")
+        fishing = fishing,
+        bar = bar,
+        safeArea = safeArea,
+        indicator = indicator
     }
 end
 
+-- Smart indicator control based on data analysis
 local function controlIndicator()
-    if not autoMode then return end
+    if not autoMode or not fishingInProgress then return end
     
     local fishingUI = getFishingUI()
-    if not fishingUI or not fishingUI.safeArea or not fishingUI.indicator then 
-        return 
+    if not fishingUI then return end
+    
+    -- Mark UI as appeared
+    if waitingForUI then
+        waitingForUI = false
+        uiAppeared = true
+        updateStatus("UI appeared! Controlling indicator...", THEME.success, "🎣")
+        log("Fishing UI appeared - starting control")
     end
     
     local safeArea = fishingUI.safeArea
@@ -492,26 +485,30 @@ local function controlIndicator()
     local safeHeight = safeArea.Size.Y.Scale
     local indicatorY = indicator.Position.Y.Scale
     
+    -- Enhanced safe zone calculation
     local margin = safeHeight * PRECISION.safeMargin
     local safeTop = safeY + margin
     local safeBottom = safeY + safeHeight - margin
     
-    local needsClick = indicatorY < safeTop or indicatorY > safeBottom
+    local isInSafeZone = indicatorY >= safeTop and indicatorY <= safeBottom
     local currentTime = tick()
     
-    if needsClick and not holdingClick and (currentTime - lastClickTime) > PRECISION.responseDelay then
+    -- Smart clicking logic
+    if not isInSafeZone and not holdingClick and (currentTime - lastClickTime) > PRECISION.clickCooldown then
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
         holdingClick = true
         lastClickTime = currentTime
+        log(string.format("Started holding click - Indicator: %.3f, Safe: %.3f-%.3f", indicatorY, safeTop, safeBottom))
         
-    elseif not needsClick and holdingClick and (currentTime - lastClickTime) > PRECISION.responseDelay then
+    elseif isInSafeZone and holdingClick and (currentTime - lastClickTime) > PRECISION.responseDelay then
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         holdingClick = false
         lastClickTime = currentTime
+        log("Released click - indicator in safe zone")
     end
 end
 
--- Enhanced Stats Update with Animation
+-- Enhanced stats update with animations
 local function updateStats()
     if not statsFrame then return end
     
@@ -525,13 +522,11 @@ local function updateStats()
             if counter then
                 counter.Text = tostring(newValue)
                 
-                -- Animate the update
+                -- Bounce animation
                 local originalSize = counter.TextSize
-                counter.TextSize = originalSize + 4
-                
-                TweenService:Create(counter, TweenInfo.new(0.3), {
-                    TextSize = originalSize
-                }):Play()
+                TweenService:Create(counter, TweenInfo.new(0.2), {TextSize = originalSize + 6}):Play()
+                task.wait(0.2)
+                TweenService:Create(counter, TweenInfo.new(0.2), {TextSize = originalSize}):Play()
             end
         end
     end
@@ -539,124 +534,91 @@ local function updateStats()
     animateCounter(fishCard, fishCount)
     animateCounter(trashCard, trashCount)
     animateCounter(diamondCard, diamondCount)
+    
+    log(string.format("Stats updated - Fish: %d, Trash: %d, Diamonds: %d", fishCount, trashCount, diamondCount))
 end
 
--- Enhanced Loot Detection
+-- Enhanced loot detection with multiple methods
 local function setupLootDetection()
-    -- Method 1: Remote Events
+    -- Method 1: Leaderstats monitoring (most reliable based on data)
     task.spawn(function()
-        local success, err = pcall(function()
-            local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
-            if remoteEvents then
-                local replicatedValue = remoteEvents:FindFirstChild("replicatedValue")
-                if replicatedValue then
-                    replicatedValue.OnClientEvent:Connect(function(data)
-                        if data and type(data) == "table" then
-                            local updated = false
+        local leaderstats = player:WaitForChild("leaderstats", 10)
+        if leaderstats then
+            log("Leaderstats found - setting up loot detection")
+            
+            local stats = {
+                Fish = leaderstats:FindFirstChild("Fish"),
+                Trash = leaderstats:FindFirstChild("Trash"),
+                Diamond = leaderstats:FindFirstChild("Diamond")
+            }
+            
+            for statName, stat in pairs(stats) do
+                if stat then
+                    stat.Changed:Connect(function(newValue)
+                        if statName == "Fish" then
+                            fishCount = tonumber(newValue) or fishCount
+                        elseif statName == "Trash" then
+                            trashCount = tonumber(newValue) or trashCount
+                        elseif statName == "Diamond" then
+                            diamondCount = tonumber(newValue) or diamondCount
+                        end
+                        
+                        updateStats()
+                        
+                        -- Reset fishing state after successful catch
+                        if fishingInProgress then
+                            task.wait(PRECISION.catchDelay)
+                            fishingInProgress = false
+                            waitingForUI = false
+                            uiAppeared = false
                             
-                            if data.fishing then
-                                fishCount = data.fishing.Fish or fishCount
-                                trashCount = data.fishing.Trash or trashCount
-                                diamondCount = data.fishing.Diamond or diamondCount
-                                updated = true
-                            elseif data.Fish or data.Trash or data.Diamond then
-                                fishCount = data.Fish or fishCount
-                                trashCount = data.Trash or trashCount
-                                diamondCount = data.Diamond or diamondCount
-                                updated = true
+                            if holdingClick then
+                                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                                holdingClick = false
                             end
                             
-                            if updated then
-                                updateStats()
-                                log("Stats updated: Fish=" .. fishCount .. ", Trash=" .. trashCount .. ", Diamonds=" .. diamondCount)
-                                
-                                -- Reset fishing state after catch
-                                task.wait(PRECISION.catchDelay)
-                                fishingInProgress = false
-                                waitingForCatch = false
-                            end
+                            updateStatus("Caught something! Preparing next cast...", THEME.success, "✅")
+                            log(string.format("Catch completed! %s increased to %s", statName, newValue), "SUCCESS")
                         end
                     end)
-                    log("Loot detection (RemoteEvents) connected")
+                    
+                    log(string.format("Monitoring %s stat", statName))
                 end
             end
-        end)
-        
-        if not success then
-            log("RemoteEvents loot detection failed: " .. tostring(err))
+        else
+            log("Leaderstats not found", "WARNING")
         end
     end)
     
-    -- Method 2: Leaderstats monitoring
-    task.spawn(function()
-        local success, err = pcall(function()
-            local leaderstats = player:FindFirstChild("leaderstats")
-            if leaderstats then
-                local fish = leaderstats:FindFirstChild("Fish")
-                local trash = leaderstats:FindFirstChild("Trash") 
-                local diamond = leaderstats:FindFirstChild("Diamond")
-                
-                if fish then
-                    fish.Changed:Connect(function(newValue)
-                        fishCount = tonumber(newValue) or fishCount
-                        updateStats()
-                        fishingInProgress = false
-                        waitingForCatch = false
-                        log("Fish count updated: " .. fishCount)
-                    end)
-                end
-                
-                if trash then
-                    trash.Changed:Connect(function(newValue)
-                        trashCount = tonumber(newValue) or trashCount
-                        updateStats()
-                        fishingInProgress = false
-                        waitingForCatch = false
-                        log("Trash count updated: " .. trashCount)
-                    end)
-                end
-                
-                if diamond then
-                    diamond.Changed:Connect(function(newValue)
-                        diamondCount = tonumber(newValue) or diamondCount
-                        updateStats()
-                        fishingInProgress = false
-                        waitingForCatch = false
-                        log("Diamond count updated: " .. diamondCount)
-                    end)
-                end
-                
-                log("Loot detection (leaderstats) connected")
-            end
-        end)
-        
-        if not success then
-            log("Leaderstats loot detection failed: " .. tostring(err))
-        end
-    end)
-    
-    -- Method 3: UI monitoring for catch completion
+    -- Method 2: UI disappearance monitoring
     task.spawn(function()
         while true do
-            if fishingInProgress and not waitingForCatch then
+            if fishingInProgress and uiAppeared then
                 local fishingUI = getFishingUI()
-                if not fishingUI or not fishingUI.safeArea then
-                    -- Fishing UI disappeared, likely caught something
-                    waitingForCatch = true
+                if not fishingUI then
+                    -- UI disappeared - likely caught something
+                    log("Fishing UI disappeared - processing catch")
                     task.wait(PRECISION.catchDelay)
                     fishingInProgress = false
-                    waitingForCatch = false
-                    log("Fishing completed - UI disappeared")
+                    waitingForUI = false
+                    uiAppeared = false
+                    
+                    if holdingClick then
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                        holdingClick = false
+                    end
+                    
+                    updateStatus("Fishing completed! Ready for next cast", THEME.success, "✅")
                 end
             end
-            task.wait(0.5)
+            task.wait(1)
         end
     end)
 end
 
--- Enhanced Auto Fishing Loop
+-- Smart fishing loop with enhanced logic
 local function startFishing()
-    updateStatus("Initializing fishing system...", THEME.warning, "⚙️")
+    updateStatus("Initializing smart fishing system...", THEME.warning, "⚙️")
     
     fishingLoop = task.spawn(function()
         while autoMode do
@@ -668,15 +630,24 @@ local function startFishing()
             end
             
             -- Cast line if not fishing
-            if not fishingInProgress and not waitingForCatch then
-                local success = castLine()
-                if success then
-                    updateStatus("Fishing in progress... 🎣", THEME.success, "🎣")
+            if not fishingInProgress and not waitingForUI then
+                local success, reason = castLine()
+                if not success then
+                    updateStatus("Cast failed: " .. reason, THEME.warning, "⚠️")
+                    task.wait(2)
+                end
+            elseif waitingForUI then
+                local elapsed = tick() - lastCastTime
+                if elapsed > PRECISION.uiTimeout then
+                    log("UI timeout reached - resetting", "WARNING")
+                    fishingInProgress = false
+                    waitingForUI = false
+                    updateStatus("UI timeout - trying again...", THEME.warning, "⚠️")
                 else
-                    task.wait(1)
+                    updateStatus(string.format("Waiting for UI... (%.1fs)", elapsed), THEME.accent, "⏳")
                 end
             else
-                updateStatus("Waiting for catch... ⏳", THEME.accent, "⏳")
+                updateStatus("Fishing in progress...", THEME.success, "🎣")
             end
             
             task.wait(1)
@@ -686,12 +657,12 @@ local function startFishing()
     -- Start indicator control
     indicatorConnection = RunService.Heartbeat:Connect(controlIndicator)
     
-    updateStatus("Auto Fishing Active! 🚀", THEME.success, "🚀")
-    log("Fishing system started successfully")
+    updateStatus("Smart Fishing Active!", THEME.success, "🚀")
+    log("Smart fishing system started", "SUCCESS")
 end
 
 local function stopFishing()
-    updateStatus("Stopping fishing...", THEME.warning, "⏹️")
+    updateStatus("Stopping fishing system...", THEME.warning, "⏹️")
     
     if indicatorConnection then
         indicatorConnection:Disconnect()
@@ -709,12 +680,14 @@ local function stopFishing()
     end
     
     fishingInProgress = false
-    waitingForCatch = false
-    updateStatus("Auto Fishing Stopped", THEME.text_secondary, "⏸️")
-    log("Fishing system stopped")
+    waitingForUI = false
+    uiAppeared = false
+    
+    updateStatus("Smart Fishing Stopped", THEME.text_secondary, "⏸️")
+    log("Fishing system stopped", "SUCCESS")
 end
 
--- Toggle Function
+-- Toggle function
 local function toggleFishing()
     autoMode = not autoMode
     
@@ -723,7 +696,7 @@ local function toggleFishing()
         toggleBtn.BackgroundColor3 = THEME.danger
         startFishing()
     else
-        toggleBtn.Text = "▶ START AUTO FISHING"
+        toggleBtn.Text = "▶ START SMART FISHING"
         toggleBtn.BackgroundColor3 = THEME.success
         stopFishing()
     end
@@ -731,7 +704,7 @@ local function toggleFishing()
     log("Fishing toggled: " .. (autoMode and "ON" or "OFF"))
 end
 
--- Character Management
+-- Character management
 local function handleCharacter()
     player.CharacterAdded:Connect(function(newChar)
         character = newChar
@@ -739,7 +712,13 @@ local function handleCharacter()
         log("Character respawned - resetting states")
         
         fishingInProgress = false
-        waitingForCatch = false
+        waitingForUI = false
+        uiAppeared = false
+        
+        if holdingClick then
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            holdingClick = false
+        end
         
         if autoMode then
             task.wait(3)
@@ -748,9 +727,9 @@ local function handleCharacter()
     end)
 end
 
--- Initialize System
+-- Initialize system
 local function initialize()
-    log("Starting Advanced Fishing System v2.0...")
+    log("Starting Advanced Fishing System v3.0...", "SUCCESS")
     
     handleCharacter()
     createUI()
@@ -762,14 +741,13 @@ local function initialize()
     setupLootDetection()
     updateStats()
     
-    -- Initial status
     if findRod() then
-        updateStatus("Ready to fish! 🎣", THEME.success, "✅")
+        updateStatus("Ready for smart fishing!", THEME.success, "✅")
     else
         updateStatus("Equip a fishing rod to start", THEME.warning, "⚠️")
     end
     
-    log("System initialized successfully!")
+    log("System initialized successfully!", "SUCCESS")
     return true
 end
 
@@ -780,14 +758,13 @@ player.AncestryChanged:Connect(function()
     end
 end)
 
--- Performance Monitor
+-- Performance monitor
 local function startMonitor()
     task.spawn(function()
         while true do
             task.wait(30)
             
             if autoMode then
-                -- Memory cleanup
                 local memoryUsage = gcinfo()
                 if memoryUsage > 50000 then
                     collectgarbage("collect")
@@ -796,22 +773,36 @@ local function startMonitor()
                 
                 -- Reset stuck states
                 if fishingInProgress and (tick() - lastCastTime) > PRECISION.fishingTimeout then
+                    log("Fishing timeout - resetting stuck state", "WARNING")
                     fishingInProgress = false
-                    waitingForCatch = false
-                    log("Reset stuck fishing state")
+                    waitingForUI = false
+                    uiAppeared = false
+                    
+                    if holdingClick then
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                        holdingClick = false
+                    end
+                end
+                
+                -- Log current state for debugging
+                if fishingInProgress then
+                    local elapsed = tick() - lastCastTime
+                    log(string.format("State: Fishing=%s, WaitingUI=%s, UIAppeared=%s, Elapsed=%.1fs", 
+                        tostring(fishingInProgress), tostring(waitingForUI), tostring(uiAppeared), elapsed))
                 end
             end
         end
     end)
 end
 
--- Main Execution
+-- Main execution
 local function main()
     local success, error = pcall(initialize)
     
     if success then
-        print("🎣 FISHING HUB PRO v2.0 - Loaded Successfully!")
-        print("✨ Enhanced with Purple Theme & Perfect Auto-Loop!")
+        print("🎣 FISHING HUB PRO+ v3.0 - Loaded Successfully!")
+        print("✨ Enhanced with Smart Detection & Perfect Loop!")
+        print("📊 Based on Real Data Analysis!")
         startMonitor()
     else
         warn("❌ Failed to initialize: " .. tostring(error))

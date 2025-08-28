@@ -148,6 +148,8 @@ local function createStatCard(parent, config)
     icon.TextColor3 = config.color or THEME.text_secondary
     icon.TextSize = 16
     icon.Font = Enum.Font.Gotham
+    icon.TextXAlignment = Enum.TextXAlignment.Center
+    icon.TextYAlignment = Enum.TextYAlignment.Center
     icon.Parent = card
     
     local counter = Instance.new("TextLabel")
@@ -159,6 +161,8 @@ local function createStatCard(parent, config)
     counter.TextColor3 = THEME.text_primary
     counter.TextSize = 14
     counter.Font = Enum.Font.GothamBold
+    counter.TextXAlignment = Enum.TextXAlignment.Center
+    counter.TextYAlignment = Enum.TextYAlignment.Center
     counter.Parent = card
     
     return card
@@ -290,29 +294,32 @@ local function createUI()
     
     local statsLayout = Instance.new("UIListLayout")
     statsLayout.FillDirection = Enum.FillDirection.Horizontal
-    statsLayout.HorizontalAlignment = Enum.HorizontalAlignment.SpaceEvenly
+    statsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     statsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
     statsLayout.Padding = UDim.new(0, 8)
     statsLayout.Parent = statsFrame
     
-    -- Stat Cards
-    createStatCard(statsFrame, {
+    -- Stat Cards with proper spacing
+    local fishCard = createStatCard(statsFrame, {
         name = "FishCard",
         icon = "🐟",
         color = THEME.success
     })
+    fishCard.Position = UDim2.new(0, 0, 0, 0)
     
-    createStatCard(statsFrame, {
-        name = "TrashCard",
+    local trashCard = createStatCard(statsFrame, {
+        name = "TrashCard", 
         icon = "🗑️",
         color = THEME.warning
     })
+    trashCard.Position = UDim2.new(0, 93, 0, 0)
     
-    createStatCard(statsFrame, {
+    local diamondCard = createStatCard(statsFrame, {
         name = "DiamondCard",
-        icon = "💎",
+        icon = "💎", 
         color = THEME.primary
     })
+    diamondCard.Position = UDim2.new(0, 186, 0, 0)
     
     -- Minimize Function
     local elementsToHide = {toggleBtn, statusContainer, statsFrame}

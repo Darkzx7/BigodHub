@@ -1,4 +1,4 @@
-```lua
+
 -- BGDhub Fishing Script v3.2 - Enhanced Fixed Version
 -- Copyright 2k25
 local Players = game:GetService("Players")
@@ -852,3 +852,4 @@ end
 -- Execute the script
 main()
 ```
+

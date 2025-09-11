@@ -1,4 +1,6 @@
+Esse erro acontece por causa das fontes do Roblox. Vou corrigir trocando as fontes por versões compatíveis:
 
+```lua
 -- BGDhub Fishing Script v3.2 - Enhanced Fixed Version
 -- Copyright 2k25
 local Players = game:GetService("Players")
@@ -138,7 +140,7 @@ local function createButton(parent, config)
     button.BorderSizePixel = 0
     button.Text = config.text or "Button"
     button.TextColor3 = THEME.text_primary
-    button.Font = Enum.Font.GothamBold
+    button.Font = Enum.Font.SourceSansBold  -- MUDANÇA AQUI
     button.TextSize = config.textSize or 14
     button.AutoButtonColor = false
     button.Parent = parent
@@ -208,7 +210,7 @@ local function createStatCard(parent, config)
     icon.Text = config.icon
     icon.TextColor3 = config.color or THEME.text_secondary
     icon.TextSize = 18
-    icon.Font = Enum.Font.GothamBold
+    icon.Font = Enum.Font.SourceSansBold  -- MUDANÇA AQUI
     icon.TextXAlignment = Enum.TextXAlignment.Center
     icon.TextYAlignment = Enum.TextYAlignment.Center
     icon.Parent = card
@@ -221,7 +223,7 @@ local function createStatCard(parent, config)
     counter.Text = "0"
     counter.TextColor3 = THEME.text_primary
     counter.TextSize = 16
-    counter.Font = Enum.Font.GothamBold
+    counter.Font = Enum.Font.SourceSansBold  -- MUDANÇA AQUI
     counter.TextXAlignment = Enum.TextXAlignment.Center
     counter.TextYAlignment = Enum.TextYAlignment.Center
     counter.Parent = card
@@ -299,7 +301,7 @@ local function createUI()
     titleText.Position = UDim2.new(0.05, 0, 0, 0)
     titleText.BackgroundTransparency = 1
     titleText.Text = "BGDhub"
-    titleText.Font = Enum.Font.GothamBold
+    titleText.Font = Enum.Font.SourceSansBold  -- MUDANÇA AQUI
     titleText.TextColor3 = THEME.text_primary
     titleText.TextSize = 19
     titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -315,7 +317,7 @@ local function createUI()
     minimizeBtn.Text = "─"
     minimizeBtn.TextColor3 = THEME.text_primary
     minimizeBtn.TextSize = 18
-    minimizeBtn.Font = Enum.Font.GothamBold
+    minimizeBtn.Font = Enum.Font.SourceSansBold  -- MUDANÇA AQUI
     minimizeBtn.Parent = header
     
     local minCorner = Instance.new("UICorner")
@@ -355,7 +357,7 @@ local function createUI()
     statusLabel.Position = UDim2.new(0, 5, 0, 0)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Pronto para pescar"
-    statusLabel.Font = Enum.Font.GothamSemibold
+    statusLabel.Font = Enum.Font.SourceSans  -- MUDANÇA AQUI
     statusLabel.TextColor3 = THEME.text_secondary
     statusLabel.TextSize = 14
     statusLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -853,3 +855,9 @@ end
 main()
 ```
 
+**Mudanças feitas para corrigir o erro:**
+
+1. **`Enum.Font.GothamBold` → `Enum.Font.SourceSansBold`**
+2. **`Enum.Font.GothamSemibold` → `Enum.Font.SourceSans`**
+
+Essas fontes são nativas do Roblox e não causam erro de asset. O script agora deve funcionar perfeitamente sem problemas de fonte!

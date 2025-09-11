@@ -1,12 +1,11 @@
--- BGDhub Fishing Script v3.1 - Fixed Version
+```lua
+-- BGDhub Fishing Script v3.2 - Enhanced Fixed Version
 -- Copyright 2k25
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local backpack = player:WaitForChild("Backpack")
@@ -38,16 +37,16 @@ local toggleBtn = nil
 local statusLabel = nil
 local statsFrame = nil
 
--- Configuration
+-- Enhanced Configuration for Better Performance
 local PRECISION = {
-    checkInterval = 0.016,
-    safeMargin = 0.15,
-    responseDelay = 0.08,
-    castCooldown = 3,
-    uiTimeout = 50,
-    fishingTimeout = 80,
-    catchDelay = 3,
-    clickCooldown = 0.5
+    checkInterval = 0.008,
+    safeMargin = 0.05,
+    responseDelay = 0.016,
+    castCooldown = 2.5,
+    uiTimeout = 30,
+    fishingTimeout = 60,
+    catchDelay = 2,
+    clickCooldown = 0.016
 }
 
 -- Theme
@@ -109,6 +108,24 @@ local function updateStatus(text, color, icon)
         end
     end
     log(text, icon == "❌" and "ERROR" or (icon == "⚠️" and "WARNING" or "INFO"))
+end
+
+-- Reset Function
+local function resetFishingState(reason)
+    log("Resetting fishing state: " .. reason)
+    
+    if holdingClick then
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        holdingClick = false
+    end
+    
+    fishingInProgress = false
+    waitingForUI = false
+    uiAppeared = false
+    lastClickTime = 0
+    
+    -- Aguardar um pouco antes do próximo lance
+    task.wait(PRECISION.catchDelay * 1.5)
 end
 
 -- Create Enhanced Button
@@ -468,7 +485,7 @@ local function getFishingUI()
     }
 end
 
--- Indicator Control Function
+-- Enhanced Indicator Control Function
 local function controlIndicator()
     if not autoMode or not fishingInProgress then return end
     
@@ -490,26 +507,46 @@ local function controlIndicator()
     local safeHeight = safeArea.Size.Y.Scale
     local indicatorY = indicator.Position.Y.Scale
     
-    -- Enhanced safe zone calculation
-    local margin = safeHeight * PRECISION.safeMargin
+    -- Enhanced safe zone calculation with reduced margin
+    local margin = safeHeight * 0.05  -- Reduzido de 0.15 para 0.05
     local safeTop = safeY + margin
     local safeBottom = safeY + safeHeight - margin
+    local centerY = safeY + (safeHeight / 2)
     
-    local isInSafeZone = indicatorY >= safeTop and indicatorY <= safeBottom
     local currentTime = tick()
+    local timeSinceLastClick = currentTime - lastClickTime
     
-    -- Smart clicking logic
-    if not isInSafeZone and not holdingClick and (currentTime - lastClickTime) > PRECISION.clickCooldown then
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        holdingClick = true
-        lastClickTime = currentTime
-        log(string.format("Started holding click - Indicator: %.3f, Safe: %.3f-%.3f", indicatorY, safeTop, safeBottom))
+    -- Zona de conforto mais ampla
+    local isInComfortZone = indicatorY >= (safeY + safeHeight * 0.2) and indicatorY <= (safeY + safeHeight * 0.8)
+    
+    -- Sistema de clique contínuo mais eficiente
+    if not isInComfortZone then
+        if not holdingClick and timeSinceLastClick > 0.016 then  -- Reduzido para 16ms
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            holdingClick = true
+            lastClickTime = currentTime
+            
+        -- Clique pulsante para manter na zona
+        elseif holdingClick and timeSinceLastClick > 0.033 then  -- 33ms para clique pulsante
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            task.wait(0.016)  -- Pausa mínima
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            lastClickTime = currentTime
+        end
         
-    elseif isInSafeZone and holdingClick and (currentTime - lastClickTime) > PRECISION.responseDelay then
+    elseif isInComfortZone and holdingClick and timeSinceLastClick > 0.05 then
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         holdingClick = false
         lastClickTime = currentTime
-        log("Released click - indicator in safe zone")
+    end
+    
+    -- Forçar indicador para centro se muito fora
+    if indicatorY < safeY - 0.1 or indicatorY > (safeY + safeHeight + 0.1) then
+        if not holdingClick then
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            holdingClick = true
+            lastClickTime = currentTime
+        end
     end
 end
 
@@ -547,9 +584,8 @@ local function updateStats()
     log(string.format("Stats updated - Fish: %d, Trash: %d, Diamonds: %d", fishCount, trashCount, diamondCount))
 end
 
--- Enhanced loot detection with multiple methods
+-- Enhanced loot detection with improved reset
 local function setupLootDetection()
-    -- Method 1: Leaderstats monitoring
     task.spawn(function()
         local leaderstats = player:WaitForChild("leaderstats", 10)
         if leaderstats then
@@ -574,20 +610,11 @@ local function setupLootDetection()
                         
                         updateStats()
                         
-                        -- Reset fishing state after successful catch
+                        -- Enhanced reset after capture
                         if fishingInProgress then
-                            task.wait(PRECISION.catchDelay)
-                            fishingInProgress = false
-                            waitingForUI = false
-                            uiAppeared = false
-                            
-                            if holdingClick then
-                                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                                holdingClick = false
-                            end
-                            
-                            updateStatus("Capturou algo! Preparando próximo lance...", THEME.success, "✅")
+                            updateStatus("Capturou algo! Resetando sistema...", THEME.success, "✅")
                             log(string.format("Catch completed! %s increased to %s", statName, newValue), "SUCCESS")
+                            resetFishingState("Successful catch")
                         end
                     end)
                     
@@ -599,7 +626,7 @@ local function setupLootDetection()
         end
     end)
     
-    -- Method 2: UI disappearance monitoring
+    -- Enhanced UI disappearance monitoring
     task.spawn(function()
         while true do
             if fishingInProgress and uiAppeared then
@@ -607,25 +634,10 @@ local function setupLootDetection()
                 if not fishingUI then
                     -- UI disappeared - likely caught something
                     log("Fishing UI disappeared - processing catch")
-                    task.wait(PRECISION.catchDelay)
-                    fishingInProgress = false
-                    waitingForUI = false
-                    uiAppeared = false
-                    
-                    if holdingClick then
-                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                        holdingClick = false
-                    end
-                end
-                
-                -- Log current state for debugging
-                if fishingInProgress then
-                    local elapsed = tick() - lastCastTime
-                    log(string.format("State: Fishing=%s, WaitingUI=%s, UIAppeared=%s, Elapsed=%.1fs", 
-                        tostring(fishingInProgress), tostring(waitingForUI), tostring(uiAppeared), elapsed))
+                    resetFishingState("UI disappeared")
                 end
             end
-            task.wait(1)
+            task.wait(0.5)
         end
     end)
 end
@@ -654,9 +666,7 @@ local function startFishing()
                 local elapsed = tick() - lastCastTime
                 if elapsed > PRECISION.uiTimeout then
                     log("UI timeout reached - resetting", "WARNING")
-                    fishingInProgress = false
-                    waitingForUI = false
-                    updateStatus("Timeout da UI - tentando novamente...", THEME.warning, "⚠️")
+                    resetFishingState("UI timeout")
                 else
                     updateStatus(string.format("Aguardando UI... (%.1fs)", elapsed), THEME.accent, "⏳")
                 end
@@ -725,14 +735,7 @@ local function handleCharacter()
         backpack = player:WaitForChild("Backpack")
         log("Character respawned - resetting states")
         
-        fishingInProgress = false
-        waitingForUI = false
-        uiAppeared = false
-        
-        if holdingClick then
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-            holdingClick = false
-        end
+        resetFishingState("Character respawned")
         
         if autoMode then
             task.wait(3)
@@ -741,36 +744,41 @@ local function handleCharacter()
     end)
 end
 
--- Initialize system
-local function initialize()
-    log("Starting Advanced Fishing System v3.1...", "SUCCESS")
-    
-    handleCharacter()
-    createUI()
-    
-    if toggleBtn then
-        toggleBtn.MouseButton1Click:Connect(toggleFishing)
-    end
-    
-    setupLootDetection()
-    updateStats()
-    
-    if findRod() then
-        updateStatus("Pronto para pesca inteligente!", THEME.success, "✅")
-    else
-        updateStatus("Equipe uma vara para começar", THEME.warning, "⚠️")
-    end
-    
-    log("System initialized successfully!", "SUCCESS")
-    return true
-end
-
--- Performance monitor
-local function startMonitor()
+-- Advanced Monitor with Auto-Correction
+local function startAdvancedMonitor()
     task.spawn(function()
         while true do
-            task.wait(30)
+            task.wait(1)
             
+            if autoMode and fishingInProgress and uiAppeared then
+                local fishingUI = getFishingUI()
+                
+                if fishingUI then
+                    local indicator = fishingUI.indicator
+                    local safeArea = fishingUI.safeArea
+                    
+                    if indicator and safeArea then
+                        local indicatorY = indicator.Position.Y.Scale
+                        local safeY = safeArea.Position.Y.Scale
+                        local safeHeight = safeArea.Size.Y.Scale
+                        
+                        -- Verificar se está muito fora da zona por muito tempo
+                        local isVeryOutside = indicatorY < (safeY - 0.2) or indicatorY > (safeY + safeHeight + 0.2)
+                        
+                        if isVeryOutside then
+                            log("Indicator very far from safe zone - forcing correction", "WARNING")
+                            
+                            if not holdingClick then
+                                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                                holdingClick = true
+                                lastClickTime = tick()
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Memory cleanup
             if autoMode then
                 local memoryUsage = gcinfo()
                 if memoryUsage > 50000 then
@@ -781,18 +789,36 @@ local function startMonitor()
                 -- Reset stuck states
                 if fishingInProgress and (tick() - lastCastTime) > PRECISION.fishingTimeout then
                     log("Fishing timeout - resetting stuck state", "WARNING")
-                    fishingInProgress = false
-                    waitingForUI = false
-                    uiAppeared = false
-                    
-                    if holdingClick then
-                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                        holdingClick = false
-                    end
+                    resetFishingState("Fishing timeout")
                 end
             end
         end
     end)
+end
+
+-- Initialize system
+local function initialize()
+    log("Starting Advanced Fishing System v3.2...", "SUCCESS")
+    
+    handleCharacter()
+    createUI()
+    
+    if toggleBtn then
+        toggleBtn.MouseButton1Click:Connect(toggleFishing)
+    end
+    
+    setupLootDetection()
+    updateStats()
+    startAdvancedMonitor()
+    
+    if findRod() then
+        updateStatus("Pronto para pesca inteligente!", THEME.success, "✅")
+    else
+        updateStatus("Equipe uma vara para começar", THEME.warning, "⚠️")
+    end
+    
+    log("System initialized successfully!", "SUCCESS")
+    return true
 end
 
 -- Cleanup
@@ -807,10 +833,9 @@ local function main()
     local success, error = pcall(initialize)
     
     if success then
-        print("🎣 BGDhub Fishing v3.1 - Carregado com Sucesso!")
-        print("✨ Sistema Inteligente com Detecção Perfeita!")
-        print("📊 Baseado em Análise de Dados Reais!")
-        startMonitor()
+        print("🎣 BGDhub Fishing v3.2 - Carregado com Sucesso!")
+        print("✨ Sistema Inteligente com Controle Aprimorado!")
+        print("🎯 Safe Zone Otimizada para Máxima Precisão!")
     else
         warn("❌ Falha ao inicializar: " .. tostring(error))
         
@@ -820,10 +845,10 @@ local function main()
             warn("❌ Falha na segunda tentativa: " .. tostring(retryError))
         else
             print("🔄 Inicializado com sucesso na segunda tentativa!")
-            startMonitor()
         end
     end
 end
 
 -- Execute the script
 main()
+```

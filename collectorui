@@ -1,0 +1,271 @@
+
+local screengui = Instance.new("ScreenGui")
+screengui.Name = "DekaCollectorUI"
+screengui.Parent = game.CoreGui
+
+local frame = Instance.new("Frame")
+frame.Parent = screengui
+frame.Size = UDim2.new(0, 160, 0, 100)
+frame.Position = UDim2.new(0, 10, 0, 10)
+frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+frame.BorderSizePixel = 1
+frame.BorderColor3 = Color3.new(0.3, 0.3, 0.3)
+frame.Active = true
+frame.Draggable = true
+
+local title = Instance.new("TextLabel")
+title.Parent = frame
+title.Size = UDim2.new(1, 0, 0, 20)
+title.Position = UDim2.new(0, 0, 0, 5)
+title.Text = "deka collector"
+title.TextColor3 = Color3.new(0, 1, 0)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.Code
+title.TextSize = 14
+
+local startbtn = Instance.new("TextButton")
+startbtn.Parent = frame
+startbtn.Size = UDim2.new(0.8, 0, 0, 25)
+startbtn.Position = UDim2.new(0.1, 0, 0, 30)
+startbtn.Text = "iniciar farm"
+startbtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+startbtn.BorderSizePixel = 1
+startbtn.BorderColor3 = Color3.new(0.4, 0.4, 0.4)
+startbtn.TextColor3 = Color3.new(1, 1, 1)
+startbtn.Font = Enum.Font.Code
+startbtn.TextSize = 12
+
+local status = Instance.new("TextLabel")
+status.Parent = frame
+status.Size = UDim2.new(0.8, 0, 0, 20)
+status.Position = UDim2.new(0.1, 0, 0, 60)
+status.Text = "status: pronto"
+status.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+status.BackgroundTransparency = 1
+status.Font = Enum.Font.Code
+status.TextSize = 11
+status.TextXAlignment = Enum.TextXAlignment.Left
+
+local speed = Instance.new("TextLabel")
+speed.Parent = frame
+speed.Size = UDim2.new(0.8, 0, 0, 20)
+speed.Position = UDim2.new(0.1, 0, 0, 80)
+speed.Text = "velocidade: alta"
+speed.TextColor3 = Color3.new(0.6, 0.6, 1)
+speed.BackgroundTransparency = 1
+speed.Font = Enum.Font.Code
+speed.TextSize = 11
+speed.TextXAlignment = Enum.TextXAlignment.Left
+
+local farming = false
+local player = game.Players.LocalPlayer
+local connections = {}
+local character = nil
+
+
+print("merry christimas, leite na sua face do deka 🍼🍼")
+
+local function updatestatus(msg)
+    status.Text = "status: " .. msg
+end
+
+local giftcolors = {
+    "redgift", "greengift", "bluegift", "yellowgift",
+    "pinkgift", "purplegift", "whitegift", "blackgift", "orangegift"
+}
+
+
+local function setnoclip(enabled)
+    if character then
+        local hum = character:FindFirstChild("Humanoid")
+        if hum then
+            hum:ChangeState(11) -- seated para paralisar
+            hum.PlatformStand = true
+        end
+        
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not enabled
+                part.Velocity = Vector3.new()
+                part.RotVelocity = Vector3.new()
+            end
+        end
+    end
+end
+
+local function teleporttogift(giftobj)
+    if not giftobj or not giftobj.Parent then return false end
+    
+    character = player.Character or player.CharacterAdded:Wait()
+    if not character then return false end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    setnoclip(true)
+    
+    local targetPos = giftobj.Position
+    if giftobj:IsA("Part") or giftobj:IsA("MeshPart") then
+        targetPos = targetPos + Vector3.new(0, 2, 0)
+    end
+    
+    hrp.CFrame = CFrame.new(targetPos)
+    hrp.Velocity = Vector3.new()
+    hrp.RotVelocity = Vector3.new()
+    
+    return true
+end
+
+local function setupgiftmonitoring()
+    local monitoredfolders = {}
+    
+    local tempfolder = workspace:FindFirstChild("Temp")
+    if not tempfolder then return monitoredfolders end
+    
+    for _, colorname in pairs(giftcolors) do
+        local giftfolder = tempfolder:FindFirstChild(colorname)
+        if giftfolder and (giftfolder:IsA("Folder") or giftfolder:IsA("Model")) then
+            local rootfolder = giftfolder:FindFirstChild("Root")
+            if rootfolder then
+                monitoredfolders[colorname] = rootfolder
+            end
+        end
+    end
+    
+    if next(monitoredfolders) == nil then
+        for _, giftfolder in pairs(tempfolder:GetChildren()) do
+            if (giftfolder:IsA("Folder") or giftfolder:IsA("Model")) then
+                local rootfolder = giftfolder:FindFirstChild("Root")
+                if rootfolder then
+                    monitoredfolders[giftfolder.Name] = rootfolder
+                end
+            end
+        end
+    end
+    
+    return monitoredfolders
+end
+
+local function fastcollectgifts(rootfolder)
+    if not rootfolder or not rootfolder.Parent then return end
+    
+    character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return end
+    
+    for _, giftobj in pairs(rootfolder:GetChildren()) do
+        if not farming then break end
+        
+        if (giftobj:IsA("Part") or giftobj:IsA("MeshPart")) and giftobj.Parent then
+            setnoclip(true)
+            hrp.CFrame = CFrame.new(giftobj.Position + Vector3.new(0, 2, 0))
+            
+            wait(0.03)
+            break
+        end
+    end
+end
+
+local function setupnewgiftmonitoring(rootfolder)
+    if not rootfolder then return end
+    
+    local conn = rootfolder.ChildAdded:Connect(function(newgift)
+        if farming and (newgift:IsA("Part") or newgift:IsA("MeshPart")) then
+            wait(0.03)
+            teleporttogift(newgift)
+        end
+    end)
+    
+    table.insert(connections, conn)
+end
+
+local function startcontinuousfarm()
+    farming = true
+    startbtn.Text = "parar farm"
+    startbtn.BackgroundColor3 = Color3.new(0.6, 0, 0)
+    updatestatus("ativo")
+    
+    character = player.Character or player.CharacterAdded:Wait()
+    setnoclip(true)
+    
+    for _, conn in pairs(connections) do
+        if conn then conn:Disconnect() end
+    end
+    connections = {}
+    
+    spawn(function()
+        while farming do
+            local monitoredfolders = setupgiftmonitoring()
+            
+            if next(monitoredfolders) == nil then
+                updatestatus("buscando...")
+                wait(1)
+            else
+                updatestatus("farmando")
+                
+                for giftname, rootfolder in pairs(monitoredfolders) do
+                    if not farming then break end
+                    if rootfolder and rootfolder.Parent then
+                        setupnewgiftmonitoring(rootfolder)
+                    end
+                end
+                
+                while farming do
+                    local anyfolderexists = false
+                    
+                    for giftname, rootfolder in pairs(monitoredfolders) do
+                        if not farming then break end
+                        
+                        if rootfolder and rootfolder.Parent then
+                            anyfolderexists = true
+                            fastcollectgifts(rootfolder)
+                        end
+                    end
+                    
+                    if not anyfolderexists then
+                        break
+                    end
+                    
+                    wait(0.03)
+                end
+                
+                wait(0.05)
+            end
+        end
+    end)
+end
+
+local function stopfarm()
+    farming = false
+    startbtn.Text = "iniciar farm"
+    startbtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+    
+    setnoclip(false)
+    
+    for _, conn in pairs(connections) do
+        if conn then conn:Disconnect() end
+    end
+    connections = {}
+    
+    updatestatus("parado")
+end
+
+startbtn.MouseButton1Click:Connect(function()
+    if farming then
+        stopfarm()
+    else
+        spawn(startcontinuousfarm)
+    end
+end)
+
+player.CharacterAdded:Connect(function(char)
+    character = char
+    if not farming then
+        setnoclip(false)
+    end
+end)
+
+if player.Character then
+    character = player.Character
+end

@@ -74,7 +74,7 @@ local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
 local detectionrange = 10
-local targetnames = {} -- vai armazenar os nomes detectados
+local targetnames = {"Part"} -- já configurado para coletar Part
 
 print("orb detector carregado ✨")
 print("aperte F9 para ver o console")
@@ -189,14 +189,9 @@ end
 local function istarget(obj)
     if not obj:IsA("BasePart") then return false end
     
-    -- se ainda não temos nomes específicos, não coleta nada
-    if #targetnames == 0 then return false end
-    
-    local name = obj.Name
-    for _, targetname in pairs(targetnames) do
-        if name == targetname then
-            return true
-        end
+    -- verifica se o pai é LightTemplate
+    if obj.Parent and obj.Parent.Name == "LightTemplate" then
+        return obj.Name == "Part"
     end
     
     return false
@@ -215,12 +210,6 @@ local function findtargets()
 end
 
 local function startcontinuousfarm()
-    if #targetnames == 0 then
-        updatestatus("detecte primeiro!")
-        print("⚠️ Use o botão DETECTAR PRÓXIMO primeiro!")
-        return
-    end
-    
     farming = true
     startbtn.Text = "parar farm"
     startbtn.BackgroundColor3 = Color3.new(0.6, 0, 0)
@@ -234,7 +223,7 @@ local function startcontinuousfarm()
     end
     connections = {}
     
-    print("🚀 Farm iniciado! Procurando: " .. table.concat(targetnames, ", "))
+    print("🚀 Farm iniciado! Coletando: Part (LightTemplate)")
     
     -- monitora novos objetos
     local conn = workspace.DescendantAdded:Connect(function(obj)

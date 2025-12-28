@@ -70,7 +70,8 @@ end
 -- palavras-chave para identificar orbes/luzes
 local orbkeywords = {
     "light", "orb", "luz", "sphere", "ball", "glow", 
-    "particle", "collect", "pickup", "item"
+    "particle", "collect", "pickup", "item", "orbe",
+    "lightorb", "orboflight", "orbedeluz", "orbedaluz"
 }
 
 local function setnoclip(enabled)
@@ -135,12 +136,16 @@ end
 local function findorbfolders()
     local orbfolders = {}
     
+    print("=== BUSCANDO PASTAS ===")
+    
     -- busca em workspace
     for _, obj in pairs(workspace:GetChildren()) do
         if obj:IsA("Folder") or obj:IsA("Model") then
             local name = obj.Name:lower()
+            print("Checando pasta/model: " .. obj.Name)
             for _, keyword in pairs(orbkeywords) do
                 if name:find(keyword) then
+                    print("✓ ENCONTRADO: " .. obj.Name)
                     table.insert(orbfolders, obj)
                     break
                 end
@@ -149,27 +154,33 @@ local function findorbfolders()
     end
     
     -- se não encontrou, busca por pastas comuns
-    local commonfolders = {"Items", "Collectibles", "Drops", "Spawns", "Assets"}
+    local commonfolders = {"Items", "Collectibles", "Drops", "Spawns", "Assets", "Temp", "Game"}
     for _, foldername in pairs(commonfolders) do
         local folder = workspace:FindFirstChild(foldername)
         if folder then
+            print("✓ Pasta comum encontrada: " .. foldername)
             table.insert(orbfolders, folder)
         end
     end
     
+    print("Total de pastas encontradas: " .. #orbfolders)
     return orbfolders
 end
 
 local function findorbs()
     local orbs = {}
     
+    print("=== BUSCANDO ORBES NO WORKSPACE ===")
+    
     -- busca direto no workspace
     for _, obj in pairs(workspace:GetDescendants()) do
         if isorb(obj) then
+            print("✓ ORB ENCONTRADO: " .. obj.Name .. " | Path: " .. obj:GetFullName())
             table.insert(orbs, obj)
         end
     end
     
+    print("Total de orbs encontrados: " .. #orbs)
     return orbs
 end
 

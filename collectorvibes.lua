@@ -61,7 +61,7 @@ local speed = Instance.new("TextLabel")
 speed.Parent = frame
 speed.Size = UDim2.new(0.85, 0, 0, 20)
 speed.Position = UDim2.new(0.075, 0, 0, 110)
-speed.Text = "distância: 50m"
+speed.Text = "distância: 10m"
 speed.TextColor3 = Color3.new(0.6, 0.6, 1)
 speed.BackgroundTransparency = 1
 speed.Font = Enum.Font.Code
@@ -73,7 +73,7 @@ local detecting = false
 local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
-local detectionrange = 50
+local detectionrange = 10
 local targetnames = {} -- vai armazenar os nomes detectados
 
 print("orb detector carregado ✨")
@@ -350,7 +350,7 @@ if player.Character then
 end
 
 print("\n📖 INSTRUÇÕES:")
-print("1. Chegue perto do orbe/luz (menos de 50m)")
+print("1. Chegue BEM perto do orbe/luz (menos de 10m)")
 print("2. Clique em 'DETECTAR PRÓXIMO'")
 print("3. Veja o console (F9) e encontre o nome do orbe")
 print("4. Digite no chat: /addorb NomeExatoDoOrbe")

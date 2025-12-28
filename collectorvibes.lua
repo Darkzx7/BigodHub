@@ -1,10 +1,10 @@
 local screengui = Instance.new("ScreenGui")
-screengui.Name = "OrbCollectorUI"
+screengui.Name = "LightCollectorUI"
 screengui.Parent = game.CoreGui
 
 local frame = Instance.new("Frame")
 frame.Parent = screengui
-frame.Size = UDim2.new(0, 180, 0, 130)
+frame.Size = UDim2.new(0, 160, 0, 100)
 frame.Position = UDim2.new(0, 10, 0, 10)
 frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
 frame.BorderSizePixel = 1
@@ -16,28 +16,16 @@ local title = Instance.new("TextLabel")
 title.Parent = frame
 title.Size = UDim2.new(1, 0, 0, 20)
 title.Position = UDim2.new(0, 0, 0, 5)
-title.Text = "orb detector"
+title.Text = "light collector"
 title.TextColor3 = Color3.new(0, 1, 1)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.Code
 title.TextSize = 14
 
-local detectbtn = Instance.new("TextButton")
-detectbtn.Parent = frame
-detectbtn.Size = UDim2.new(0.85, 0, 0, 25)
-detectbtn.Position = UDim2.new(0.075, 0, 0, 30)
-detectbtn.Text = "detectar próximo"
-detectbtn.BackgroundColor3 = Color3.new(0.2, 0.5, 0.2)
-detectbtn.BorderSizePixel = 1
-detectbtn.BorderColor3 = Color3.new(0.4, 0.4, 0.4)
-detectbtn.TextColor3 = Color3.new(1, 1, 1)
-detectbtn.Font = Enum.Font.Code
-detectbtn.TextSize = 11
-
 local startbtn = Instance.new("TextButton")
 startbtn.Parent = frame
-startbtn.Size = UDim2.new(0.85, 0, 0, 25)
-startbtn.Position = UDim2.new(0.075, 0, 0, 60)
+startbtn.Size = UDim2.new(0.8, 0, 0, 25)
+startbtn.Position = UDim2.new(0.1, 0, 0, 30)
 startbtn.Text = "iniciar farm"
 startbtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
 startbtn.BorderSizePixel = 1
@@ -48,8 +36,8 @@ startbtn.TextSize = 12
 
 local status = Instance.new("TextLabel")
 status.Parent = frame
-status.Size = UDim2.new(0.85, 0, 0, 20)
-status.Position = UDim2.new(0.075, 0, 0, 90)
+status.Size = UDim2.new(0.8, 0, 0, 20)
+status.Position = UDim2.new(0.1, 0, 0, 60)
 status.Text = "status: pronto"
 status.TextColor3 = Color3.new(0.8, 0.8, 0.8)
 status.BackgroundTransparency = 1
@@ -59,9 +47,9 @@ status.TextXAlignment = Enum.TextXAlignment.Left
 
 local speed = Instance.new("TextLabel")
 speed.Parent = frame
-speed.Size = UDim2.new(0.85, 0, 0, 20)
-speed.Position = UDim2.new(0.075, 0, 0, 110)
-speed.Text = "distância: 10m"
+speed.Size = UDim2.new(0.8, 0, 0, 20)
+speed.Position = UDim2.new(0.1, 0, 0, 80)
+speed.Text = "velocidade: alta"
 speed.TextColor3 = Color3.new(0.6, 0.6, 1)
 speed.BackgroundTransparency = 1
 speed.Font = Enum.Font.Code
@@ -69,84 +57,14 @@ speed.TextSize = 11
 speed.TextXAlignment = Enum.TextXAlignment.Left
 
 local farming = false
-local detecting = false
 local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
-local detectionrange = 10
-local targetnames = {"Part"} -- já configurado para coletar Part
 
-print("orb detector carregado ✨")
-print("aperte F9 para ver o console")
+print("light collector carregado ✨")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg
-end
-
-local function detectnearbyobjects()
-    character = player.Character or player.CharacterAdded:Wait()
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if not hrp then
-        print("❌ HumanoidRootPart não encontrado")
-        return
-    end
-    
-    print("\n" .. string.rep("=", 60))
-    print("🔍 DETECTANDO OBJETOS PRÓXIMOS (" .. detectionrange .. "m)")
-    print(string.rep("=", 60))
-    
-    local mypos = hrp.Position
-    local found = {}
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj ~= hrp then
-            local distance = (obj.Position - mypos).Magnitude
-            
-            if distance <= detectionrange then
-                local info = {
-                    name = obj.Name,
-                    classname = obj.ClassName,
-                    distance = math.floor(distance * 10) / 10,
-                    position = obj.Position,
-                    path = obj:GetFullName(),
-                    parent = obj.Parent and obj.Parent.Name or "nil",
-                    haslight = obj:FindFirstChildOfClass("PointLight") ~= nil or obj:FindFirstChildOfClass("SpotLight") ~= nil
-                }
-                table.insert(found, info)
-            end
-        end
-    end
-    
-    -- ordena por distância
-    table.sort(found, function(a, b) return a.distance < b.distance end)
-    
-    if #found == 0 then
-        print("❌ Nenhum objeto encontrado próximo")
-    else
-        print("✓ Encontrados " .. #found .. " objetos:")
-        print("")
-        
-        for i, info in ipairs(found) do
-            if i <= 20 then -- mostra os 20 mais próximos
-                print(string.format("[%d] Nome: %s", i, info.name))
-                print(string.format("    Tipo: %s", info.classname))
-                print(string.format("    Distância: %.1fm", info.distance))
-                print(string.format("    Pai: %s", info.parent))
-                print(string.format("    Tem luz: %s", info.haslight and "SIM ✨" or "não"))
-                print(string.format("    Caminho: %s", info.path))
-                print("")
-            end
-        end
-        
-        if #found > 20 then
-            print("... e mais " .. (#found - 20) .. " objetos")
-        end
-    end
-    
-    print(string.rep("=", 60))
-    print("💡 Achou o orbe? Copie o NOME EXATO dele!")
-    print(string.rep("=", 60) .. "\n")
 end
 
 local function setnoclip(enabled)
@@ -167,8 +85,8 @@ local function setnoclip(enabled)
     end
 end
 
-local function teleporttoobj(obj)
-    if not obj or not obj.Parent then return false end
+local function teleporttolight(lightobj)
+    if not lightobj or not lightobj.Parent then return false end
     
     character = player.Character or player.CharacterAdded:Wait()
     if not character then return false end
@@ -178,7 +96,11 @@ local function teleporttoobj(obj)
     
     setnoclip(true)
     
-    local targetPos = obj.Position + Vector3.new(0, 2, 0)
+    local targetPos = lightobj.Position
+    if lightobj:IsA("Part") or lightobj:IsA("MeshPart") then
+        targetPos = targetPos + Vector3.new(0, 2, 0)
+    end
+    
     hrp.CFrame = CFrame.new(targetPos)
     hrp.Velocity = Vector3.new()
     hrp.RotVelocity = Vector3.new()
@@ -186,27 +108,53 @@ local function teleporttoobj(obj)
     return true
 end
 
-local function istarget(obj)
-    if not obj:IsA("BasePart") then return false end
+local function setuplightmonitoring()
+    local monitoredfolders = {}
     
-    -- verifica se o pai é LightTemplate
-    if obj.Parent and obj.Parent.Name == "LightTemplate" then
-        return obj.Name == "Part"
-    end
+    local lightsfolder = workspace:FindFirstChild("LightsLocal")
+    if not lightsfolder then return monitoredfolders end
     
-    return false
-end
-
-local function findtargets()
-    local targets = {}
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if istarget(obj) then
-            table.insert(targets, obj)
+    for _, template in pairs(lightsfolder:GetChildren()) do
+        if template.Name == "LightTemplate" and (template:IsA("Folder") or template:IsA("Model")) then
+            monitoredfolders["LightTemplate"] = template
         end
     end
     
-    return targets
+    return monitoredfolders
+end
+
+local function fastcollectlights(templatefolder)
+    if not templatefolder or not templatefolder.Parent then return end
+    
+    character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return end
+    
+    for _, lightobj in pairs(templatefolder:GetChildren()) do
+        if not farming then break end
+        
+        if lightobj.Name == "Part" and (lightobj:IsA("Part") or lightobj:IsA("MeshPart")) and lightobj.Parent then
+            setnoclip(true)
+            hrp.CFrame = CFrame.new(lightobj.Position + Vector3.new(0, 2, 0))
+            
+            wait(0.03)
+            break
+        end
+    end
+end
+
+local function setupnewlightmonitoring(templatefolder)
+    if not templatefolder then return end
+    
+    local conn = templatefolder.ChildAdded:Connect(function(newlight)
+        if farming and newlight.Name == "Part" and (newlight:IsA("Part") or newlight:IsA("MeshPart")) then
+            wait(0.03)
+            teleporttolight(newlight)
+        end
+    end)
+    
+    table.insert(connections, conn)
 end
 
 local function startcontinuousfarm()
@@ -223,36 +171,44 @@ local function startcontinuousfarm()
     end
     connections = {}
     
-    print("🚀 Farm iniciado! Coletando: Part (LightTemplate)")
-    
-    -- monitora novos objetos
-    local conn = workspace.DescendantAdded:Connect(function(obj)
-        if farming and istarget(obj) then
-            wait(0.05)
-            teleporttoobj(obj)
-        end
-    end)
-    table.insert(connections, conn)
-    
     spawn(function()
         while farming do
-            local targets = findtargets()
+            local monitoredfolders = setuplightmonitoring()
             
-            if #targets == 0 then
+            if next(monitoredfolders) == nil then
                 updatestatus("buscando...")
+                wait(1)
             else
-                updatestatus("coletando")
+                updatestatus("farmando")
                 
-                for _, target in pairs(targets) do
+                for foldername, templatefolder in pairs(monitoredfolders) do
                     if not farming then break end
-                    if target and target.Parent then
-                        teleporttoobj(target)
-                        wait(0.05)
+                    if templatefolder and templatefolder.Parent then
+                        setupnewlightmonitoring(templatefolder)
                     end
                 end
+                
+                while farming do
+                    local anyfolderexists = false
+                    
+                    for foldername, templatefolder in pairs(monitoredfolders) do
+                        if not farming then break end
+                        
+                        if templatefolder and templatefolder.Parent then
+                            anyfolderexists = true
+                            fastcollectlights(templatefolder)
+                        end
+                    end
+                    
+                    if not anyfolderexists then
+                        break
+                    end
+                    
+                    wait(0.03)
+                end
+                
+                wait(0.05)
             end
-            
-            wait(0.1)
         end
     end)
 end
@@ -270,28 +226,7 @@ local function stopfarm()
     connections = {}
     
     updatestatus("parado")
-    print("⏹️ Farm parado")
 end
-
-detectbtn.MouseButton1Click:Connect(function()
-    if not detecting then
-        detecting = true
-        detectbtn.Text = "detectando..."
-        detectbtn.BackgroundColor3 = Color3.new(0.5, 0.5, 0)
-        
-        spawn(function()
-            detectnearbyobjects()
-            
-            wait(1)
-            detecting = false
-            detectbtn.Text = "detectar próximo"
-            detectbtn.BackgroundColor3 = Color3.new(0.2, 0.5, 0.2)
-            
-            print("\n💬 Digite no chat para adicionar nome:")
-            print('exemplo: /addorb NomeDoOrbe')
-        end)
-    end
-end)
 
 startbtn.MouseButton1Click:Connect(function()
     if farming then
@@ -308,43 +243,6 @@ player.CharacterAdded:Connect(function(char)
     end
 end)
 
--- comando para adicionar nome do orbe
-player.Chatted:Connect(function(msg)
-    if msg:sub(1, 8):lower() == "/addorb " then
-        local orbname = msg:sub(9)
-        if orbname ~= "" then
-            table.insert(targetnames, orbname)
-            print("✓ Adicionado: " .. orbname)
-            print("Alvos atuais: " .. table.concat(targetnames, ", "))
-            updatestatus(#targetnames .. " alvos")
-        end
-    elseif msg:lower() == "/clearorbs" then
-        targetnames = {}
-        print("🗑️ Lista de alvos limpa")
-        updatestatus("pronto")
-    elseif msg:lower() == "/listorbs" then
-        if #targetnames > 0 then
-            print("📋 Alvos configurados:")
-            for i, name in ipairs(targetnames) do
-                print(string.format("  [%d] %s", i, name))
-            end
-        else
-            print("❌ Nenhum alvo configurado")
-        end
-    end
-end)
-
 if player.Character then
     character = player.Character
 end
-
-print("\n📖 INSTRUÇÕES:")
-print("1. Chegue BEM perto do orbe/luz (menos de 10m)")
-print("2. Clique em 'DETECTAR PRÓXIMO'")
-print("3. Veja o console (F9) e encontre o nome do orbe")
-print("4. Digite no chat: /addorb NomeExatoDoOrbe")
-print("5. Clique em 'INICIAR FARM'")
-print("\nComandos extras:")
-print("  /listorbs - ver alvos configurados")
-print("  /clearorbs - limpar lista de alvos")
-print(string.rep("=", 60))

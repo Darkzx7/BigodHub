@@ -194,7 +194,7 @@ local function fastcollectorbs(orbsfolder)
     end
 end
 
-local function setupneworb monitoring(folder)
+local function setupneworbmonitoring(folder)
     if not folder then return end
     
     local conn = folder.DescendantAdded:Connect(function(neworb)

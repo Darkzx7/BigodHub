@@ -145,7 +145,7 @@ local function fastcollectlights(templatefolder)
             hrp.Velocity = Vector3.new()
             hrp.RotVelocity = Vector3.new()
             
-            wait(0.09)
+            wait(0.15)
             break
         end
     end
@@ -156,7 +156,7 @@ local function setupnewlightmonitoring(templatefolder)
     
     local conn = templatefolder.ChildAdded:Connect(function(newlight)
         if farming and newlight.Name:lower() == "part" and (newlight:IsA("Part") or newlight:IsA("MeshPart")) then
-            wait(0.09)
+            wait(0.15)
             teleporttolight(newlight)
         end
     end)
@@ -178,13 +178,13 @@ local function startcontinuousfarm()
     end
     connections = {}
     
+    -- busca imediata no mapa todo logo que ativa
     spawn(function()
         while farming do
             local monitoredfolders = setuplightmonitoring()
             
             if #monitoredfolders == 0 then
                 updatestatus("buscando...")
-                wait(1)
             else
                 updatestatus("farmando")
                 
@@ -213,9 +213,9 @@ local function startcontinuousfarm()
                     
                     wait(0.15)
                 end
-                
-                wait(0.15)
             end
+            
+            wait(0.5)
         end
     end)
 end

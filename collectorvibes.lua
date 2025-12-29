@@ -60,8 +60,9 @@ local farming = false
 local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
+local savedPosition = nil
 
-print("deka collector")
+print("deka collector carregado ✨")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg
@@ -73,6 +74,13 @@ local function setnoclip(enabled)
         if hum then
             if enabled then
                 hum:ChangeState(11)
+            else
+                -- Reseta o estado do humanoid para permitir pular novamente
+                hum:ChangeState(8)
+                wait(0.1)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
             end
         end
         
@@ -249,8 +257,7 @@ local function stopfarm()
     startbtn.Text = "iniciar farm"
     startbtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
     
-    -- Salva a posição antes de resetar
-    local savedPosition = nil
+    -- Salva a posição atual antes de resetar
     if character then
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -265,7 +272,7 @@ local function stopfarm()
     end
     connections = {}
     
-    updatestatus("parado")
+    updatestatus("resetando...")
     
     -- Reseta o personagem
     if character then
@@ -273,18 +280,6 @@ local function stopfarm()
         if hum then
             hum.Health = 0
         end
-    end
-    
-    -- Espera o personagem spawnar e volta pra posição salva
-    if savedPosition then
-        spawn(function()
-            character = player.Character or player.CharacterAdded:Wait()
-            wait(0.5)
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.CFrame = savedPosition
-            end
-        end)
     end
 end
 
@@ -298,7 +293,19 @@ end)
 
 player.CharacterAdded:Connect(function(char)
     character = char
-    if not farming then
+    
+    -- Se tinha uma posição salva, teleporta de volta
+    if savedPosition then
+        spawn(function()
+            wait(0.3)
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = savedPosition
+                savedPosition = nil
+                updatestatus("parado")
+            end
+        end)
+    elseif not farming then
         setnoclip(false)
     end
 end)

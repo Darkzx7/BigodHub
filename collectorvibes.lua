@@ -74,12 +74,11 @@ local function setnoclip(enabled)
             if enabled then
                 hum:ChangeState(11)
             else
-                -- Reseta o estado do humanoid para permitir pular novamente
-                hum:ChangeState(8)
-                wait(0.1)
+                -- Apenas garante que os estados estão habilitados sem resetar
                 hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
                 hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
                 hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Landing, true)
             end
         end
         

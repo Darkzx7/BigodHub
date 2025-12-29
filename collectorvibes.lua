@@ -61,7 +61,7 @@ local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
 
-print("deka collector")
+print("deka collector carregado ✨")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg
@@ -78,7 +78,6 @@ local function setnoclip(enabled)
                 hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
                 hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
                 hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-                hum:SetStateEnabled(Enum.HumanoidStateType.Landing, true)
             end
         end
         
@@ -255,6 +254,8 @@ local function stopfarm()
     startbtn.Text = "iniciar farm"
     startbtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
     
+    wait(0.1)
+    
     setnoclip(false)
     
     for _, conn in pairs(connections) do
@@ -263,6 +264,14 @@ local function stopfarm()
     connections = {}
     
     updatestatus("parado")
+    
+    -- Força o personagem a voltar ao normal
+    if character then
+        local hum = character:FindFirstChild("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+    end
 end
 
 startbtn.MouseButton1Click:Connect(function()

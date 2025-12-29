@@ -145,7 +145,7 @@ local function fastcollectlights(templatefolder)
             hrp.Velocity = Vector3.new()
             hrp.RotVelocity = Vector3.new()
             
-            wait(0.15)
+            wait(0.20)
             break
         end
     end
@@ -156,7 +156,7 @@ local function setupnewlightmonitoring(templatefolder)
     
     local conn = templatefolder.ChildAdded:Connect(function(newlight)
         if farming and newlight.Name:lower() == "part" and (newlight:IsA("Part") or newlight:IsA("MeshPart")) then
-            wait(0.15)
+            wait(0.20)
             teleporttolight(newlight)
         end
     end)
@@ -211,7 +211,7 @@ local function startcontinuousfarm()
                         break
                     end
                     
-                    wait(0.15)
+                    wait(0.25)
                 end
             end
             

@@ -73,11 +73,6 @@ local function setnoclip(enabled)
         if hum then
             if enabled then
                 hum:ChangeState(11)
-            else
-                -- Apenas garante que os estados estão habilitados sem resetar
-                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-                hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-                hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
             end
         end
         
@@ -254,7 +249,14 @@ local function stopfarm()
     startbtn.Text = "iniciar farm"
     startbtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
     
-    wait(0.1)
+    -- Salva a posição antes de resetar
+    local savedPosition = nil
+    if character then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            savedPosition = hrp.CFrame
+        end
+    end
     
     setnoclip(false)
     
@@ -265,12 +267,24 @@ local function stopfarm()
     
     updatestatus("parado")
     
-    -- Força o personagem a voltar ao normal
+    -- Reseta o personagem
     if character then
         local hum = character:FindFirstChild("Humanoid")
         if hum then
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            hum.Health = 0
         end
+    end
+    
+    -- Espera o personagem spawnar e volta pra posição salva
+    if savedPosition then
+        spawn(function()
+            character = player.Character or player.CharacterAdded:Wait()
+            wait(0.5)
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = savedPosition
+            end
+        end)
     end
 end
 

@@ -61,7 +61,7 @@ local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
 
-print("deka collector carregado ✨")
+print("deka collector")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg

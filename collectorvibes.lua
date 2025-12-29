@@ -62,7 +62,7 @@ local connections = {}
 local character = nil
 local savedPosition = nil
 
-print("deka collector carregado ✨")
+print("deka collector")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg

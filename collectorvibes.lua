@@ -49,7 +49,7 @@ local speed = Instance.new("TextLabel")
 speed.Parent = frame
 speed.Size = UDim2.new(0.8, 0, 0, 20)
 speed.Position = UDim2.new(0.1, 0, 0, 80)
-speed.Text = "velocidade: alta"
+speed.Text = "velocidade: normal"
 speed.TextColor3 = Color3.new(0.6, 0.6, 1)
 speed.BackgroundTransparency = 1
 speed.Font = Enum.Font.Code
@@ -145,7 +145,8 @@ local function fastcollectlights(templatefolder)
             hrp.Velocity = Vector3.new()
             hrp.RotVelocity = Vector3.new()
             
-            wait(0.35)
+            -- Espera 0.3 segundos no orbe para coletar
+            wait(0.3)
             break
         end
     end
@@ -156,8 +157,9 @@ local function setupnewlightmonitoring(templatefolder)
     
     local conn = templatefolder.ChildAdded:Connect(function(newlight)
         if farming and newlight.Name:lower() == "part" and (newlight:IsA("Part") or newlight:IsA("MeshPart")) then
-            wait(0.35)
+            wait(0.3)
             teleporttolight(newlight)
+            wait(0.3)
         end
     end)
     
@@ -211,7 +213,8 @@ local function startcontinuousfarm()
                         break
                     end
                     
-                    wait(0.35)
+                    -- Intervalo maior entre verificações
+                    wait(0.5)
                 end
             end
             

@@ -61,7 +61,7 @@ local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
 
-print("deka collector")
+print("deka collector carregado ✨")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg
@@ -70,8 +70,17 @@ end
 local function setnoclip(enabled)
     if character then
         local hum = character:FindFirstChild("Humanoid")
-        if hum and enabled then
-            hum:ChangeState(11)
+        if hum then
+            if enabled then
+                hum:ChangeState(11)
+            else
+                -- Reseta o estado do humanoid para permitir pular novamente
+                hum:ChangeState(8)
+                wait(0.1)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+            end
         end
         
         for _, part in pairs(character:GetDescendants()) do
@@ -126,16 +135,24 @@ local function setuplightmonitoring()
     return monitoredfolders
 end
 
+local lastcollectedtime = 0
+
 local function fastcollectlights(templatefolder)
-    if not templatefolder or not templatefolder.Parent then return end
+    if not templatefolder or not templatefolder.Parent then return false end
+    
+    -- Verifica se já coletou recentemente (cooldown)
+    if tick() - lastcollectedtime < 0.5 then
+        return false
+    end
     
     character = player.Character or player.CharacterAdded:Wait()
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     
     if not hrp then 
-        return 
+        return false
     end
     
+    -- Procura apenas UM orbe disponível
     for _, lightobj in pairs(templatefolder:GetChildren()) do
         if not farming then break end
         
@@ -145,11 +162,15 @@ local function fastcollectlights(templatefolder)
             hrp.Velocity = Vector3.new()
             hrp.RotVelocity = Vector3.new()
             
+            lastcollectedtime = tick()
+            
             -- Espera 0.3 segundos no orbe para coletar
             wait(0.3)
-            break
+            return true
         end
     end
+    
+    return false
 end
 
 local function setupnewlightmonitoring(templatefolder)
@@ -199,13 +220,18 @@ local function startcontinuousfarm()
                 
                 while farming do
                     local anyfolderexists = false
+                    local collected = false
                     
                     for _, templatefolder in pairs(monitoredfolders) do
                         if not farming then break end
                         
                         if templatefolder and templatefolder.Parent then
                             anyfolderexists = true
-                            fastcollectlights(templatefolder)
+                            -- Se conseguiu coletar um orbe, para o loop
+                            if fastcollectlights(templatefolder) then
+                                collected = true
+                                break
+                            end
                         end
                     end
                     
@@ -213,8 +239,10 @@ local function startcontinuousfarm()
                         break
                     end
                     
-                    -- Intervalo maior entre verificações
-                    wait(0.5)
+                    -- Se não coletou nada, espera um pouco antes de verificar de novo
+                    if not collected then
+                        wait(0.3)
+                    end
                 end
             end
             

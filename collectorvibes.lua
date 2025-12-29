@@ -1,5 +1,5 @@
 local screengui = Instance.new("ScreenGui")
-screengui.Name = "LightCollectorUI"
+screengui.Name = "DekaCollectorUI"
 screengui.Parent = game.CoreGui
 
 local frame = Instance.new("Frame")
@@ -16,7 +16,7 @@ local title = Instance.new("TextLabel")
 title.Parent = frame
 title.Size = UDim2.new(1, 0, 0, 20)
 title.Position = UDim2.new(0, 0, 0, 5)
-title.Text = "light collector"
+title.Text = "deka collector"
 title.TextColor3 = Color3.new(0, 1, 1)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.Code
@@ -61,7 +61,7 @@ local player = game.Players.LocalPlayer
 local connections = {}
 local character = nil
 
-print("light collector carregado ✨")
+print("deka collector carregado ✨")
 
 local function updatestatus(msg)
     status.Text = "status: " .. msg
@@ -70,16 +70,17 @@ end
 local function setnoclip(enabled)
     if character then
         local hum = character:FindFirstChild("Humanoid")
-        if hum then
+        if hum and enabled then
             hum:ChangeState(11)
-            hum.PlatformStand = true
         end
         
         for _, part in pairs(character:GetDescendants()) do
             if part:IsA("BasePart") then
                 part.CanCollide = not enabled
-                part.Velocity = Vector3.new()
-                part.RotVelocity = Vector3.new()
+                if not enabled then
+                    part.Velocity = Vector3.new()
+                    part.RotVelocity = Vector3.new()
+                end
             end
         end
     end
@@ -112,11 +113,13 @@ local function setuplightmonitoring()
     local monitoredfolders = {}
     
     local lightsfolder = workspace:FindFirstChild("LightsLocal")
-    if not lightsfolder then return monitoredfolders end
+    if not lightsfolder then 
+        return monitoredfolders 
+    end
     
-    for _, template in pairs(lightsfolder:GetChildren()) do
-        if template.Name == "LightTemplate" and (template:IsA("Folder") or template:IsA("Model")) then
-            monitoredfolders["LightTemplate"] = template
+    for _, child in pairs(lightsfolder:GetChildren()) do
+        if child.Name:find("LightTemplate") or child.Name == "LightTemplate" then
+            table.insert(monitoredfolders, child)
         end
     end
     
@@ -129,16 +132,20 @@ local function fastcollectlights(templatefolder)
     character = player.Character or player.CharacterAdded:Wait()
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     
-    if not hrp then return end
+    if not hrp then 
+        return 
+    end
     
     for _, lightobj in pairs(templatefolder:GetChildren()) do
         if not farming then break end
         
-        if lightobj.Name == "Part" and (lightobj:IsA("Part") or lightobj:IsA("MeshPart")) and lightobj.Parent then
+        if lightobj.Name:lower() == "part" and (lightobj:IsA("Part") or lightobj:IsA("MeshPart")) and lightobj.Parent then
             setnoclip(true)
             hrp.CFrame = CFrame.new(lightobj.Position + Vector3.new(0, 2, 0))
+            hrp.Velocity = Vector3.new()
+            hrp.RotVelocity = Vector3.new()
             
-            wait(0.03)
+            wait(0.09)
             break
         end
     end
@@ -148,8 +155,8 @@ local function setupnewlightmonitoring(templatefolder)
     if not templatefolder then return end
     
     local conn = templatefolder.ChildAdded:Connect(function(newlight)
-        if farming and newlight.Name == "Part" and (newlight:IsA("Part") or newlight:IsA("MeshPart")) then
-            wait(0.03)
+        if farming and newlight.Name:lower() == "part" and (newlight:IsA("Part") or newlight:IsA("MeshPart")) then
+            wait(0.09)
             teleporttolight(newlight)
         end
     end)
@@ -175,13 +182,13 @@ local function startcontinuousfarm()
         while farming do
             local monitoredfolders = setuplightmonitoring()
             
-            if next(monitoredfolders) == nil then
+            if #monitoredfolders == 0 then
                 updatestatus("buscando...")
                 wait(1)
             else
                 updatestatus("farmando")
                 
-                for foldername, templatefolder in pairs(monitoredfolders) do
+                for _, templatefolder in pairs(monitoredfolders) do
                     if not farming then break end
                     if templatefolder and templatefolder.Parent then
                         setupnewlightmonitoring(templatefolder)
@@ -191,7 +198,7 @@ local function startcontinuousfarm()
                 while farming do
                     local anyfolderexists = false
                     
-                    for foldername, templatefolder in pairs(monitoredfolders) do
+                    for _, templatefolder in pairs(monitoredfolders) do
                         if not farming then break end
                         
                         if templatefolder and templatefolder.Parent then
@@ -204,10 +211,10 @@ local function startcontinuousfarm()
                         break
                     end
                     
-                    wait(0.03)
+                    wait(0.15)
                 end
                 
-                wait(0.05)
+                wait(0.15)
             end
         end
     end)

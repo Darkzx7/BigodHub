@@ -1783,11 +1783,12 @@ do
 	DropPadding.PaddingLeft = UDim.new(0, 6)
 	DropPadding.PaddingRight = UDim.new(0, 6)
 	DropPadding.Parent = DropList
+	local GuiInset = game:GetService("GuiService"):GetGuiInset()
 	RunService.RenderStepped:Connect(function()
 		if not dropOpen then return end
 		local abs = HeaderRow.AbsolutePosition
 		local sz  = HeaderRow.AbsoluteSize
-		DropList.Position = UDim2.new(0, abs.X, 0, abs.Y + sz.Y + 4)
+		DropList.Position = UDim2.new(0, abs.X, 0, abs.Y + sz.Y + GuiInset.Y + 4)
 		DropList.Size = UDim2.new(0, sz.X, 0, dropHeight)
 	end)
 	local function rebuildItems()

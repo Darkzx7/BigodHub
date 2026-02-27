@@ -1079,28 +1079,6 @@ do
 	end)
 	sec:Slider("spin speed", 1, 30, 10, function(v) spinSpeed = v end)
 
-	-- God Mode (local)
-	local godEnabled = false
-	local godConn    = nil
-	sec:Toggle("god mode", false, function(v)
-		godEnabled = v
-		if v then
-			godConn = RunService.Heartbeat:Connect(function()
-				if not godEnabled then return end
-				local char = player.Character
-				local hum  = char and char:FindFirstChildOfClass("Humanoid")
-				if hum then
-					hum.MaxHealth = math.huge
-					hum.Health    = math.huge
-				end
-			end)
-		else
-			if godConn then godConn:Disconnect() godConn = nil end
-			local char = player.Character
-			local hum  = char and char:FindFirstChildOfClass("Humanoid")
-			if hum then hum.MaxHealth = 100 hum.Health = 100 end
-		end
-	end)
 end
 
 -- ===== COMBAT =====
@@ -1497,9 +1475,10 @@ do
 	local extraSec = target_tab:Section("extras")
 	extraSec:Divider("spectate / orbit")
 
-	-- Spectate
+	-- Spectate (terceira pessoa atrás do target)
 	local spectateConn   = nil
 	local spectateActive = false
+	local spectateDist   = 12  -- distância atrás do target
 	local function stopSpectate()
 		spectateActive = false
 		if spectateConn then spectateConn:Disconnect() spectateConn = nil end
@@ -1509,15 +1488,20 @@ do
 		if not v then stopSpectate() return end
 		if not targetPlayer then return end
 		spectateActive = true
-		workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+		workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
 		spectateConn = RunService.RenderStepped:Connect(function()
 			if not spectateActive then return end
 			local t = targetPlayer
 			if not t or not t.Character then return end
 			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
 			if not thrp then return end
-			-- POV do target: câmera exatamente no HRP dele
-			workspace.CurrentCamera.CFrame = thrp.CFrame * CFrame.new(0, 1.5, 0)
+			-- Terceira pessoa: câmera atrás e acima do target, olhando para ele
+			local lookDir = Vector3.new(thrp.CFrame.LookVector.X, 0, thrp.CFrame.LookVector.Z).Unit
+			local camPos  = thrp.Position - lookDir * spectateDist + Vector3.new(0, 4, 0)
+			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0)
+			workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame:Lerp(
+				CFrame.new(camPos, targetPos), 0.15
+			)
 		end)
 	end)
 
@@ -1797,44 +1781,72 @@ do
 
 	sec2:Divider("chams")
 
-	-- Chams (troca material de todos os players por Neon colorido)
-	local chamsEnabled = false
-	local chamsColor   = Color3.fromRGB(120, 80, 255)
-	local origMaterials = {} -- [BasePart] = {material, color}
+	-- Chams: Highlight AlwaysOnTop com cor sólida (visível através de paredes)
+	-- Diferente do ESP (que tem nome/hp/distância), chams é puramente visual no corpo
+	local chamsEnabled  = false
+	local chamsColor    = Color3.fromRGB(255, 60, 60)   -- vermelho vivo por padrão
+	local chamsData     = {} -- [Player] = Highlight
 
-	local function applyChams(target)
-		local char = target.Character
-		if not char then return end
-		for _, p in ipairs(char:GetDescendants()) do
-			if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-				if not origMaterials[p] then
-					origMaterials[p] = {mat = p.Material, col = p.Color}
-				end
-				p.Material = Enum.Material.Neon
-				p.Color    = chamsColor
-			end
+	local function removeChams(target)
+		if chamsData[target] and chamsData[target].Parent then
+			chamsData[target]:Destroy()
 		end
+		chamsData[target] = nil
 	end
 
-	local function revertChams(target)
+	local function applyChams(target)
+		if chamsData[target] then return end
 		local char = target.Character
 		if not char then return end
-		for _, p in ipairs(char:GetDescendants()) do
-			if p:IsA("BasePart") and origMaterials[p] then
-				p.Material = origMaterials[p].mat
-				p.Color    = origMaterials[p].col
-				origMaterials[p] = nil
-			end
-		end
+		local hl = Instance.new("Highlight")
+		hl.Name               = "ref_chams"
+		hl.DepthMode          = Enum.HighlightDepthMode.AlwaysOnTop
+		hl.FillColor          = chamsColor
+		hl.FillTransparency   = 0        -- sólido (sem transparência = cham clássico)
+		hl.OutlineColor       = Color3.fromRGB(255, 255, 255)
+		hl.OutlineTransparency = 0
+		hl.Adornee            = char
+		hl.Parent             = char
+		chamsData[target]     = hl
 	end
 
 	local function refreshChams()
 		for _, t in ipairs(Players:GetPlayers()) do
 			if t ~= player then
-				if chamsEnabled then applyChams(t) else revertChams(t) end
+				if chamsEnabled then applyChams(t) else removeChams(t) end
 			end
 		end
 	end
+
+	-- Atualiza cor em tempo real se mudar
+	RunService.Heartbeat:Connect(function()
+		if not chamsEnabled then return end
+		for _, t in ipairs(Players:GetPlayers()) do
+			if t ~= player and chamsData[t] then
+				chamsData[t].FillColor = chamsColor
+				if not chamsData[t].Parent then chamsData[t] = nil end
+			end
+		end
+	end)
+
+	-- Reaplica ao respawnar
+	for _, t in ipairs(Players:GetPlayers()) do
+		if t ~= player then
+			t.CharacterAdded:Connect(function()
+				chamsData[t] = nil
+				task.wait(0.5)
+				if chamsEnabled then applyChams(t) end
+			end)
+		end
+	end
+	Players.PlayerAdded:Connect(function(t)
+		t.CharacterAdded:Connect(function()
+			chamsData[t] = nil
+			task.wait(0.5)
+			if chamsEnabled then applyChams(t) end
+		end)
+	end)
+	Players.PlayerRemoving:Connect(removeChams)
 
 	sec2:Toggle("chams", false, function(v)
 		chamsEnabled = v
@@ -1873,29 +1885,40 @@ do
 			local hrp  = char and char:FindFirstChild("HumanoidRootPart")
 			if not hrp then removeTracer(t) continue end
 
-			local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position)
-			if not onScreen then removeTracer(t) continue end
+			local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position + Vector3.new(0,2,0))
+			if not onScreen or screenPos.Z < 0 then removeTracer(t) continue end
 
 			-- Cria linha se não existir
 			if not tracerData[t] then
 				local line = Instance.new("Frame")
 				line.BackgroundColor3 = Theme.Accent
 				line.BorderSizePixel  = 0
-				line.AnchorPoint      = Vector2.new(0.5, 0)
+				-- AnchorPoint (0,0): posição = ponto A, rotação em torno do canto esquerdo
+				line.AnchorPoint      = Vector2.new(0, 0.5)
+				line.ZIndex           = 5
 				line.Parent           = tracerGui
 				tracerData[t]         = line
 			end
 
-			local line   = tracerData[t]
-			local origin = Vector2.new(vp.X / 2, vp.Y) -- base da tela
-			local target2d = Vector2.new(screenPos.X, screenPos.Y)
-			local diff   = target2d - origin
-			local length = diff.Magnitude
-			local angle  = math.atan2(diff.Y, diff.X)
+			local line = tracerData[t]
 
-			line.Size     = UDim2.new(0, length, 0, 1)
-			line.Position = UDim2.new(0, origin.X, 0, origin.Y)
-			line.Rotation = math.deg(angle)
+			-- Origem: centro-inferior da tela (onde o personagem local está)
+			local ox = vp.X / 2
+			local oy = vp.Y
+
+			-- Destino: posição na tela do target
+			local tx = screenPos.X
+			local ty = screenPos.Y
+
+			local dx     = tx - ox
+			local dy     = ty - oy
+			local length = math.sqrt(dx*dx + dy*dy)
+			local angle  = math.deg(math.atan2(dy, dx))
+
+			-- Posição: começa na origem, esticada até o destino
+			line.Position = UDim2.new(0, ox, 0, oy)
+			line.Size     = UDim2.new(0, length, 0, 2)
+			line.Rotation = angle
 		end
 	end)
 

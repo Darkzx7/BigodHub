@@ -1929,11 +1929,37 @@ do
 		return t
 	end
 
-	local userId = tostring(player.UserId)
-	if not _G.ref_configs then _G.ref_configs = {} end
-	if not _G.ref_configs[userId] then _G.ref_configs[userId] = {} end
-	local UserConfigs = _G.ref_configs[userId]
+	-- ── Persistência real em arquivo no executor ──
+	local SAVE_DIR  = "ref_ui"
+	local SAVE_FILE = SAVE_DIR .. "/configs.json"
 	local MAX_CONFIGS = 5
+
+	-- Garante que a pasta existe
+	if not isfolder(SAVE_DIR) then pcall(makefolder, SAVE_DIR) end
+
+	-- Parse simples do JSON de configs salvas
+	local function loadFile()
+		local ok, content = pcall(readfile, SAVE_FILE)
+		if not ok or not content or content == "" then return {} end
+		local t = {}
+		-- formato interno: { "nome": "jsonstring_escapada", ... }
+		for k, v in content:gmatch('"([^"]+)":"(.-)"[,}]') do
+			t[k] = v:gsub('\\"', '"')
+		end
+		return t
+	end
+
+	-- Serializa a tabela de configs pra disco
+	local function saveFile(t)
+		local parts = {}
+		for k, v in pairs(t) do
+			local escaped = v:gsub('"', '\\"')
+			table.insert(parts, '"' .. k .. '":"' .. escaped .. '"')
+		end
+		pcall(writefile, SAVE_FILE, "{" .. table.concat(parts, ",") .. "}")
+	end
+
+	local UserConfigs = loadFile()
 
 	local function notify(text)
 		pcall(function()
@@ -1973,7 +1999,7 @@ do
 		if UserConfigs[name] then notify("name already exists — pick another") return end
 		if #getConfigNames() >= MAX_CONFIGS then notify("max 5 configs — delete one first") return end
 		UserConfigs[name] = serialize(captureState())
-		_G.ref_configs[userId] = UserConfigs
+		saveFile(UserConfigs)
 		notify("saved: " .. name)
 	end)
 
@@ -2045,14 +2071,13 @@ do
 	HeaderBtn.ZIndex = 4
 	HeaderBtn.Parent = HeaderRow
 
-	-- ── DropList: flutua ACIMA do header via posição negativa ──
-	-- Fica fora do ClipsDescendants da ScrollingFrame pois está no ScreenGui
+	-- ── DropList: filho do ScreenGui, flutua por cima de tudo, abre pra BAIXO ──
 	local DropList = Instance.new("Frame")
 	DropList.Name = "DropList"
 	DropList.BackgroundColor3 = Theme.Panel2
 	DropList.BorderSizePixel = 0
-	DropList.Size = UDim2.new(0, 1, 0, 1)   -- começa colapsado
-	DropList.AnchorPoint = Vector2.new(0, 1)  -- ancora na borda inferior (cresce pra cima)
+	DropList.Size = UDim2.new(0, 1, 0, 0)   -- começa colapsado
+	DropList.AnchorPoint = Vector2.new(0, 0)  -- ancora no topo (cresce pra baixo)
 	DropList.Visible = false
 	DropList.ClipsDescendants = true
 	DropList.ZIndex = 100
@@ -2072,13 +2097,13 @@ do
 	DropPadding.PaddingRight  = UDim.new(0, 6)
 	DropPadding.Parent = DropList
 
-	-- Posiciona o DropList na tela usando AbsolutePosition do HeaderRow
+	-- Posiciona o DropList logo abaixo do HeaderRow na tela
 	local function repositionDropList()
-		local abs = HeaderRow.AbsolutePosition
+		local abs     = HeaderRow.AbsolutePosition
 		local absSize = HeaderRow.AbsoluteSize
-		-- ancora na borda inferior do header, largura igual
-		DropList.Position = UDim2.new(0, abs.X, 0, abs.Y)
-		DropList.AnchorPoint = Vector2.new(0, 1)
+		-- topo do DropList = borda inferior do header + 4px de gap
+		DropList.Position = UDim2.new(0, abs.X, 0, abs.Y + absSize.Y + 4)
+		DropList.AnchorPoint = Vector2.new(0, 0)
 		DropList.Size = UDim2.new(0, absSize.X, 0, 0)
 	end
 
@@ -2204,7 +2229,7 @@ do
 
 			DelBtn.MouseButton1Click:Connect(function()
 				UserConfigs[cn] = nil
-				_G.ref_configs[userId] = UserConfigs
+				saveFile(UserConfigs)
 				if selectedName == cn then
 					selectedName = nil
 					HeaderLbl.Text = "select config..."
@@ -2234,9 +2259,9 @@ do
 		repositionDropList()
 		rebuildItems()
 		DropList.Visible = true
-		task.wait()  -- deixa layout calcular
+		DropList.Size = UDim2.new(0, HeaderRow.AbsoluteSize.X, 0, 0)
+		task.wait()  -- deixa layout calcular altura
 		local h = DropLayout.AbsoluteContentSize.Y + 12
-		DropList.Size = UDim2.new(0, HeaderRow.AbsoluteSize.X, 0, 0)  -- reset pra animar
 		tween(DropList, {Size = UDim2.new(0, HeaderRow.AbsoluteSize.X, 0, h)}, 0.16)
 		tween(ArrowImg, {Rotation = 180}, 0.16)
 	end
@@ -2276,14 +2301,14 @@ do
 	actSec:Button("overwrite", function()
 		if not selectedName then notify("select a config first") return end
 		UserConfigs[selectedName] = serialize(captureState())
-		_G.ref_configs[userId] = UserConfigs
+		saveFile(UserConfigs)
 		notify("overwritten: " .. selectedName)
 	end)
 
 	actSec:Button("delete", function()
 		if not selectedName then notify("select a config first") return end
 		UserConfigs[selectedName] = nil
-		_G.ref_configs[userId] = UserConfigs
+		saveFile(UserConfigs)
 		notify("deleted: " .. selectedName)
 		if dropOpen then
 			rebuildItems()

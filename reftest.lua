@@ -15,9 +15,7 @@ local function tween(obj, props, t, style, dir)
 	t = t or 0.15
 	style = style or Enum.EasingStyle.Quad
 	dir = dir or Enum.EasingDirection.Out
-	local tw = TweenService:Create(obj, TweenInfo.new(t, style, dir), props)
-	tw:Play()
-	return tw
+	TweenService:Create(obj, TweenInfo.new(t, style, dir), props):Play()
 end
 
 local function addCorner(inst, r)
@@ -52,7 +50,7 @@ local function makeDraggable(handle, frame)
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
+			dragging  = true
 			dragStart = input.Position
 			startPos  = frame.Position
 			input.Changed:Connect(function()
@@ -74,7 +72,6 @@ local function makeDraggable(handle, frame)
 	end)
 end
 
--- theme
 local Theme = {
 	Panel  = Color3.fromRGB(18, 18, 22),
 	Panel2 = Color3.fromRGB(22, 22, 27),
@@ -85,7 +82,7 @@ local Theme = {
 	Line   = Color3.fromRGB(60, 60, 72),
 }
 
--- ScreenGui principal
+-- ScreenGui
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ref_ui"
 ScreenGui.IgnoreGuiInset = true
@@ -93,15 +90,7 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = pg
 
--- ScreenGui separado para ESP (AlwaysOnTop precisa de ScreenGui dedicada)
-local EspGui = Instance.new("ScreenGui")
-EspGui.Name = "ref_esp"
-EspGui.IgnoreGuiInset = true
-EspGui.ResetOnSpawn = false
-EspGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-EspGui.Parent = pg
-
--- ===== ÍCONE (sempre visível, sem sombra) =====
+-- ===== ÍCONE (sempre visível) =====
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "IconBtn"
 IconBtn.Size = UDim2.new(0, 52, 0, 52)
@@ -114,7 +103,6 @@ IconBtn.ZIndex = 10
 IconBtn.Parent = ScreenGui
 addCorner(IconBtn, 14)
 addStroke(IconBtn, 1, 0.70, Theme.Stroke)
-
 makeDraggable(IconBtn, IconBtn)
 
 IconBtn.MouseEnter:Connect(function()
@@ -124,78 +112,11 @@ IconBtn.MouseLeave:Connect(function()
 	tween(IconBtn, {BackgroundColor3 = Theme.Panel2}, 0.12)
 end)
 
--- ===== PAINEL DO USUÁRIO (canto inferior esquerdo) =====
-local UserPanel = Instance.new("Frame")
-UserPanel.Name = "UserPanel"
-UserPanel.Size = UDim2.new(0, 160, 0, 52)
-UserPanel.Position = UDim2.new(0, 16, 1, -68) -- 16px da esquerda, 16px do fundo
-UserPanel.BackgroundColor3 = Theme.Panel2
-UserPanel.ZIndex = 5
-UserPanel.Parent = ScreenGui
-addCorner(UserPanel, 12)
-addStroke(UserPanel, 1, 0.78, Theme.Stroke)
-
--- avatar (thumbnail gerado via Players)
-local AvatarImg = Instance.new("ImageLabel")
-AvatarImg.Name = "Avatar"
-AvatarImg.Size = UDim2.new(0, 36, 0, 36)
-AvatarImg.Position = UDim2.new(0, 8, 0.5, -18)
-AvatarImg.BackgroundColor3 = Theme.Panel
-AvatarImg.Image = Players:GetUserThumbnailAsync(
-	player.UserId,
-	Enum.ThumbnailType.HeadShot,
-	Enum.ThumbnailSize.Size48x48
-)
-AvatarImg.ZIndex = 6
-AvatarImg.Parent = UserPanel
-addCorner(AvatarImg, 999) -- circular
-
-addStroke(AvatarImg, 1.5, 0.60, Theme.Accent)
-
--- linha accent lateral esquerda
-local UserAccent = Instance.new("Frame")
-UserAccent.Size = UDim2.new(0, 2, 0, 28)
-UserAccent.Position = UDim2.new(0, 52, 0.5, -14)
-UserAccent.BackgroundColor3 = Theme.Accent
-UserAccent.BorderSizePixel = 0
-UserAccent.BackgroundTransparency = 0.30
-UserAccent.ZIndex = 6
-UserAccent.Parent = UserPanel
-addCorner(UserAccent, 999)
-
--- nome do display
-local UserName = Instance.new("TextLabel")
-UserName.BackgroundTransparency = 1
-UserName.Size = UDim2.new(1, -66, 0, 16)
-UserName.Position = UDim2.new(0, 62, 0, 10)
-UserName.Font = Enum.Font.GothamSemibold
-UserName.Text = player.DisplayName
-UserName.TextSize = 12
-UserName.TextColor3 = Theme.Text
-UserName.TextXAlignment = Enum.TextXAlignment.Left
-UserName.TextTruncate = Enum.TextTruncate.AtEnd
-UserName.ZIndex = 6
-UserName.Parent = UserPanel
-
--- @username abaixo
-local UserTag = Instance.new("TextLabel")
-UserTag.BackgroundTransparency = 1
-UserTag.Size = UDim2.new(1, -66, 0, 13)
-UserTag.Position = UDim2.new(0, 62, 0, 28)
-UserTag.Font = Enum.Font.Gotham
-UserTag.Text = "@" .. player.Name
-UserTag.TextSize = 10
-UserTag.TextColor3 = Theme.Sub
-UserTag.TextXAlignment = Enum.TextXAlignment.Left
-UserTag.TextTruncate = Enum.TextTruncate.AtEnd
-UserTag.ZIndex = 6
-UserTag.Parent = UserPanel
-
 -- ===== MAIN FRAME =====
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 540, 0, 340)
-Main.Position = UDim2.new(0.5, -270, 0.5, -170)
+Main.Size = UDim2.new(0, 540, 0, 380)
+Main.Position = UDim2.new(0.5, -270, 0.5, -190)
 Main.BackgroundColor3 = Theme.Panel
 Main.Parent = ScreenGui
 addCorner(Main, 14)
@@ -280,9 +201,92 @@ end)
 
 makeDraggable(Topbar, Main)
 
--- Body
+-- ===== PAINEL DO USUÁRIO (dentro da UI, canto inferior esquerdo) =====
+local UserPanel = Instance.new("Frame")
+UserPanel.Name = "UserPanel"
+UserPanel.Size = UDim2.new(0, 160, 0, 56)
+UserPanel.Position = UDim2.new(0, 0, 1, -56) -- encostado no fundo da UI
+UserPanel.BackgroundColor3 = Theme.Panel2
+UserPanel.ZIndex = 3
+UserPanel.ClipsDescendants = true
+UserPanel.Parent = Main
+-- só cantos inferiores arredondados para colar no canto da UI
+addCorner(UserPanel, 14)
+
+-- linha accent no topo do painel
+local UserTopLine = Instance.new("Frame")
+UserTopLine.Size = UDim2.new(1, 0, 0, 1)
+UserTopLine.BackgroundColor3 = Theme.Line
+UserTopLine.BackgroundTransparency = 0.4
+UserTopLine.BorderSizePixel = 0
+UserTopLine.ZIndex = 4
+UserTopLine.Parent = UserPanel
+
+-- avatar circular
+local AvatarImg = Instance.new("ImageLabel")
+AvatarImg.Name = "Avatar"
+AvatarImg.Size = UDim2.new(0, 36, 0, 36)
+AvatarImg.Position = UDim2.new(0, 10, 0.5, -18)
+AvatarImg.BackgroundColor3 = Theme.Panel
+AvatarImg.ZIndex = 4
+AvatarImg.Parent = UserPanel
+addCorner(AvatarImg, 999)
+addStroke(AvatarImg, 1.5, 0.50, Theme.Accent)
+
+-- carrega thumbnail de forma assíncrona
+task.spawn(function()
+	local ok, img = pcall(function()
+		return Players:GetUserThumbnailAsync(
+			player.UserId,
+			Enum.ThumbnailType.HeadShot,
+			Enum.ThumbnailSize.Size48x48
+		)
+	end)
+	if ok then AvatarImg.Image = img end
+end)
+
+-- linha accent vertical separadora
+local UserDivider = Instance.new("Frame")
+UserDivider.Size = UDim2.new(0, 2, 0, 30)
+UserDivider.Position = UDim2.new(0, 54, 0.5, -15)
+UserDivider.BackgroundColor3 = Theme.Accent
+UserDivider.BackgroundTransparency = 0.35
+UserDivider.BorderSizePixel = 0
+UserDivider.ZIndex = 4
+UserDivider.Parent = UserPanel
+addCorner(UserDivider, 999)
+
+-- display name
+local UserName = Instance.new("TextLabel")
+UserName.BackgroundTransparency = 1
+UserName.Size = UDim2.new(1, -68, 0, 18)
+UserName.Position = UDim2.new(0, 64, 0, 10)
+UserName.Font = Enum.Font.GothamSemibold
+UserName.Text = player.DisplayName
+UserName.TextSize = 12
+UserName.TextColor3 = Theme.Text
+UserName.TextXAlignment = Enum.TextXAlignment.Left
+UserName.TextTruncate = Enum.TextTruncate.AtEnd
+UserName.ZIndex = 4
+UserName.Parent = UserPanel
+
+-- @username
+local UserTag = Instance.new("TextLabel")
+UserTag.BackgroundTransparency = 1
+UserTag.Size = UDim2.new(1, -68, 0, 14)
+UserTag.Position = UDim2.new(0, 64, 0, 30)
+UserTag.Font = Enum.Font.Gotham
+UserTag.Text = "@" .. player.Name
+UserTag.TextSize = 10
+UserTag.TextColor3 = Theme.Sub
+UserTag.TextXAlignment = Enum.TextXAlignment.Left
+UserTag.TextTruncate = Enum.TextTruncate.AtEnd
+UserTag.ZIndex = 4
+UserTag.Parent = UserPanel
+
+-- ===== BODY (descontando painel do usuário embaixo) =====
 local Body = Instance.new("Frame")
-Body.Size = UDim2.new(1, 0, 1, -48)
+Body.Size = UDim2.new(1, 0, 1, -48 - 56) -- topbar + userpanel
 Body.Position = UDim2.new(0, 0, 0, 48)
 Body.BackgroundTransparency = 1
 Body.Parent = Main
@@ -309,6 +313,15 @@ addPadding(ContentPad, 12)
 
 local Pages = Instance.new("Folder")
 Pages.Parent = ContentPad
+
+-- linha separadora vertical sidebar/content
+local SideDiv = Instance.new("Frame")
+SideDiv.Size = UDim2.new(0, 1, 1, 0)
+SideDiv.Position = UDim2.new(0, 160, 0, 0)
+SideDiv.BackgroundColor3 = Theme.Line
+SideDiv.BackgroundTransparency = 0.5
+SideDiv.BorderSizePixel = 0
+SideDiv.Parent = Body
 
 -- ===== LIBRARY =====
 local Library = {}
@@ -498,7 +511,6 @@ function Library:CreateTab(name)
 			addCorner(Knob, 999)
 
 			local state = default == true
-
 			local function render()
 				if state then
 					tween(Switch, {BackgroundColor3 = Theme.Accent}, 0.12)
@@ -579,8 +591,7 @@ function Library:CreateTab(name)
 			Fill.Parent = Bar
 			addCorner(Fill, 999)
 
-			local dragging = false
-			local value = default
+			local dragging, value = false, default
 
 			local function setValue(v)
 				v = math.clamp(v, min, max)
@@ -653,24 +664,18 @@ do
 			cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.001), 0)
 		end
 	end)
-
-	sec:Toggle("anti-afk", false, function(enabled)
-		afkEnabled = enabled
-	end)
+	sec:Toggle("anti-afk", false, function(v) afkEnabled = v end)
 
 	sec:Divider("movement")
 
 	local DEFAULT_SPEED = 16
-	local speedEnabled  = false
-	local currentSpeed  = DEFAULT_SPEED
+	local speedEnabled, currentSpeed = false, DEFAULT_SPEED
 
 	local function applySpeed()
 		local char = player.Character
 		if not char then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED
-		end
+		if hum then hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED end
 	end
 
 	player.CharacterAdded:Connect(function(char)
@@ -679,11 +684,10 @@ do
 		hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED
 	end)
 
-	sec:Toggle("custom walkspeed", false, function(enabled)
-		speedEnabled = enabled
+	sec:Toggle("custom walkspeed", false, function(v)
+		speedEnabled = v
 		applySpeed()
 	end)
-
 	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
 		currentSpeed = v
 		if speedEnabled then applySpeed() end
@@ -697,161 +701,128 @@ do
 	sec:Toggle("aim assist", false, function(v) print("aim assist:", v) end)
 end
 
--- ===== VISUAL: ESP PROFISSIONAL =====
+-- ===== VISUAL: ESP =====
 do
 	local sec = visual:Section("esp")
 	sec:Divider("players")
 
-	-- Estado do ESP
-	local espEnabled  = false
-	local showName    = true
-	local showDist    = true
-	local showHealth  = true
-	local showBox     = true
-	local maxDist     = 500
-	local espColor    = Color3.fromRGB(120, 80, 255)
+	local espEnabled = false
+	local showName   = true
+	local showDist   = true
+	local showHealth = true
+	local maxDist    = 500
+	local espColor   = Color3.fromRGB(120, 80, 255)
 
-	local camera = workspace.CurrentCamera
-	local espObjects = {} -- [Player] = { highlight, bb, ... }
+	local camera    = workspace.CurrentCamera
+	local espData   = {} -- [Player] = { highlight, billboard }
 
-	-- Cores dinâmicas por vida (verde → amarelo → vermelho)
-	local function healthColor(hp, maxHp)
+	-- cor dinâmica baseada na vida
+	local function hpColor(hp, maxHp)
 		local pct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
-		if pct > 0.5 then
-			return Color3.fromRGB(
-				math.floor(255 * (1 - pct) * 2),
-				220,
-				80
-			)
+		if pct > 0.6 then
+			return Color3.fromRGB(80, 220, 80)
+		elseif pct > 0.3 then
+			return Color3.fromRGB(240, 200, 40)
 		else
-			return Color3.fromRGB(
-				220,
-				math.floor(220 * pct * 2),
-				40
-			)
+			return Color3.fromRGB(220, 60, 60)
 		end
 	end
 
+	local function removeESP(target)
+		local d = espData[target]
+		if not d then return end
+		if d.highlight and d.highlight.Parent then d.highlight:Destroy() end
+		if d.billboard and d.billboard.Parent then d.billboard:Destroy() end
+		espData[target] = nil
+	end
+
+	local function clearAll()
+		for t in pairs(espData) do removeESP(t) end
+	end
+
 	local function createESP(target)
-		if espObjects[target] then return end
+		if espData[target] then return end
 		local char = target.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hrp then return end
 
-		-- ── Highlight (through-walls via AlwaysOnTop na EspGui) ──
+		-- Highlight no corpo — DepthMode AlwaysOnTop = vê através das paredes
 		local hl = Instance.new("Highlight")
-		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- atravessa paredes
+		hl.Name = "ref_esp_hl"
+		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 		hl.FillColor = espColor
 		hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-		hl.FillTransparency = 0.55
+		hl.FillTransparency = 0.45
 		hl.OutlineTransparency = 0.0
 		hl.Adornee = char
-		hl.Parent = EspGui
+		hl.Parent = char -- parent no próprio char, não na UI
 
-		-- ── BillboardGui principal (sempre visível) ──
+		-- BillboardGui acima da cabeça
 		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.new(0, 180, 0, 72)
-		bb.StudsOffset = Vector3.new(0, 3.5, 0)
-		bb.AlwaysOnTop = true  -- visível através das paredes
+		bb.Name = "ref_esp_bb"
+		bb.Size = UDim2.new(0, 140, 0, 60)
+		bb.StudsOffset = Vector3.new(0, 3.2, 0)
+		bb.AlwaysOnTop = true
 		bb.ResetOnSpawn = false
-		bb.ClipsDescendants = false
 		bb.Adornee = hrp
-		bb.Parent = EspGui
+		bb.Parent = hrp -- parent no HRP, não na UI
 
-		-- Fundo semi-transparente
-		local bg = Instance.new("Frame")
-		bg.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
-		bg.BackgroundTransparency = 0.35
-		bg.Size = UDim2.new(1, 0, 1, 0)
-		bg.Parent = bb
-		addCorner(bg, 6)
-		addStroke(bg, 1, 0.65, espColor)
-
-		-- Nome do player
+		-- nome
 		local nameLbl = Instance.new("TextLabel")
 		nameLbl.BackgroundTransparency = 1
-		nameLbl.Size = UDim2.new(1, -8, 0, 20)
-		nameLbl.Position = UDim2.new(0, 4, 0, 4)
+		nameLbl.Size = UDim2.new(1, 0, 0, 20)
+		nameLbl.Position = UDim2.new(0, 0, 0, 0)
 		nameLbl.Font = Enum.Font.GothamBold
 		nameLbl.TextSize = 14
 		nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-		nameLbl.TextStrokeTransparency = 0.3
+		nameLbl.TextStrokeTransparency = 0.2
 		nameLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 		nameLbl.TextXAlignment = Enum.TextXAlignment.Center
 		nameLbl.Text = target.DisplayName
-		nameLbl.Parent = bg
+		nameLbl.Parent = bb
 
-		-- Barra de HP (fundo)
-		local hpBarBg = Instance.new("Frame")
-		hpBarBg.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-		hpBarBg.BackgroundTransparency = 0.2
-		hpBarBg.Size = UDim2.new(1, -8, 0, 7)
-		hpBarBg.Position = UDim2.new(0, 4, 0, 28)
-		hpBarBg.Parent = bg
-		addCorner(hpBarBg, 999)
+		-- barra hp fundo
+		local hpBg = Instance.new("Frame")
+		hpBg.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+		hpBg.BackgroundTransparency = 0.3
+		hpBg.Size = UDim2.new(1, 0, 0, 6)
+		hpBg.Position = UDim2.new(0, 0, 0, 24)
+		hpBg.Parent = bb
+		addCorner(hpBg, 999)
 
-		-- Barra de HP (fill)
-		local hpBarFill = Instance.new("Frame")
-		hpBarFill.BackgroundColor3 = Color3.fromRGB(80, 220, 80)
-		hpBarFill.Size = UDim2.new(1, 0, 1, 0)
-		hpBarFill.Parent = hpBarBg
-		addCorner(hpBarFill, 999)
+		-- barra hp fill
+		local hpFill = Instance.new("Frame")
+		hpFill.BackgroundColor3 = Color3.fromRGB(80, 220, 80)
+		hpFill.Size = UDim2.new(1, 0, 1, 0)
+		hpFill.Parent = hpBg
+		addCorner(hpFill, 999)
 
-		-- Texto hp / dist
-		local infoLbl = Instance.new("TextLabel")
-		infoLbl.BackgroundTransparency = 1
-		infoLbl.Size = UDim2.new(1, -8, 0, 16)
-		infoLbl.Position = UDim2.new(0, 4, 0, 40)
-		infoLbl.Font = Enum.Font.Gotham
-		infoLbl.TextSize = 11
-		infoLbl.TextColor3 = Color3.fromRGB(200, 200, 220)
-		infoLbl.TextStrokeTransparency = 0.4
-		infoLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-		infoLbl.TextXAlignment = Enum.TextXAlignment.Center
-		infoLbl.Text = ""
-		infoLbl.Parent = bg
-
-		-- Distância no canto superior direito (pequena)
+		-- distância
 		local distLbl = Instance.new("TextLabel")
 		distLbl.BackgroundTransparency = 1
-		distLbl.Size = UDim2.new(0, 50, 0, 14)
-		distLbl.Position = UDim2.new(1, -54, 0, 4)
+		distLbl.Size = UDim2.new(1, 0, 0, 14)
+		distLbl.Position = UDim2.new(0, 0, 0, 34)
 		distLbl.Font = Enum.Font.Gotham
-		distLbl.TextSize = 10
-		distLbl.TextColor3 = Color3.fromRGB(170, 170, 200)
-		distLbl.TextXAlignment = Enum.TextXAlignment.Right
+		distLbl.TextSize = 11
+		distLbl.TextColor3 = Color3.fromRGB(200, 200, 220)
+		distLbl.TextStrokeTransparency = 0.3
+		distLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		distLbl.TextXAlignment = Enum.TextXAlignment.Center
 		distLbl.Text = ""
-		distLbl.Parent = bg
+		distLbl.Parent = bb
 
-		espObjects[target] = {
-			hl        = hl,
-			bb        = bb,
-			bg        = bg,
-			bgStroke  = bg:FindFirstChildOfClass("UIStroke"),
+		espData[target] = {
+			highlight = hl,
+			billboard = bb,
 			nameLbl   = nameLbl,
-			hpBarBg   = hpBarBg,
-			hpBarFill = hpBarFill,
-			infoLbl   = infoLbl,
+			hpBg      = hpBg,
+			hpFill    = hpFill,
 			distLbl   = distLbl,
 		}
 	end
 
-	local function removeESP(target)
-		local obj = espObjects[target]
-		if not obj then return end
-		obj.hl:Destroy()
-		obj.bb:Destroy()
-		espObjects[target] = nil
-	end
-
-	local function clearAllESP()
-		for target in pairs(espObjects) do
-			removeESP(target)
-		end
-	end
-
-	-- Update loop
+	-- update a cada frame
 	RunService.RenderStepped:Connect(function()
 		if not espEnabled then return end
 
@@ -862,7 +833,6 @@ do
 			local hum  = char and char:FindFirstChildOfClass("Humanoid")
 			local hrp  = char and char:FindFirstChild("HumanoidRootPart")
 
-			-- Remove se inválido ou morto
 			if not char or not hum or not hrp or hum.Health <= 0 then
 				removeESP(target)
 				continue
@@ -874,84 +844,60 @@ do
 				continue
 			end
 
-			if not espObjects[target] then
-				createESP(target)
-			end
+			if not espData[target] then createESP(target) end
+			local d = espData[target]
+			if not d then continue end
 
-			local obj = espObjects[target]
-			if not obj then continue end
+			-- reancora se necessário
+			if d.highlight.Adornee ~= char then d.highlight.Adornee = char end
+			if d.billboard.Adornee ~= hrp  then d.billboard.Adornee = hrp  end
 
-			-- Atualiza cor do highlight
-			obj.hl.FillColor = espColor
-			obj.bgStroke.Color = espColor
+			-- cor do highlight
+			d.highlight.FillColor = espColor
 
-			-- Reancora se personagem mudou (respawn)
-			if obj.hl.Adornee ~= char then obj.hl.Adornee = char end
-			if obj.bb.Adornee ~= hrp then obj.bb.Adornee = hrp end
+			-- nome
+			d.nameLbl.Visible = showName
+			d.nameLbl.Text = target.DisplayName
 
-			-- Nome
-			obj.nameLbl.Visible = showName
-			obj.nameLbl.Text = target.DisplayName
+			-- hp bar
+			local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+			d.hpBg.Visible   = showHealth
+			d.hpFill.Size    = UDim2.new(pct, 0, 1, 0)
+			d.hpFill.BackgroundColor3 = hpColor(hum.Health, hum.MaxHealth)
 
-			-- HP bar
-			local hpPct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-			obj.hpBarBg.Visible = showHealth
-			obj.hpBarFill.Size = UDim2.new(hpPct, 0, 1, 0)
-			obj.hpBarFill.BackgroundColor3 = healthColor(hum.Health, hum.MaxHealth)
-
-			-- Info label (hp numérico)
-			if showHealth then
-				obj.infoLbl.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth) .. " hp"
-			else
-				obj.infoLbl.Text = ""
-			end
-			obj.infoLbl.Visible = showHealth
-
-			-- Distância
-			obj.distLbl.Visible = showDist
-			obj.distLbl.Text = dist .. "m"
-
-			-- Box: visibilidade do billboard
-			obj.bb.Enabled = showBox
+			-- distância
+			d.distLbl.Visible = showDist
+			d.distLbl.Text    = dist .. "m"
 		end
 	end)
 
 	Players.PlayerRemoving:Connect(removeESP)
 
-	-- Ao morrer e respawnar, recria o ESP
-	Players.PlayerAdded:Connect(function(target)
+	-- recria ao respawnar
+	local function watchCharacter(target)
 		target.CharacterAdded:Connect(function()
-			task.wait(1)
 			removeESP(target)
+			task.wait(1)
 			if espEnabled then createESP(target) end
 		end)
-	end)
-	for _, target in ipairs(Players:GetPlayers()) do
-		if target ~= player then
-			target.CharacterAdded:Connect(function()
-				task.wait(1)
-				removeESP(target)
-				if espEnabled then createESP(target) end
-			end)
-		end
 	end
+	for _, t in ipairs(Players:GetPlayers()) do
+		if t ~= player then watchCharacter(t) end
+	end
+	Players.PlayerAdded:Connect(watchCharacter)
 
-	-- UI toggles
+	-- toggles na UI
 	sec:Toggle("player esp", false, function(v)
 		espEnabled = v
-		if not v then clearAllESP() end
+		if not v then clearAll() end
 	end)
-
 	sec:Toggle("show name", true, function(v) showName = v end)
-	sec:Toggle("show health bar", true, function(v) showHealth = v end)
+	sec:Toggle("show health", true, function(v) showHealth = v end)
 	sec:Toggle("show distance", true, function(v) showDist = v end)
-
-	sec:Slider("max distance", 50, 1000, 500, function(v)
-		maxDist = v
-	end)
+	sec:Slider("max distance", 50, 1000, 500, function(v) maxDist = v end)
 end
 
--- ===== MINIMIZE / ÍCONE TOGGLE =====
+-- ===== MINIMIZE =====
 local minimized = false
 
 local function setMinimized(state)

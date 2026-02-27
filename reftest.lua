@@ -82,6 +82,12 @@ local Theme = {
 	Line   = Color3.fromRGB(60, 60, 72),
 }
 
+-- ===== CONFIG REGISTRY (definido cedo para poder ser usado em qualquer aba) =====
+local ConfigRegistry = {}
+local function cfgRegister(key, get, set)
+	table.insert(ConfigRegistry, {key=key, get=get, set=set})
+end
+
 -- ScreenGui
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ref_ui"
@@ -815,6 +821,8 @@ end
 local universal = Library:CreateTab("universal")
 local combat    = Library:CreateTab("combat")
 local visual    = Library:CreateTab("visual")
+local target_tab = Library:CreateTab("target")
+local config_tab = Library:CreateTab("config")
 universal._activate()
 
 -- ===== UNIVERSAL =====
@@ -831,7 +839,7 @@ do
 		end
 	end)
 	sec:Toggle("anti-afk", false, function(v) afkEnabled = v end)
-	cfgRegister("antiafk", function() return afkEnabled end, function(v) afkEnabled=v end)
+	cfgRegister("antiafk", function() return afkEnabled end, function(v) afkEnabled = v end)
 
 	sec:Divider("movement")
 
@@ -855,8 +863,8 @@ do
 		speedEnabled = v
 		applySpeed()
 	end)
-	cfgRegister("walkspeed_on", function() return speedEnabled end, function(v) speedEnabled=v applySpeed() end)
-	cfgRegister("walkspeed_val", function() return currentSpeed end, function(v) currentSpeed=v applySpeed() end)
+	cfgRegister("walkspeed_on", function() return speedEnabled end, function(v) speedEnabled = v applySpeed() end)
+	cfgRegister("walkspeed_val", function() return currentSpeed end, function(v) currentSpeed = v applySpeed() end)
 	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
 		currentSpeed = v
 		if speedEnabled then applySpeed() end
@@ -891,26 +899,16 @@ do
 		jumpEnabled = v
 		applyJump()
 	end)
-	cfgRegister("infjump", function() return jumpEnabled end, function(v) jumpEnabled=v applyJump() end)
+	cfgRegister("infjump", function() return jumpEnabled end, function(v) jumpEnabled = v applyJump() end)
 
 	sec:Divider("fly")
 
-	-- ================================================================
-	-- FLY — baseado no script FE R15 Animated Mobile Fly (desobfuscado)
-	-- - BodyVelocity + BodyGyro ambos com MaxForce/MaxTorque enormes
-	-- - Joystick via ControlModule:GetMoveVector() (igual ao original)
-	-- - Personagem fica deitado ao mover (CFrame.Angles -30 graus)
-	-- - Câmera define para onde o HRP aponta (gira o personagem)
-	-- - Parado = BodyVelocity.MaxForce zerado (cai naturalmente / flutua via gyro)
-	-- ================================================================
 	local flyEnabled = false
 	local flySpeed   = 50
-
 	local flyBV   = nil
 	local flyBG   = nil
 	local flyConn = nil
 
-	-- Carrega o ControlModule para GetMoveVector (funciona no mobile e PC)
 	local ControlModule = nil
 	local cmOk = pcall(function()
 		ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
@@ -921,8 +919,6 @@ do
 			local ok, v = pcall(function() return ControlModule:GetMoveVector() end)
 			if ok then return v end
 		end
-		-- fallback WASD
-		local cf = workspace.CurrentCamera.CFrame
 		local mv = Vector3.zero
 		if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv - Vector3.new(0,0,1) end
 		if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0,0,1) end
@@ -951,14 +947,12 @@ do
 	local function startFly()
 		stopFly()
 		flyEnabled = true
-
 		local char = player.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum then return end
 
-		-- Cria ou reutiliza BodyVelocity
 		flyBV = hrp:FindFirstChild("VelocityHandler_ref")
 		if not flyBV then
 			flyBV = Instance.new("BodyVelocity")
@@ -968,7 +962,6 @@ do
 		flyBV.MaxForce = Vector3.zero
 		flyBV.Velocity = Vector3.zero
 
-		-- Cria ou reutiliza BodyGyro
 		flyBG = hrp:FindFirstChild("GyroHandler_ref")
 		if not flyBG then
 			flyBG = Instance.new("BodyGyro")
@@ -991,8 +984,6 @@ do
 			if not h or not hm then return end
 
 			hm.PlatformStand = true
-
-			-- MaxForce SEMPRE ligado: BodyVelocity mantém posição no ar quando parado
 			flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
 			flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
 
@@ -1000,13 +991,11 @@ do
 			local lookVec = camCF.LookVector
 			local moveVec = getMoveVec()
 
-			-- CFrame base: HRP aponta na direção horizontal da câmera
 			local baseCF = CFrame.new(h.Position, h.Position + Vector3.new(lookVec.X, 0, lookVec.Z))
 			local poseCF = baseCF
 			local velocity = Vector3.zero
 
 			if moveVec.Magnitude > 0.01 then
-				-- Inclinações estéticas por direção
 				if moveVec.Z > 0 then
 					poseCF = baseCF * CFrame.Angles(math.rad(-30), 0, 0)
 				elseif moveVec.Z < 0 then
@@ -1019,10 +1008,9 @@ do
 				velocity = camCF.RightVector * (moveVec.X * flySpeed)
 					- camCF.LookVector    * (moveVec.Z * flySpeed)
 			end
-			-- Parado: poseCF = baseCF (ereto), velocity = zero → flutua no lugar
 
 			flyBV.Velocity = velocity
-			flyBG.CFrame   = poseCF  -- gyro trava a pose calculada (inclina e sustenta)
+			flyBG.CFrame   = poseCF
 		end)
 	end
 
@@ -1062,7 +1050,7 @@ do
 			end
 		end
 	end)
-	cfgRegister("noclip", function() return noclipEnabled end, function(v) noclipEnabled=v end)
+	cfgRegister("noclip", function() return noclipEnabled end, function(v) noclipEnabled = v end)
 
 	-- Spinbot
 	local spinEnabled = false
@@ -1083,7 +1071,6 @@ do
 		end
 	end)
 	sec:Slider("spin speed", 1, 30, 10, function(v) spinSpeed = v end)
-
 end
 
 -- ===== COMBAT =====
@@ -1200,8 +1187,8 @@ do
 		hitboxEnabled = v
 		if v then refreshAll() else revertAll() end
 	end)
-	cfgRegister("hitbox_on", function() return hitboxEnabled end, function(v) hitboxEnabled=v if v then refreshAll() else revertAll() end end)
-	cfgRegister("hitbox_size", function() return hitboxSize end, function(v) hitboxSize=v if hitboxEnabled then refreshAll() end end)
+	cfgRegister("hitbox_on", function() return hitboxEnabled end, function(v) hitboxEnabled = v if v then refreshAll() else revertAll() end end)
+	cfgRegister("hitbox_size", function() return hitboxSize end, function(v) hitboxSize = v if hitboxEnabled then refreshAll() end end)
 
 	sec:Slider("hitbox size", 4, 60, 10, function(v)
 		hitboxSize = v
@@ -1213,17 +1200,12 @@ do
 		if hitboxEnabled then refreshAll() end
 	end)
 
-	-- ================================================================
-	-- LOCK-ON — estilo Rocket League
-	-- Câmera livre mas rotação sempre apontando para o target.
-	-- Desativar: toggle ou Q
-	-- ================================================================
 	sec:Divider("lock-on")
 
 	local lockEnabled    = false
 	local lockConn       = nil
 	local lockToggleRef  = nil
-	local lockSilentStop = false  -- evita loop ao chamar Set(false) internamente
+	local lockSilentStop = false
 
 	local function getLockTarget()
 		return _G.ref_lockTarget
@@ -1263,10 +1245,9 @@ do
 	end
 
 	lockToggleRef = sec:Toggle("lock-on (target tab)", false, function(v)
-		if lockSilentStop then return end  -- ignora callbacks disparados internamente
+		if lockSilentStop then return end
 		if v then
 			if not getLockTarget() then
-				-- sem target: desliga silenciosamente sem loop
 				lockSilentStop = true
 				lockToggleRef.Set(false)
 				lockSilentStop = false
@@ -1281,7 +1262,6 @@ do
 		end
 	end)
 
-	-- Q para destravar
 	UserInputService.InputBegan:Connect(function(input, gp)
 		if gp then return end
 		if input.KeyCode == Enum.KeyCode.Q and lockEnabled then
@@ -1289,14 +1269,12 @@ do
 		end
 	end)
 
-	-- Para se target sair
 	Players.PlayerRemoving:Connect(function(p)
 		if p == getLockTarget() and lockEnabled then stopLock() end
 	end)
 end
 
 -- ===== TARGET =====
-local target_tab = Library:CreateTab("target")
 do
 	local targetPlayer = nil
 
@@ -1319,7 +1297,7 @@ do
 
 	local function setTarget(t)
 		targetPlayer = t
-		_G.ref_lockTarget = t  -- compartilha com o lock-on de combat
+		_G.ref_lockTarget = t
 		card.Set(t)
 	end
 
@@ -1339,7 +1317,6 @@ do
 		if p == targetPlayer then setTarget(nil) end
 	end)
 
-	-- ── Section 2: ações ──
 	local actionSec = target_tab:Section("actions")
 	actionSec:Divider("teleport")
 
@@ -1372,16 +1349,12 @@ do
 		end
 	end)
 
-	-- ================================================================
-	-- FOLLOW TARGET — rápido, agressivo, tipo perseguição real
-	-- ================================================================
 	local followEnabled   = false
 	local followBodyVel   = nil
 	local followBodyGyro  = nil
 	local followConn      = nil
-
-	local FOLLOW_SPEED    = 80   -- velocidade de perseguição (bem rápido)
-	local FOLLOW_STOP_DST = 3    -- distância para parar
+	local FOLLOW_SPEED    = 80
+	local FOLLOW_STOP_DST = 3
 
 	local function stopFollow()
 		followEnabled = false
@@ -1400,14 +1373,12 @@ do
 	local function startFollow()
 		stopFollow()
 		followEnabled = true
-
 		local char = player.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum then return end
 
-		-- Dash imediato até o target quando ativado
 		if targetPlayer and targetPlayer.Character then
 			local thrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
 			if thrp then
@@ -1457,10 +1428,7 @@ do
 			if dist <= FOLLOW_STOP_DST then
 				followBodyVel.Velocity = Vector3.zero
 			else
-				-- Velocidade máxima sempre, sem rampa (perseguição agressiva)
 				followBodyVel.Velocity = diff.Unit * FOLLOW_SPEED
-
-				-- Vira para o target
 				local look = Vector3.new(diff.X, 0, diff.Z)
 				if look.Magnitude > 0.01 then
 					followBodyGyro.CFrame = CFrame.new(Vector3.zero, look)
@@ -1478,14 +1446,12 @@ do
 		if v then startFollow() else stopFollow() end
 	end)
 
-	-- ── Section 3: extras ──
 	local extraSec = target_tab:Section("extras")
 	extraSec:Divider("spectate / orbit")
 
-	-- Spectate (terceira pessoa atrás do target)
 	local spectateConn   = nil
 	local spectateActive = false
-	local spectateDist   = 12  -- distância atrás do target
+	local spectateDist   = 12
 	local function stopSpectate()
 		spectateActive = false
 		if spectateConn then spectateConn:Disconnect() spectateConn = nil end
@@ -1502,7 +1468,6 @@ do
 			if not t or not t.Character then return end
 			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
 			if not thrp then return end
-			-- Terceira pessoa: câmera atrás e acima do target, olhando para ele
 			local lookDir = Vector3.new(thrp.CFrame.LookVector.X, 0, thrp.CFrame.LookVector.Z).Unit
 			local camPos  = thrp.Position - lookDir * spectateDist + Vector3.new(0, 4, 0)
 			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0)
@@ -1512,7 +1477,6 @@ do
 		end)
 	end)
 
-	-- Orbit
 	local orbitConn   = nil
 	local orbitActive = false
 	local orbitAngle  = 0
@@ -1556,7 +1520,6 @@ do
 	extraSec:Slider("orbit radius", 3, 25, 8, function(v) orbitRadius = v end)
 
 	extraSec:Divider("loop tp")
-	-- Loop Teleport
 	local loopTpActive = false
 	local loopTpConn   = nil
 	local function stopLoopTp()
@@ -1594,8 +1557,8 @@ do
 	local maxDist    = 500
 	local espColor   = Color3.fromRGB(120, 80, 255)
 
-	local camera    = workspace.CurrentCamera
-	local espData   = {}
+	local camera  = workspace.CurrentCamera
+	local espData = {}
 
 	local function hpColor(hp, maxHp)
 		local pct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
@@ -1725,7 +1688,6 @@ do
 			if d.billboard.Adornee ~= hrp  then d.billboard.Adornee = hrp  end
 
 			d.highlight.FillColor = espColor
-
 			d.nameLbl.Visible = showName
 			d.nameLbl.Text = target.DisplayName
 
@@ -1757,21 +1719,21 @@ do
 		espEnabled = v
 		if not v then clearAll() end
 	end)
-	cfgRegister("esp_on", function() return espEnabled end, function(v) espEnabled=v if not v then clearAll() end end)
+	cfgRegister("esp_on", function() return espEnabled end, function(v) espEnabled = v if not v then clearAll() end end)
 	sec:Toggle("show name", true, function(v) showName = v end)
 	sec:Toggle("show health", true, function(v) showHealth = v end)
 	sec:Toggle("show distance", true, function(v) showDist = v end)
 	sec:Slider("max distance", 50, 1000, 500, function(v) maxDist = v end)
 end
 
--- ===== VISUAL: EXTRAS (fullbright, chams, tracers) =====
+-- ===== VISUAL: WORLD (fullbright, chams, tracers) =====
 do
 	local sec2 = visual:Section("world")
 	sec2:Divider("fullbright")
 
-	-- Fullbright
 	local origAmbient, origOutdoor
 	local fbEnabled = false
+	-- FIX: fechamento correto do toggle (end) em vez de só `)`
 	sec2:Toggle("fullbright", false, function(v)
 		fbEnabled = v
 		if v then
@@ -1785,27 +1747,25 @@ do
 			game:GetService("Lighting").OutdoorAmbient = origOutdoor or Color3.fromRGB(70, 70, 70)
 			game:GetService("Lighting").Brightness     = 1
 		end
-)
+	end)
 	cfgRegister("fullbright", function() return fbEnabled end, function(v)
 		fbEnabled = v
 		if v then
-			game:GetService("Lighting").Ambient        = Color3.fromRGB(255,255,255)
-			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(255,255,255)
+			game:GetService("Lighting").Ambient        = Color3.fromRGB(255, 255, 255)
+			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(255, 255, 255)
 			game:GetService("Lighting").Brightness     = 2
 		else
-			game:GetService("Lighting").Ambient        = Color3.fromRGB(70,70,70)
-			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(70,70,70)
+			game:GetService("Lighting").Ambient        = Color3.fromRGB(70, 70, 70)
+			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(70, 70, 70)
 			game:GetService("Lighting").Brightness     = 1
 		end
 	end)
 
 	sec2:Divider("chams")
 
-	-- Chams: Highlight AlwaysOnTop com cor sólida (visível através de paredes)
-	-- Diferente do ESP (que tem nome/hp/distância), chams é puramente visual no corpo
 	local chamsEnabled  = false
-	local chamsColor    = Color3.fromRGB(255, 60, 60)   -- vermelho vivo por padrão
-	local chamsData     = {} -- [Player] = Highlight
+	local chamsColor    = Color3.fromRGB(255, 60, 60)
+	local chamsData     = {}
 
 	local function removeChams(target)
 		if chamsData[target] and chamsData[target].Parent then
@@ -1822,7 +1782,7 @@ do
 		hl.Name               = "ref_chams"
 		hl.DepthMode          = Enum.HighlightDepthMode.AlwaysOnTop
 		hl.FillColor          = chamsColor
-		hl.FillTransparency   = 0        -- sólido (sem transparência = cham clássico)
+		hl.FillTransparency   = 0
 		hl.OutlineColor       = Color3.fromRGB(255, 255, 255)
 		hl.OutlineTransparency = 0
 		hl.Adornee            = char
@@ -1838,7 +1798,6 @@ do
 		end
 	end
 
-	-- Atualiza cor em tempo real se mudar
 	RunService.Heartbeat:Connect(function()
 		if not chamsEnabled then return end
 		for _, t in ipairs(Players:GetPlayers()) do
@@ -1849,7 +1808,6 @@ do
 		end
 	end)
 
-	-- Reaplica ao respawnar
 	for _, t in ipairs(Players:GetPlayers()) do
 		if t ~= player then
 			t.CharacterAdded:Connect(function()
@@ -1872,17 +1830,16 @@ do
 		chamsEnabled = v
 		refreshChams()
 	end)
-	cfgRegister("chams", function() return chamsEnabled end, function(v) chamsEnabled=v refreshChams() end)
+	cfgRegister("chams", function() return chamsEnabled end, function(v) chamsEnabled = v refreshChams() end)
 
-	-- Tracer Lines (linhas da base da tela até cada player)
 	sec2:Divider("tracers")
 	local tracersEnabled = false
-	local tracerData     = {} -- [Player] = Line (Frame)
+	local tracerData     = {}
 	local tracerGui = Instance.new("ScreenGui")
-	tracerGui.Name         = "ref_tracers"
+	tracerGui.Name           = "ref_tracers"
 	tracerGui.IgnoreGuiInset = true
-	tracerGui.ResetOnSpawn = false
-	tracerGui.Parent       = pg
+	tracerGui.ResetOnSpawn   = false
+	tracerGui.Parent         = pg
 
 	local function removeTracer(t)
 		if tracerData[t] then
@@ -1909,12 +1866,10 @@ do
 			local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position + Vector3.new(0,2,0))
 			if not onScreen or screenPos.Z < 0 then removeTracer(t) continue end
 
-			-- Cria linha se não existir
 			if not tracerData[t] then
 				local line = Instance.new("Frame")
 				line.BackgroundColor3 = Theme.Accent
 				line.BorderSizePixel  = 0
-				-- AnchorPoint (0,0): posição = ponto A, rotação em torno do canto esquerdo
 				line.AnchorPoint      = Vector2.new(0, 0.5)
 				line.ZIndex           = 5
 				line.Parent           = tracerGui
@@ -1922,21 +1877,15 @@ do
 			end
 
 			local line = tracerData[t]
-
-			-- Origem: centro-inferior da tela (onde o personagem local está)
 			local ox = vp.X / 2
 			local oy = vp.Y
-
-			-- Destino: posição na tela do target
 			local tx = screenPos.X
 			local ty = screenPos.Y
-
 			local dx     = tx - ox
 			local dy     = ty - oy
 			local length = math.sqrt(dx*dx + dy*dy)
 			local angle  = math.deg(math.atan2(dy, dx))
 
-			-- Posição: começa na origem, esticada até o destino
 			line.Position = UDim2.new(0, ox, 0, oy)
 			line.Size     = UDim2.new(0, length, 0, 2)
 			line.Rotation = angle
@@ -1953,145 +1902,122 @@ do
 	end)
 end
 
--- ===== CONFIG SAVE / LOAD =====
--- Sistema de configs nomeadas com até 5 slots por usuário.
--- Armazenamento via _G.ref_configs[userId] (persiste enquanto o script estiver rodando).
--- Serialização/deserialização manual (JSON-like via tabelas Lua).
-
--- ── Estado dos toggles rastreados ──
--- Cada feature que quiser ser salva registra aqui após ser criada.
--- Formato: { key = "string", get = function()->value, set = function(value) }
-local ConfigRegistry = {}
-local function cfgRegister(key, get, set)
-	table.insert(ConfigRegistry, {key=key, get=get, set=set})
-end
-
--- ── Serialização simples de tabela para string JSON-like ──
-local function serialize(t)
-	local parts = {}
-	for k, v in pairs(t) do
-		local vstr
-		if type(v) == "boolean" then vstr = v and "true" or "false"
-		elseif type(v) == "number" then vstr = tostring(v)
-		elseif type(v) == "string" then vstr = '"' .. v:gsub('"','\\"') .. '"'
-		else vstr = "null" end
-		table.insert(parts, '"' .. tostring(k) .. '":' .. vstr)
+-- ===== CONFIG TAB =====
+do
+	-- Serialização simples de tabela para string JSON-like
+	local function serialize(t)
+		local parts = {}
+		for k, v in pairs(t) do
+			local vstr
+			if type(v) == "boolean" then vstr = v and "true" or "false"
+			elseif type(v) == "number" then vstr = tostring(v)
+			elseif type(v) == "string" then vstr = '"' .. v:gsub('"','\\"') .. '"'
+			else vstr = "null" end
+			table.insert(parts, '"' .. tostring(k) .. '":' .. vstr)
+		end
+		return "{" .. table.concat(parts, ",") .. "}"
 	end
-	return "{" .. table.concat(parts, ",") .. "}"
-end
 
-local function deserialize(s)
-	local t = {}
-	for k, vstr in s:gmatch('"([^"]+)":([^,}]+)') do
-		if vstr == "true" then t[k] = true
-		elseif vstr == "false" then t[k] = false
-		elseif tonumber(vstr) then t[k] = tonumber(vstr)
-		elseif vstr:match('^"(.*)"$') then t[k] = vstr:match('^"(.*)"$')
+	local function deserialize(s)
+		local t = {}
+		for k, vstr in s:gmatch('"([^"]+)":([^,}]+)') do
+			if vstr == "true" then t[k] = true
+			elseif vstr == "false" then t[k] = false
+			elseif tonumber(vstr) then t[k] = tonumber(vstr)
+			elseif vstr:match('^"(.*)"$') then t[k] = vstr:match('^"(.*)"$')
+			end
+		end
+		return t
+	end
+
+	local userId = tostring(player.UserId)
+	if not _G.ref_configs then _G.ref_configs = {} end
+	if not _G.ref_configs[userId] then _G.ref_configs[userId] = {} end
+	local UserConfigs = _G.ref_configs[userId]
+
+	local MAX_CONFIGS = 5
+
+	local function notify(text)
+		pcall(function()
+			game:GetService("StarterGui"):SetCore("SendNotification", {
+				Title    = "ref ui",
+				Text     = text,
+				Duration = 2,
+			})
+		end)
+	end
+
+	local function getConfigNames()
+		local names = {}
+		for k in pairs(UserConfigs) do table.insert(names, k) end
+		table.sort(names)
+		return names
+	end
+
+	local function captureState()
+		local state = {}
+		for _, c in ipairs(ConfigRegistry) do
+			state[c.key] = c.get()
+		end
+		return state
+	end
+
+	local function applyState(state)
+		for _, c in ipairs(ConfigRegistry) do
+			if state[c.key] ~= nil then
+				pcall(c.set, state[c.key])
+			end
 		end
 	end
-	return t
-end
 
--- ── Storage: _G.ref_configs[userId] = { [name] = jsonString, ... } ──
-local userId = tostring(player.UserId)
-if not _G.ref_configs then _G.ref_configs = {} end
-if not _G.ref_configs[userId] then _G.ref_configs[userId] = {} end
-local UserConfigs = _G.ref_configs[userId]  -- referência direta
+	local cfgSec = config_tab:Section("config")
+	cfgSec:Divider("slot")
 
-local MAX_CONFIGS = 5
+	local cfgNameInput = cfgSec:TextInput("name", "config name (max 16 chars)", nil)
 
-local function notify(text)
-	pcall(function()
-		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title    = "ref ui",
-			Text     = text,
-			Duration = 2,
-		})
+	cfgSec:Button("save", function()
+		local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
+		if name == "" then notify("type a config name first") return end
+		local names = getConfigNames()
+		local exists = UserConfigs[name] ~= nil
+		if not exists and #names >= MAX_CONFIGS then
+			notify("max 5 configs reached — delete one first")
+			return
+		end
+		UserConfigs[name] = serialize(captureState())
+		_G.ref_configs[userId] = UserConfigs
+		notify("saved: " .. name)
+	end)
+
+	cfgSec:Button("load", function()
+		local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
+		if name == "" then notify("type the config name to load") return end
+		local json = UserConfigs[name]
+		if not json then notify("config not found: " .. name) return end
+		applyState(deserialize(json))
+		notify("loaded: " .. name)
+	end)
+
+	cfgSec:Button("delete", function()
+		local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
+		if name == "" then notify("type the config name to delete") return end
+		if not UserConfigs[name] then notify("not found: " .. name) return end
+		UserConfigs[name] = nil
+		_G.ref_configs[userId] = UserConfigs
+		notify("deleted: " .. name)
+	end)
+
+	cfgSec:Divider("saved configs")
+
+	cfgSec:Button("list configs", function()
+		local names = getConfigNames()
+		if #names == 0 then
+			notify("no configs saved yet")
+		else
+			notify(#names .. "/5  —  " .. table.concat(names, ", "))
+		end
 	end)
 end
-
-local function getConfigNames()
-	local names = {}
-	for k in pairs(UserConfigs) do table.insert(names, k) end
-	table.sort(names)
-	return names
-end
-
-local function captureState()
-	local state = {}
-	for _, c in ipairs(ConfigRegistry) do
-		state[c.key] = c.get()
-	end
-	return state
-end
-
-local function applyState(state)
-	for _, c in ipairs(ConfigRegistry) do
-		if state[c.key] ~= nil then
-			pcall(c.set, state[c.key])
-		end
-	end
-end
-
--- ── UI ──
-local cfgSec = universal:Section("config")
-cfgSec:Divider("slot")
-
--- Input para nome da config
-local cfgNameInput = cfgSec:TextInput("name", "config name (max 16 chars)", nil)
-
--- Label que mostra configs salvas (atualizado dinamicamente)
-local function makeSlotLabel()
-	local names = getConfigNames()
-	if #names == 0 then return "no configs saved" end
-	return table.concat(names, "  |  ")
-end
-
--- Dropdown-like: input de nome + botões
-cfgSec:Button("save", function()
-	local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
-	if name == "" then notify("type a config name first") return end
-	local names = getConfigNames()
-	-- Verifica se já existe (sobrescreve) ou se atingiu limite
-	local exists = UserConfigs[name] ~= nil
-	if not exists and #names >= MAX_CONFIGS then
-		notify("max 5 configs reached — delete one first")
-		return
-	end
-	UserConfigs[name] = serialize(captureState())
-	_G.ref_configs[userId] = UserConfigs
-	notify("saved: " .. name)
-end)
-
-cfgSec:Button("load", function()
-	local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
-	if name == "" then notify("type the config name to load") return end
-	local json = UserConfigs[name]
-	if not json then notify("config not found: " .. name) return end
-	applyState(deserialize(json))
-	notify("loaded: " .. name)
-end)
-
-cfgSec:Button("delete", function()
-	local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
-	if name == "" then notify("type the config name to delete") return end
-	if not UserConfigs[name] then notify("not found: " .. name) return end
-	UserConfigs[name] = nil
-	_G.ref_configs[userId] = UserConfigs
-	notify("deleted: " .. name)
-end)
-
-cfgSec:Divider("saved configs")
-
--- Botão que lista as configs salvas no nome (clicável para copiar nome pro input)
-cfgSec:Button("list configs", function()
-	local names = getConfigNames()
-	if #names == 0 then
-		notify("no configs saved yet")
-	else
-		notify(#names .. "/5  —  " .. table.concat(names, ", "))
-	end
-end)
 
 -- ===== MINIMIZE =====
 local minimized = false

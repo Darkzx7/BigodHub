@@ -98,7 +98,6 @@ local EspGui = Instance.new("ScreenGui")
 EspGui.Name = "ref_esp"
 EspGui.IgnoreGuiInset = true
 EspGui.ResetOnSpawn = false
-EspGui.AlwaysOnTop = true   -- garante que o ESP renderiza sobre tudo, including paredes
 EspGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 EspGui.Parent = pg
 

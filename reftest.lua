@@ -903,28 +903,22 @@ do
 
 	sec:Divider("fly")
 
-	-- Fly — método clássico FE com ctrl table + repeat/task.spawn
+	-- Fly via CFrame direto no HRP — método mais universal, funciona com joystick
 	local flyEnabled = false
 	local flySpeed   = 50
-	local flyThread  = nil
+	local flyConn    = nil
 
 	local function stopFly()
 		flyEnabled = false
-		if flyThread then
-			task.cancel(flyThread)
-			flyThread = nil
-		end
+		if flyConn then flyConn:Disconnect() flyConn = nil end
 		local char = player.Character
 		if not char then return end
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			local bv = hrp:FindFirstChild("ref_bv")
-			local bg = hrp:FindFirstChild("ref_bg")
-			if bv then bv:Destroy() end
-			if bg then bg:Destroy() end
-		end
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then hum.PlatformStand = false end
+		if hum then
+			hum.PlatformStand = false
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
 	end
 
 	local function startFly()
@@ -937,86 +931,60 @@ do
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum then return end
 
-		local bg = Instance.new("BodyGyro", hrp)
-		bg.Name = "ref_bg"
-		bg.P = 9e4
-		bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-		bg.CFrame = hrp.CFrame
+		hum.PlatformStand = true
 
-		local bv = Instance.new("BodyVelocity", hrp)
-		bv.Name = "ref_bv"
-		bv.Velocity = Vector3.new(0, 0.1, 0)
-		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+		flyConn = RunService.RenderStepped:Connect(function()
+			if not flyEnabled then return end
+			char = player.Character
+			if not char then return end
+			hrp = char:FindFirstChild("HumanoidRootPart")
+			hum = char:FindFirstChildOfClass("Humanoid")
+			if not hrp or not hum then return end
 
-		local ctrl = {f=0, b=0, l=0, r=0}
-		local lastCtrl = {f=0, b=0, l=0, r=0}
-		local speed = 0
-		local maxSpeed = flySpeed
+			hum.PlatformStand = true
 
-		-- captura input
-		local conns = {}
-		conns[1] = UserInputService.InputBegan:Connect(function(inp, gp)
-			if gp then return end
-			if inp.KeyCode == Enum.KeyCode.W then ctrl.f = 1
-			elseif inp.KeyCode == Enum.KeyCode.S then ctrl.b = -1
-			elseif inp.KeyCode == Enum.KeyCode.A then ctrl.l = -1
-			elseif inp.KeyCode == Enum.KeyCode.D then ctrl.r = 1
-			end
-		end)
-		conns[2] = UserInputService.InputEnded:Connect(function(inp)
-			if inp.KeyCode == Enum.KeyCode.W then ctrl.f = 0
-			elseif inp.KeyCode == Enum.KeyCode.S then ctrl.b = 0
-			elseif inp.KeyCode == Enum.KeyCode.A then ctrl.l = 0
-			elseif inp.KeyCode == Enum.KeyCode.D then ctrl.r = 0
-			end
-		end)
+			local cam = workspace.CurrentCamera
+			local mv  = Vector3.zero
 
-		flyThread = task.spawn(function()
-			while flyEnabled do
-				task.wait()
-				if not hrp or not hrp.Parent then break end
-				maxSpeed = flySpeed
-				hum.PlatformStand = true
-
-				local cam = workspace.CurrentCamera
-				local cf  = cam.CoordinateFrame
-
-				local moving = (ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0)
-
-				if moving then
-					speed = math.min(speed + 0.5 + (speed / maxSpeed), maxSpeed)
-				elseif speed > 0 then
-					speed = math.max(speed - 1, 0)
-				end
-
-				if moving then
-					bv.Velocity = (
-						(cf.LookVector * (ctrl.f + ctrl.b)) +
-						((cf * CFrame.new(ctrl.l + ctrl.r, (ctrl.f + ctrl.b) * 0.2, 0).Position) - cf.Position)
-					) * speed
-					lastCtrl = {f=ctrl.f, b=ctrl.b, l=ctrl.l, r=ctrl.r}
-				elseif speed > 0 then
-					bv.Velocity = (
-						(cf.LookVector * (lastCtrl.f + lastCtrl.b)) +
-						((cf * CFrame.new(lastCtrl.l + lastCtrl.r, (lastCtrl.f + lastCtrl.b) * 0.2, 0).Position) - cf.Position)
-					) * speed
-				else
-					bv.Velocity = Vector3.new(0, 0.1, 0)
-				end
-
-				-- sobe/desce com Space/Ctrl
-				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-					bv.Velocity = Vector3.new(bv.Velocity.X, flySpeed * 0.6, bv.Velocity.Z)
-				elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-					or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-					bv.Velocity = Vector3.new(bv.Velocity.X, -flySpeed * 0.6, bv.Velocity.Z)
-				end
-
-				bg.CFrame = cf * CFrame.Angles(-math.rad((ctrl.f + ctrl.b) * 50 * speed / math.max(maxSpeed, 1)), 0, 0)
+			-- WASD ou joystick virtual (MoveVector da humanoid)
+			local moveVec = hum.MoveDirection
+			if moveVec.Magnitude > 0.1 then
+				-- usa direção do joystick relativa à câmera
+				mv = mv + Vector3.new(moveVec.X, 0, moveVec.Z)
 			end
 
-			-- limpa conexões ao sair do loop
-			for _, c in ipairs(conns) do c:Disconnect() end
+			-- teclado sobrescreve se ativo
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+				mv = mv + Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+				mv = mv - Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+				mv = mv - Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+				mv = mv + Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+			end
+
+			-- vertical
+			local vy = 0
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space)
+				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonA) then
+				vy = 1
+			elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+				vy = -1
+			end
+
+			local vel = Vector3.zero
+			if mv.Magnitude > 0 then
+				vel = mv.Unit * flySpeed
+			end
+			vel = vel + Vector3.new(0, vy * flySpeed * 0.6, 0)
+
+			-- move por CFrame direto — funciona em qualquer jogo
+			hrp.CFrame = hrp.CFrame + vel * (1/60)
 		end)
 	end
 
@@ -1026,12 +994,7 @@ do
 	end)
 
 	sec:Toggle("fly", false, function(v)
-		if v then
-			flyEnabled = true
-			startFly()
-		else
-			stopFly()
-		end
+		if v then startFly() else stopFly() end
 	end)
 
 	sec:Slider("fly speed", 10, 200, 50, function(v)
@@ -1176,15 +1139,13 @@ local target_tab = Library:CreateTab("target")
 do
 	local targetPlayer = nil
 
-	local sec = target_tab:Section("player")
-	sec:Divider("search")
+	-- ── Section 1: busca + card ──
+	local searchSec = target_tab:Section("search")
 
-	-- card do avatar
-	local card = sec:AvatarCard()
+	local card = searchSec:AvatarCard()
 
-	-- helper de busca
 	local function findPlayer(name)
-		if name == "" then return nil end
+		if not name or name == "" then return nil end
 		name = name:lower()
 		for _, p in ipairs(Players:GetPlayers()) do
 			if p ~= player then
@@ -1202,20 +1163,16 @@ do
 		card.Set(t)
 	end
 
-	local nickInput = sec:TextInput("nick", "ex: PlayerName", function(text, enter)
-		if enter then
-			local found = findPlayer(text)
-			setTarget(found)
-		end
+	local nickInput = searchSec:TextInput("nick", "username ou displayname", function(text, enter)
+		if enter then setTarget(findPlayer(text)) end
 	end)
 
-	sec:Button("search", function()
-		local found = findPlayer(nickInput.Get())
-		setTarget(found)
+	searchSec:Button("🔍  search", function()
+		setTarget(findPlayer(nickInput.Get()))
 	end)
 
-	-- atualiza HP do card em tempo real
-	RunService.RenderStepped:Connect(function()
+	-- atualiza hp do card em tempo real
+	RunService.Heartbeat:Connect(function()
 		if targetPlayer then card.UpdateHp(targetPlayer) end
 	end)
 
@@ -1223,72 +1180,44 @@ do
 		if p == targetPlayer then setTarget(nil) end
 	end)
 
-	sec:Divider("actions")
+	-- ── Section 2: ações ──
+	local actionSec = target_tab:Section("actions")
+	actionSec:Divider("teleport")
 
-	-- Teleport até o target
-	sec:Button("teleport to target", function()
+	actionSec:Button("→  teleport to target", function()
 		if not targetPlayer then return end
-		local char  = player.Character
-		local tchar = targetPlayer.Character
-		if not char or not tchar then return end
-		local hrp  = char:FindFirstChild("HumanoidRootPart")
-		local thrp = tchar:FindFirstChild("HumanoidRootPart")
-		if hrp and thrp then
-			hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, -3)
-		end
+		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and thrp then hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, -3) end
 	end)
 
-	-- Teleport do target até mim
-	sec:Button("bring target to me", function()
+	actionSec:Button("←  bring target to me", function()
 		if not targetPlayer then return end
-		local char  = player.Character
-		local tchar = targetPlayer.Character
-		if not char or not tchar then return end
-		local hrp  = char:FindFirstChild("HumanoidRootPart")
-		local thrp = tchar:FindFirstChild("HumanoidRootPart")
-		if hrp and thrp then
-			thrp.CFrame = hrp.CFrame * CFrame.new(3, 0, 0)
-		end
+		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and thrp then thrp.CFrame = hrp.CFrame * CFrame.new(3, 0, 0) end
 	end)
 
-	-- Olhar para o target
-	sec:Button("look at target", function()
+	actionSec:Divider("movement")
+
+	actionSec:Button("↑  look at target", function()
 		if not targetPlayer then return end
-		local char  = player.Character
-		local tchar = targetPlayer.Character
-		if not char or not tchar then return end
-		local hrp  = char:FindFirstChild("HumanoidRootPart")
-		local thrp = tchar:FindFirstChild("HumanoidRootPart")
-		if hrp and thrp then
-			hrp.CFrame = CFrame.new(hrp.Position, thrp.Position)
-		end
+		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and thrp then hrp.CFrame = CFrame.new(hrp.Position, thrp.Position) end
 	end)
 
-	-- Seguir target continuamente
-	local followEnabled = false
-	local followConn    = nil
-
-	sec:Toggle("follow target", false, function(v)
-		followEnabled = v
-		if not v then
-			if followConn then followConn:Disconnect() followConn = nil end
-			return
-		end
+	local followConn = nil
+	actionSec:Toggle("follow target", false, function(v)
+		if followConn then followConn:Disconnect() followConn = nil end
+		if not v then return end
 		followConn = RunService.RenderStepped:Connect(function()
-			if not followEnabled or not targetPlayer then return end
-			local char  = player.Character
-			local tchar = targetPlayer.Character
-			if not char or not tchar then return end
-			local hrp  = char:FindFirstChild("HumanoidRootPart")
-			local thrp = tchar:FindFirstChild("HumanoidRootPart")
-			if hrp and thrp then
-				local dist = (hrp.Position - thrp.Position).Magnitude
-				if dist > 4 then
-					hrp.CFrame = hrp.CFrame:Lerp(
-						thrp.CFrame * CFrame.new(0, 0, -3),
-						0.15
-					)
-				end
+			if not targetPlayer then return end
+			local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+			local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if not hrp or not thrp then return end
+			if (hrp.Position - thrp.Position).Magnitude > 4 then
+				hrp.CFrame = hrp.CFrame:Lerp(thrp.CFrame * CFrame.new(0, 0, -3), 0.15)
 			end
 		end)
 	end)

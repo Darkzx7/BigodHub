@@ -892,65 +892,91 @@ do
 	sec:Divider("fly")
 
 	-- ================================================================
-	-- FLY — método exato do InfiniteYield
-	-- BodyGyro.MaxTorque Y = 0 → não interfere no eixo vertical
-	-- BodyForce cancela gravidade para flutuar no lugar
-	-- W/S/A/D + câmera (inclui Y), Space sobe, Ctrl/Shift desce
+	-- FLY — baseado no script FE R15 Animated Mobile Fly (desobfuscado)
+	-- - BodyVelocity + BodyGyro ambos com MaxForce/MaxTorque enormes
+	-- - Joystick via ControlModule:GetMoveVector() (igual ao original)
+	-- - Personagem fica deitado ao mover (CFrame.Angles -30 graus)
+	-- - Câmera define para onde o HRP aponta (gira o personagem)
+	-- - Parado = BodyVelocity.MaxForce zerado (cai naturalmente / flutua via gyro)
 	-- ================================================================
 	local flyEnabled = false
 	local flySpeed   = 50
 
 	local flyBV   = nil
 	local flyBG   = nil
-	local flyBF   = nil
 	local flyConn = nil
 
-	local function cleanFly()
-		if flyBV and flyBV.Parent then flyBV:Destroy() end
-		if flyBG and flyBG.Parent then flyBG:Destroy() end
-		if flyBF and flyBF.Parent then flyBF:Destroy() end
-		flyBV, flyBG, flyBF = nil, nil, nil
+	-- Carrega o ControlModule para GetMoveVector (funciona no mobile e PC)
+	local ControlModule = nil
+	local cmOk = pcall(function()
+		ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
+	end)
+
+	local function getMoveVec()
+		if ControlModule and cmOk then
+			local ok, v = pcall(function() return ControlModule:GetMoveVector() end)
+			if ok then return v end
+		end
+		-- fallback WASD
+		local cf = workspace.CurrentCamera.CFrame
+		local mv = Vector3.zero
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv - Vector3.new(0,0,1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0,0,1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv - Vector3.new(1,0,0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new(1,0,0) end
+		return mv
 	end
 
 	local function stopFly()
 		flyEnabled = false
 		if flyConn then flyConn:Disconnect() flyConn = nil end
-		cleanFly()
+		if flyBV and flyBV.Parent then
+			flyBV.MaxForce = Vector3.zero
+			flyBV.Velocity = Vector3.zero
+		end
+		if flyBG and flyBG.Parent then
+			flyBG.MaxTorque = Vector3.zero
+		end
 		local char = player.Character
-		if not char then return end
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then hum.PlatformStand = false end
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.PlatformStand = false end
+		end
 	end
 
 	local function startFly()
 		stopFly()
 		flyEnabled = true
+
 		local char = player.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum then return end
 
-		hum.PlatformStand = true
-
-		flyBV = Instance.new("BodyVelocity")
+		-- Cria ou reutiliza BodyVelocity
+		flyBV = hrp:FindFirstChild("VelocityHandler_ref")
+		if not flyBV then
+			flyBV = Instance.new("BodyVelocity")
+			flyBV.Name = "VelocityHandler_ref"
+			flyBV.Parent = hrp
+		end
+		flyBV.MaxForce = Vector3.zero
 		flyBV.Velocity = Vector3.zero
-		flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-		flyBV.P        = 2e4
-		flyBV.Parent   = hrp
 
-		-- Y=0 é a chave: gyro só mantém ereto (X/Z), nunca briga com velocidade vertical
-		flyBG = Instance.new("BodyGyro")
-		flyBG.MaxTorque = Vector3.new(4e5, 0, 4e5)
-		flyBG.P         = 2e4
-		flyBG.D         = 100
-		flyBG.CFrame    = hrp.CFrame
-		flyBG.Parent    = hrp
+		-- Cria ou reutiliza BodyGyro
+		flyBG = hrp:FindFirstChild("GyroHandler_ref")
+		if not flyBG then
+			flyBG = Instance.new("BodyGyro")
+			flyBG.Name = "GyroHandler_ref"
+			flyBG.Parent = hrp
+		end
+		flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+		flyBG.P   = 1000
+		flyBG.D   = 50
+		flyBG.CFrame = hrp.CFrame
 
-		-- Cancela gravidade para flutuar parado
-		flyBF = Instance.new("BodyForce")
-		flyBF.Force  = Vector3.new(0, workspace.Gravity * hrp:GetMass(), 0)
-		flyBF.Parent = hrp
+		hum.PlatformStand = true
 
 		flyConn = RunService.RenderStepped:Connect(function()
 			if not flyEnabled then return end
@@ -961,41 +987,35 @@ do
 			if not h or not hm then return end
 
 			hm.PlatformStand = true
-			if flyBF and flyBF.Parent then
-				flyBF.Force = Vector3.new(0, workspace.Gravity * h:GetMass(), 0)
+
+			local camCF   = workspace.CurrentCamera.CFrame
+			local lookVec = camCF.LookVector
+			local moveVec = getMoveVec()        -- joystick / WASD no espaço local
+			local velocity = Vector3.zero
+
+			-- Câmera define para onde o HRP aponta (plano horizontal)
+			h.CFrame = CFrame.new(h.Position, h.Position + Vector3.new(lookVec.X, 0, lookVec.Z))
+
+			if moveVec.Magnitude ~= 0 then
+				flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+				-- Inclina personagem para frente ao mover (estético, como o original)
+				if moveVec.Z > 0 then
+					h.CFrame = h.CFrame * CFrame.Angles(math.rad(-30), 0, 0)
+				end
+
+				-- Converte moveVec (espaço local) para espaço mundo via câmera
+				-- X = strafe (direita/esquerda), Z = forward/backward (invertido no Roblox)
+				velocity = camCF.RightVector * (moveVec.X * flySpeed)
+					- camCF.LookVector    * (moveVec.Z * flySpeed)
+			else
+				flyBV.MaxForce = Vector3.zero
 			end
 
-			local cf = workspace.CurrentCamera.CFrame
-			local mv = Vector3.zero
+			flyBV.Velocity = velocity
 
-			if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + cf.LookVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv - cf.LookVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv - cf.RightVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + cf.RightVector end
-
-			-- Mobile joystick
-			if hm.MoveDirection.Magnitude > 0.1 then
-				local yaw = CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
-				mv = mv + yaw * hm.MoveDirection
-			end
-
-			-- Vertical dedicado
-			if UserInputService:IsKeyDown(Enum.KeyCode.Space)
-				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonA) then
-				mv = mv + Vector3.new(0, 1, 0)
-			elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonB) then
-				mv = mv - Vector3.new(0, 1, 0)
-			end
-
-			flyBV.Velocity = mv.Magnitude > 0.01 and mv.Unit * flySpeed or Vector3.zero
-
-			-- Gyro aponta para frente da câmera (só horizontal, personagem ereto)
-			local flat = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
-			if flat.Magnitude > 0.01 then
-				flyBG.CFrame = CFrame.new(Vector3.zero, flat)
-			end
+			-- BodyGyro mantém a pose (deitado ou ereto conforme o CFrame acima)
+			flyBG.CFrame = h.CFrame
 		end)
 	end
 

@@ -125,6 +125,7 @@ Topbar.Size = UDim2.new(1, 0, 0, 48)
 Topbar.BackgroundColor3 = Theme.Panel2
 Topbar.Parent = Main
 addCorner(Topbar, 14)
+
 local AccentLine = Instance.new("Frame")
 AccentLine.BackgroundColor3 = Theme.Accent
 AccentLine.BorderSizePixel = 0
@@ -132,42 +133,32 @@ AccentLine.Size = UDim2.new(1, 0, 0, 1)
 AccentLine.Position = UDim2.new(0, 0, 1, -1)
 AccentLine.BackgroundTransparency = 0.35
 AccentLine.Parent = Topbar
-local TitleWrap = Instance.new("Frame")
-TitleWrap.BackgroundTransparency = 1
-TitleWrap.Size = UDim2.new(0, 180, 0, 24)
-TitleWrap.AnchorPoint = Vector2.new(0.5, 0.5)
-TitleWrap.Position = UDim2.new(0.5, 0, 0.5, 0)
-TitleWrap.Parent = Topbar
-local TitleA = Instance.new("TextLabel")
-TitleA.BackgroundTransparency = 1
-TitleA.Size = UDim2.new(0, 60, 1, 0)
-TitleA.Position = UDim2.new(0.5, -30, 0, 0)
-TitleA.Font = Enum.Font.GothamSemibold
-TitleA.Text = "ref"
-TitleA.TextSize = 18
-TitleA.TextColor3 = Theme.Text
-TitleA.TextXAlignment = Enum.TextXAlignment.Right
-TitleA.Parent = TitleWrap
-local TitleB = Instance.new("TextLabel")
-TitleB.BackgroundTransparency = 1
-TitleB.Size = UDim2.new(0, 50, 1, 0)
-TitleB.Position = UDim2.new(0.5, 32, 0, 0)
-TitleB.Font = Enum.Font.Gotham
-TitleB.Text = "ui"
-TitleB.TextSize = 14
-TitleB.TextColor3 = Theme.Sub
-TitleB.TextXAlignment = Enum.TextXAlignment.Left
-TitleB.Parent = TitleWrap
-local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 36, 0, 28)
-MinBtn.Position = UDim2.new(1, -48, 0.5, -14)
-MinBtn.BackgroundColor3 = Theme.Panel
-MinBtn.Text = "–"
-MinBtn.Font = Enum.Font.GothamSemibold
-MinBtn.TextSize = 18
-MinBtn.TextColor3 = Theme.Text
-MinBtn.AutoButtonColor = false
-MinBtn.Parent = Topbar
+
+-- ====== TITLE ICON CENTRALIZADO ======
+local TitleIconBg = Instance.new("Frame")
+TitleIconBg.Name = "TitleIconBg"
+TitleIconBg.AnchorPoint = Vector2.new(0.5, 0.5)
+TitleIconBg.Position = UDim2.new(0.5, 0, 0.5, 0)
+TitleIconBg.Size = UDim2.new(0, 34, 0, 34)
+TitleIconBg.BackgroundColor3 = Theme.Panel
+TitleIconBg.BackgroundTransparency = 0.25
+TitleIconBg.BorderSizePixel = 0
+TitleIconBg.ZIndex = 2
+TitleIconBg.Parent = Topbar
+addCorner(TitleIconBg, 12)
+addStroke(TitleIconBg, 1, 0.88, Theme.Stroke)
+
+local TitleIcon = Instance.new("ImageLabel")
+TitleIcon.Name = "TitleIcon"
+TitleIcon.BackgroundTransparency = 1
+TitleIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+TitleIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+TitleIcon.Size = UDim2.new(0, 26, 0, 26)
+TitleIcon.Image = "rbxassetid://131165537896572"
+TitleIcon.ScaleType = Enum.ScaleType.Fit
+TitleIcon.ImageTransparency = 0
+TitleIcon.ZIndex = 3
+TitleIcon.Parent = TitleIconBg
 addCorner(MinBtn, 9)
 addStroke(MinBtn, 1, 0.82, Theme.Stroke)
 MinBtn.MouseEnter:Connect(function()

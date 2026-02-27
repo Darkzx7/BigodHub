@@ -465,7 +465,13 @@ function Library:CreateTab(name)
 			end)
 			return {
 				Get = function() return state end,
-				Set = function(v) state = v render() if callback then callback(state) end end,
+				-- FIX: Set agora dispara o callback, que é quem realmente ativa/desativa a função
+				Set = function(v)
+					if state == v then return end -- evita double-trigger
+					state = v
+					render()
+					if callback then callback(state) end
+				end,
 			}
 		end
 		function secObj:Slider(text, min, max, default, callback)
@@ -749,11 +755,11 @@ do
 		applySpeed()
 	end)
 	cfgRegister("walkspeed_on", function() return speedEnabled end, function(v) t_wspd.Set(v) end)
-	cfgRegister("walkspeed_val", function() return currentSpeed end, function(v) currentSpeed = v applySpeed() end)
-	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
+	local s_wspd = sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
 		currentSpeed = v
 		if speedEnabled then applySpeed() end
 	end)
+	cfgRegister("walkspeed_val", function() return currentSpeed end, function(v) s_wspd.Set(v) end)
 	local jumpEnabled = false
 	local jumpConn = nil
 	local function applyJump()
@@ -882,12 +888,14 @@ do
 		task.wait(0.5)
 		if flyEnabled then startFly() end
 	end)
-	sec:Toggle("fly", false, function(v)
+	local t_fly = sec:Toggle("fly", false, function(v)
 		if v then startFly() else stopFly() end
 	end)
-	sec:Slider("fly speed", 10, 200, 50, function(v)
+	cfgRegister("fly_on", function() return flyEnabled end, function(v) t_fly.Set(v) end)
+	local s_fly = sec:Slider("fly speed", 10, 200, 50, function(v)
 		flySpeed = v
 	end)
+	cfgRegister("fly_speed", function() return flySpeed end, function(v) s_fly.Set(v) end)
 	sec:Divider("misc")
 	local noclipEnabled = false
 	RunService.Stepped:Connect(function()
@@ -913,9 +921,10 @@ do
 	local spinEnabled = false
 	local spinConn    = nil
 	local spinSpeed   = 10
-	sec:Toggle("spinbot", false, function(v)
+	local t_spin = sec:Toggle("spinbot", false, function(v)
 		spinEnabled = v
 		if v then
+			if spinConn then spinConn:Disconnect() end
 			spinConn = RunService.RenderStepped:Connect(function()
 				if not spinEnabled then return end
 				local char = player.Character
@@ -927,7 +936,9 @@ do
 			if spinConn then spinConn:Disconnect() spinConn = nil end
 		end
 	end)
-	sec:Slider("spin speed", 1, 30, 10, function(v) spinSpeed = v end)
+	cfgRegister("spinbot", function() return spinEnabled end, function(v) t_spin.Set(v) end)
+	local s_spin = sec:Slider("spin speed", 1, 30, 10, function(v) spinSpeed = v end)
+	cfgRegister("spin_speed", function() return spinSpeed end, function(v) s_spin.Set(v) end)
 end
 do
 	local sec = combat:Section("main")
@@ -1031,15 +1042,16 @@ do
 		if v then refreshAll() else revertAll() end
 	end)
 	cfgRegister("hitbox_on", function() return hitboxEnabled end, function(v) t_hitbox.Set(v) end)
-	cfgRegister("hitbox_size", function() return hitboxSize end, function(v) hitboxSize = v if hitboxEnabled then refreshAll() end end)
-	sec:Slider("hitbox size", 4, 60, 10, function(v)
+	local s_hitbox = sec:Slider("hitbox size", 4, 60, 10, function(v)
 		hitboxSize = v
 		if hitboxEnabled then refreshAll() end
 	end)
-	sec:Toggle("visualize range", false, function(v)
+	cfgRegister("hitbox_size", function() return hitboxSize end, function(v) s_hitbox.Set(v) end)
+	local t_vis = sec:Toggle("visualize range", false, function(v)
 		visualizeRange = v
 		if hitboxEnabled then refreshAll() end
 	end)
+	cfgRegister("hitbox_vis", function() return visualizeRange end, function(v) t_vis.Set(v) end)
 	sec:Divider("lock-on")
 	local lockEnabled    = false
 	local lockConn       = nil
@@ -1489,10 +1501,14 @@ do
 		if not v then clearAll() end
 	end)
 	cfgRegister("esp_on", function() return espEnabled end, function(v) t_esp.Set(v) end)
-	sec:Toggle("show name", true, function(v) showName = v end)
-	sec:Toggle("show health", true, function(v) showHealth = v end)
-	sec:Toggle("show distance", true, function(v) showDist = v end)
-	sec:Slider("max distance", 50, 1000, 500, function(v) maxDist = v end)
+	local t_espname = sec:Toggle("show name", true, function(v) showName = v end)
+	cfgRegister("esp_name", function() return showName end, function(v) t_espname.Set(v) end)
+	local t_esphp = sec:Toggle("show health", true, function(v) showHealth = v end)
+	cfgRegister("esp_health", function() return showHealth end, function(v) t_esphp.Set(v) end)
+	local t_espdist = sec:Toggle("show distance", true, function(v) showDist = v end)
+	cfgRegister("esp_dist", function() return showDist end, function(v) t_espdist.Set(v) end)
+	local s_espdist = sec:Slider("max distance", 50, 1000, 500, function(v) maxDist = v end)
+	cfgRegister("esp_maxdist", function() return maxDist end, function(v) s_espdist.Set(v) end)
 end
 do
 	local sec2 = visual:Section("world")
@@ -1628,10 +1644,11 @@ do
 			line.Rotation = angle
 		end
 	end)
-	sec2:Toggle("tracers", false, function(v)
+	local t_tracers = sec2:Toggle("tracers", false, function(v)
 		tracersEnabled = v
 		if not v then clearTracers() end
 	end)
+	cfgRegister("tracers", function() return tracersEnabled end, function(v) t_tracers.Set(v) end)
 	Players.PlayerRemoving:Connect(function(p)
 		removeTracer(p)
 	end)

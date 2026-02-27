@@ -831,6 +831,7 @@ do
 		end
 	end)
 	sec:Toggle("anti-afk", false, function(v) afkEnabled = v end)
+	cfgRegister("antiafk", function() return afkEnabled end, function(v) afkEnabled=v end)
 
 	sec:Divider("movement")
 
@@ -854,6 +855,8 @@ do
 		speedEnabled = v
 		applySpeed()
 	end)
+	cfgRegister("walkspeed_on", function() return speedEnabled end, function(v) speedEnabled=v applySpeed() end)
+	cfgRegister("walkspeed_val", function() return currentSpeed end, function(v) currentSpeed=v applySpeed() end)
 	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
 		currentSpeed = v
 		if speedEnabled then applySpeed() end
@@ -888,6 +891,7 @@ do
 		jumpEnabled = v
 		applyJump()
 	end)
+	cfgRegister("infjump", function() return jumpEnabled end, function(v) jumpEnabled=v applyJump() end)
 
 	sec:Divider("fly")
 
@@ -1058,6 +1062,7 @@ do
 			end
 		end
 	end)
+	cfgRegister("noclip", function() return noclipEnabled end, function(v) noclipEnabled=v end)
 
 	-- Spinbot
 	local spinEnabled = false
@@ -1195,6 +1200,8 @@ do
 		hitboxEnabled = v
 		if v then refreshAll() else revertAll() end
 	end)
+	cfgRegister("hitbox_on", function() return hitboxEnabled end, function(v) hitboxEnabled=v if v then refreshAll() else revertAll() end end)
+	cfgRegister("hitbox_size", function() return hitboxSize end, function(v) hitboxSize=v if hitboxEnabled then refreshAll() end end)
 
 	sec:Slider("hitbox size", 4, 60, 10, function(v)
 		hitboxSize = v
@@ -1320,7 +1327,7 @@ do
 		if enter then setTarget(findPlayer(text)) end
 	end)
 
-	searchSec:Button("🔍  search", function()
+	searchSec:Button("search", function()
 		setTarget(findPlayer(nickInput.Get()))
 	end)
 
@@ -1336,7 +1343,7 @@ do
 	local actionSec = target_tab:Section("actions")
 	actionSec:Divider("teleport")
 
-	actionSec:Button("→  teleport to target", function()
+	actionSec:Button("teleport to target", function()
 		if not targetPlayer then return end
 		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1345,7 +1352,7 @@ do
 		end
 	end)
 
-	actionSec:Button("←  bring target to me", function()
+	actionSec:Button("bring target to me", function()
 		if not targetPlayer then return end
 		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1356,7 +1363,7 @@ do
 
 	actionSec:Divider("movement")
 
-	actionSec:Button("↑  look at target", function()
+	actionSec:Button("look at target", function()
 		if not targetPlayer then return end
 		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1750,6 +1757,7 @@ do
 		espEnabled = v
 		if not v then clearAll() end
 	end)
+	cfgRegister("esp_on", function() return espEnabled end, function(v) espEnabled=v if not v then clearAll() end end)
 	sec:Toggle("show name", true, function(v) showName = v end)
 	sec:Toggle("show health", true, function(v) showHealth = v end)
 	sec:Toggle("show distance", true, function(v) showDist = v end)
@@ -1775,6 +1783,18 @@ do
 		else
 			game:GetService("Lighting").Ambient        = origAmbient or Color3.fromRGB(70, 70, 70)
 			game:GetService("Lighting").OutdoorAmbient = origOutdoor or Color3.fromRGB(70, 70, 70)
+			game:GetService("Lighting").Brightness     = 1
+		end
+)
+	cfgRegister("fullbright", function() return fbEnabled end, function(v)
+		fbEnabled = v
+		if v then
+			game:GetService("Lighting").Ambient        = Color3.fromRGB(255,255,255)
+			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(255,255,255)
+			game:GetService("Lighting").Brightness     = 2
+		else
+			game:GetService("Lighting").Ambient        = Color3.fromRGB(70,70,70)
+			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(70,70,70)
 			game:GetService("Lighting").Brightness     = 1
 		end
 	end)
@@ -1852,6 +1872,7 @@ do
 		chamsEnabled = v
 		refreshChams()
 	end)
+	cfgRegister("chams", function() return chamsEnabled end, function(v) chamsEnabled=v refreshChams() end)
 
 	-- Tracer Lines (linhas da base da tela até cada player)
 	sec2:Divider("tracers")
@@ -1933,67 +1954,143 @@ do
 end
 
 -- ===== CONFIG SAVE / LOAD =====
--- Salva o estado de todos os toggles no _G.ref_config para persistir entre reexecuções
--- O save é automático ao mudar qualquer toggle, load é automático ao iniciar
+-- Sistema de configs nomeadas com até 5 slots por usuário.
+-- Armazenamento via _G.ref_configs[userId] (persiste enquanto o script estiver rodando).
+-- Serialização/deserialização manual (JSON-like via tabelas Lua).
 
-local ConfigKeys = {} -- {key, getFunc, setFunc}
-
-local function registerConfig(key, get, set)
-	table.insert(ConfigKeys, {key = key, get = get, set = set})
+-- ── Estado dos toggles rastreados ──
+-- Cada feature que quiser ser salva registra aqui após ser criada.
+-- Formato: { key = "string", get = function()->value, set = function(value) }
+local ConfigRegistry = {}
+local function cfgRegister(key, get, set)
+	table.insert(ConfigRegistry, {key=key, get=get, set=set})
 end
 
-local function saveConfig()
-	local cfg = {}
-	for _, c in ipairs(ConfigKeys) do
-		cfg[c.key] = c.get()
+-- ── Serialização simples de tabela para string JSON-like ──
+local function serialize(t)
+	local parts = {}
+	for k, v in pairs(t) do
+		local vstr
+		if type(v) == "boolean" then vstr = v and "true" or "false"
+		elseif type(v) == "number" then vstr = tostring(v)
+		elseif type(v) == "string" then vstr = '"' .. v:gsub('"','\\"') .. '"'
+		else vstr = "null" end
+		table.insert(parts, '"' .. tostring(k) .. '":' .. vstr)
 	end
-	_G.ref_config = cfg
+	return "{" .. table.concat(parts, ",") .. "}"
 end
 
-local function loadConfig()
-	local cfg = _G.ref_config
-	if not cfg then return end
-	for _, c in ipairs(ConfigKeys) do
-		if cfg[c.key] ~= nil then
-			c.set(cfg[c.key])
+local function deserialize(s)
+	local t = {}
+	for k, vstr in s:gmatch('"([^"]+)":([^,}]+)') do
+		if vstr == "true" then t[k] = true
+		elseif vstr == "false" then t[k] = false
+		elseif tonumber(vstr) then t[k] = tonumber(vstr)
+		elseif vstr:match('^"(.*)"$') then t[k] = vstr:match('^"(.*)"$')
+		end
+	end
+	return t
+end
+
+-- ── Storage: _G.ref_configs[userId] = { [name] = jsonString, ... } ──
+local userId = tostring(player.UserId)
+if not _G.ref_configs then _G.ref_configs = {} end
+if not _G.ref_configs[userId] then _G.ref_configs[userId] = {} end
+local UserConfigs = _G.ref_configs[userId]  -- referência direta
+
+local MAX_CONFIGS = 5
+
+local function notify(text)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title    = "ref ui",
+			Text     = text,
+			Duration = 2,
+		})
+	end)
+end
+
+local function getConfigNames()
+	local names = {}
+	for k in pairs(UserConfigs) do table.insert(names, k) end
+	table.sort(names)
+	return names
+end
+
+local function captureState()
+	local state = {}
+	for _, c in ipairs(ConfigRegistry) do
+		state[c.key] = c.get()
+	end
+	return state
+end
+
+local function applyState(state)
+	for _, c in ipairs(ConfigRegistry) do
+		if state[c.key] ~= nil then
+			pcall(c.set, state[c.key])
 		end
 	end
 end
 
--- Wrapper que auto-salva quando o toggle muda
-local _origToggle = nil -- não precisa, usamos registerConfig diretamente nos toggles abaixo
-
--- Registra configs dos principais toggles (referenciando os toggleRef que já existem)
--- Feito via _G para os toggles que foram criados acima
--- Exemplo de uso: após criar um toggle, chame registerConfig("key", get, set)
-
--- Botões na UI
+-- ── UI ──
 local cfgSec = universal:Section("config")
-cfgSec:Button("💾  save config", function()
-	saveConfig()
-	-- Notificação visual rápida
-	local cam = workspace.CurrentCamera
-	game:GetService("StarterGui"):SetCore("SendNotification", {
-		Title = "ref ui",
-		Text  = "config saved!",
-		Duration = 2,
-	})
+cfgSec:Divider("slot")
+
+-- Input para nome da config
+local cfgNameInput = cfgSec:TextInput("name", "config name (max 16 chars)", nil)
+
+-- Label que mostra configs salvas (atualizado dinamicamente)
+local function makeSlotLabel()
+	local names = getConfigNames()
+	if #names == 0 then return "no configs saved" end
+	return table.concat(names, "  |  ")
+end
+
+-- Dropdown-like: input de nome + botões
+cfgSec:Button("save", function()
+	local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
+	if name == "" then notify("type a config name first") return end
+	local names = getConfigNames()
+	-- Verifica se já existe (sobrescreve) ou se atingiu limite
+	local exists = UserConfigs[name] ~= nil
+	if not exists and #names >= MAX_CONFIGS then
+		notify("max 5 configs reached — delete one first")
+		return
+	end
+	UserConfigs[name] = serialize(captureState())
+	_G.ref_configs[userId] = UserConfigs
+	notify("saved: " .. name)
 end)
-cfgSec:Button("📂  load config", function()
-	loadConfig()
-	game:GetService("StarterGui"):SetCore("SendNotification", {
-		Title = "ref ui",
-		Text  = "config loaded!",
-		Duration = 2,
-	})
+
+cfgSec:Button("load", function()
+	local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
+	if name == "" then notify("type the config name to load") return end
+	local json = UserConfigs[name]
+	if not json then notify("config not found: " .. name) return end
+	applyState(deserialize(json))
+	notify("loaded: " .. name)
 end)
-cfgSec:Button("🗑️  clear config", function()
-	_G.ref_config = nil
-	game:GetService("StarterGui"):SetCore("SendNotification", {
-		Title = "ref ui",
-		Text  = "config cleared.",
-		Duration = 2,
-	})
+
+cfgSec:Button("delete", function()
+	local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
+	if name == "" then notify("type the config name to delete") return end
+	if not UserConfigs[name] then notify("not found: " .. name) return end
+	UserConfigs[name] = nil
+	_G.ref_configs[userId] = UserConfigs
+	notify("deleted: " .. name)
+end)
+
+cfgSec:Divider("saved configs")
+
+-- Botão que lista as configs salvas no nome (clicável para copiar nome pro input)
+cfgSec:Button("list configs", function()
+	local names = getConfigNames()
+	if #names == 0 then
+		notify("no configs saved yet")
+	else
+		notify(#names .. "/5  —  " .. table.concat(names, ", "))
+	end
 end)
 
 -- ===== MINIMIZE =====

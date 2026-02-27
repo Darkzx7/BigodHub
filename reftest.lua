@@ -637,6 +637,181 @@ function Library:CreateTab(name)
 			return { Get = function() return value end, Set = setValue }
 		end
 
+		function secObj:TextInput(labelText, placeholder, callback)
+			local Row = Instance.new("Frame")
+			Row.Size = UDim2.new(1, 0, 0, 34)
+			Row.BackgroundColor3 = Theme.Panel
+			Row.Parent = Items
+			addCorner(Row, 10)
+			addStroke(Row, 1, 0.86, Theme.Stroke)
+
+			local Lbl = Instance.new("TextLabel")
+			Lbl.BackgroundTransparency = 1
+			Lbl.Size = UDim2.new(0, 80, 1, 0)
+			Lbl.Position = UDim2.new(0, 12, 0, 0)
+			Lbl.Font = Enum.Font.GothamSemibold
+			Lbl.Text = labelText
+			Lbl.TextSize = 12
+			Lbl.TextColor3 = Theme.Sub
+			Lbl.TextXAlignment = Enum.TextXAlignment.Left
+			Lbl.Parent = Row
+
+			local Box = Instance.new("TextBox")
+			Box.Size = UDim2.new(1, -100, 1, -8)
+			Box.Position = UDim2.new(0, 90, 0, 4)
+			Box.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
+			Box.Font = Enum.Font.Gotham
+			Box.TextSize = 12
+			Box.TextColor3 = Theme.Text
+			Box.PlaceholderText = placeholder or ""
+			Box.PlaceholderColor3 = Theme.Sub
+			Box.Text = ""
+			Box.ClearTextOnFocus = false
+			Box.Parent = Row
+			addCorner(Box, 6)
+			addStroke(Box, 1, 0.80, Theme.Stroke)
+
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 6)
+			pad.Parent = Box
+
+			Box.Focused:Connect(function()
+				tween(Box, {BackgroundColor3 = Color3.fromRGB(34, 34, 48)}, 0.12)
+			end)
+			Box.FocusLost:Connect(function(enter)
+				tween(Box, {BackgroundColor3 = Color3.fromRGB(28, 28, 36)}, 0.12)
+				if callback then callback(Box.Text, enter) end
+			end)
+
+			return {
+				Get = function() return Box.Text end,
+				Set = function(v) Box.Text = v end,
+			}
+		end
+
+		function secObj:Button(labelText, callback)
+			local Row = Instance.new("TextButton")
+			Row.Size = UDim2.new(1, 0, 0, 34)
+			Row.BackgroundColor3 = Theme.Panel
+			Row.Text = ""
+			Row.AutoButtonColor = false
+			Row.Parent = Items
+			addCorner(Row, 10)
+			addStroke(Row, 1, 0.86, Theme.Stroke)
+
+			local Lbl = Instance.new("TextLabel")
+			Lbl.BackgroundTransparency = 1
+			Lbl.Size = UDim2.new(1, 0, 1, 0)
+			Lbl.Font = Enum.Font.GothamSemibold
+			Lbl.Text = labelText
+			Lbl.TextSize = 13
+			Lbl.TextColor3 = Theme.Text
+			Lbl.Parent = Row
+
+			Row.MouseEnter:Connect(function()
+				tween(Row, {BackgroundColor3 = Color3.fromRGB(30, 26, 48)}, 0.12)
+			end)
+			Row.MouseLeave:Connect(function()
+				tween(Row, {BackgroundColor3 = Theme.Panel}, 0.12)
+			end)
+			Row.MouseButton1Click:Connect(function()
+				tween(Row, {BackgroundColor3 = Theme.Accent}, 0.08)
+				task.delay(0.12, function()
+					tween(Row, {BackgroundColor3 = Theme.Panel}, 0.12)
+				end)
+				if callback then callback() end
+			end)
+		end
+
+		function secObj:AvatarCard()
+			local Card = Instance.new("Frame")
+			Card.Size = UDim2.new(1, 0, 0, 64)
+			Card.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+			Card.Visible = false
+			Card.Parent = Items
+			addCorner(Card, 10)
+			addStroke(Card, 1, 0.82, Theme.Stroke)
+
+			local Av = Instance.new("ImageLabel")
+			Av.Size = UDim2.new(0, 44, 0, 44)
+			Av.Position = UDim2.new(0, 10, 0.5, -22)
+			Av.BackgroundColor3 = Theme.Panel
+			Av.Image = ""
+			Av.Parent = Card
+			addCorner(Av, 999)
+			addStroke(Av, 1.5, 0.5, Theme.Accent)
+
+			local AccDiv = Instance.new("Frame")
+			AccDiv.Size = UDim2.new(0, 2, 0, 28)
+			AccDiv.Position = UDim2.new(0, 62, 0.5, -14)
+			AccDiv.BackgroundColor3 = Theme.Accent
+			AccDiv.BackgroundTransparency = 0.35
+			AccDiv.BorderSizePixel = 0
+			AccDiv.Parent = Card
+			addCorner(AccDiv, 999)
+
+			local NameLbl = Instance.new("TextLabel")
+			NameLbl.BackgroundTransparency = 1
+			NameLbl.Size = UDim2.new(1, -76, 0, 18)
+			NameLbl.Position = UDim2.new(0, 72, 0, 10)
+			NameLbl.Font = Enum.Font.GothamBold
+			NameLbl.TextSize = 12
+			NameLbl.TextColor3 = Theme.Text
+			NameLbl.TextXAlignment = Enum.TextXAlignment.Left
+			NameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			NameLbl.Text = "—"
+			NameLbl.Parent = Card
+
+			local TagLbl = Instance.new("TextLabel")
+			TagLbl.BackgroundTransparency = 1
+			TagLbl.Size = UDim2.new(1, -76, 0, 13)
+			TagLbl.Position = UDim2.new(0, 72, 0, 30)
+			TagLbl.Font = Enum.Font.Gotham
+			TagLbl.TextSize = 10
+			TagLbl.TextColor3 = Theme.Sub
+			TagLbl.TextXAlignment = Enum.TextXAlignment.Left
+			TagLbl.Text = ""
+			TagLbl.Parent = Card
+
+			local HpLbl = Instance.new("TextLabel")
+			HpLbl.BackgroundTransparency = 1
+			HpLbl.Size = UDim2.new(1, -76, 0, 13)
+			HpLbl.Position = UDim2.new(0, 72, 0, 44)
+			HpLbl.Font = Enum.Font.Gotham
+			HpLbl.TextSize = 10
+			HpLbl.TextColor3 = Theme.Accent
+			HpLbl.TextXAlignment = Enum.TextXAlignment.Left
+			HpLbl.Text = ""
+			HpLbl.Parent = Card
+
+			return {
+				Frame = Card,
+				Set = function(target)
+					if not target then
+						Card.Visible = false
+						return
+					end
+					Card.Visible = true
+					NameLbl.Text = target.DisplayName
+					TagLbl.Text = "@" .. target.Name
+					local char = target.Character
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					HpLbl.Text = hum and ("hp: "..math.floor(hum.Health).."/"..math.floor(hum.MaxHealth)) or "no character"
+					task.spawn(function()
+						local ok, img = pcall(function()
+							return Players:GetUserThumbnailAsync(target.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+						end)
+						if ok then Av.Image = img end
+					end)
+				end,
+				UpdateHp = function(target)
+					if not target or not target.Character then return end
+					local hum = target.Character:FindFirstChildOfClass("Humanoid")
+					if hum then HpLbl.Text = "hp: "..math.floor(hum.Health).."/"..math.floor(hum.MaxHealth) end
+				end,
+			}
+		end
+
 		return secObj
 	end
 
@@ -728,81 +903,120 @@ do
 
 	sec:Divider("fly")
 
-	-- Fly
+	-- Fly — método clássico FE com ctrl table + repeat/task.spawn
 	local flyEnabled = false
 	local flySpeed   = 50
-	local flyConn    = nil
-	local flyBodyVel, flyBodyGyro = nil, nil
+	local flyThread  = nil
 
 	local function stopFly()
-		if flyConn then flyConn:Disconnect() flyConn = nil end
-		if flyBodyVel  and flyBodyVel.Parent  then flyBodyVel:Destroy()  end
-		if flyBodyGyro and flyBodyGyro.Parent then flyBodyGyro:Destroy() end
-		flyBodyVel, flyBodyGyro = nil, nil
-		local char = player.Character
-		if char then
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			if hum then hum.PlatformStand = false end
+		flyEnabled = false
+		if flyThread then
+			task.cancel(flyThread)
+			flyThread = nil
 		end
+		local char = player.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local bv = hrp:FindFirstChild("ref_bv")
+			local bg = hrp:FindFirstChild("ref_bg")
+			if bv then bv:Destroy() end
+			if bg then bg:Destroy() end
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = false end
 	end
 
 	local function startFly()
-		stopFly() -- garante que não acumula conexões
+		stopFly()
+		flyEnabled = true
+
 		local char = player.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum then return end
 
-		hum.PlatformStand = true
+		local bg = Instance.new("BodyGyro", hrp)
+		bg.Name = "ref_bg"
+		bg.P = 9e4
+		bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+		bg.CFrame = hrp.CFrame
 
-		flyBodyVel = Instance.new("BodyVelocity")
-		flyBodyVel.Velocity  = Vector3.zero
-		flyBodyVel.MaxForce  = Vector3.new(1e9, 1e9, 1e9)
-		flyBodyVel.Parent    = hrp
+		local bv = Instance.new("BodyVelocity", hrp)
+		bv.Name = "ref_bv"
+		bv.Velocity = Vector3.new(0, 0.1, 0)
+		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
 
-		flyBodyGyro = Instance.new("BodyGyro")
-		flyBodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-		flyBodyGyro.P         = 5e4
-		flyBodyGyro.D         = 1e3
-		flyBodyGyro.CFrame    = hrp.CFrame
-		flyBodyGyro.Parent    = hrp
+		local ctrl = {f=0, b=0, l=0, r=0}
+		local lastCtrl = {f=0, b=0, l=0, r=0}
+		local speed = 0
+		local maxSpeed = flySpeed
 
-		flyConn = RunService.RenderStepped:Connect(function()
-			if not flyEnabled then return end
-			if not flyBodyVel or not flyBodyVel.Parent then return end
-
-			local cam = workspace.CurrentCamera
-			local cf  = cam.CFrame
-			local dir = Vector3.zero
-
-			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-				dir += Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+		-- captura input
+		local conns = {}
+		conns[1] = UserInputService.InputBegan:Connect(function(inp, gp)
+			if gp then return end
+			if inp.KeyCode == Enum.KeyCode.W then ctrl.f = 1
+			elseif inp.KeyCode == Enum.KeyCode.S then ctrl.b = -1
+			elseif inp.KeyCode == Enum.KeyCode.A then ctrl.l = -1
+			elseif inp.KeyCode == Enum.KeyCode.D then ctrl.r = 1
 			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-				dir -= Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+		end)
+		conns[2] = UserInputService.InputEnded:Connect(function(inp)
+			if inp.KeyCode == Enum.KeyCode.W then ctrl.f = 0
+			elseif inp.KeyCode == Enum.KeyCode.S then ctrl.b = 0
+			elseif inp.KeyCode == Enum.KeyCode.A then ctrl.l = 0
+			elseif inp.KeyCode == Enum.KeyCode.D then ctrl.r = 0
 			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-				dir -= Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z)
-			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-				dir += Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z)
-			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-				dir += Vector3.new(0, 1, 0)
-			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-				dir -= Vector3.new(0, 1, 0)
+		end)
+
+		flyThread = task.spawn(function()
+			while flyEnabled do
+				task.wait()
+				if not hrp or not hrp.Parent then break end
+				maxSpeed = flySpeed
+				hum.PlatformStand = true
+
+				local cam = workspace.CurrentCamera
+				local cf  = cam.CoordinateFrame
+
+				local moving = (ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0)
+
+				if moving then
+					speed = math.min(speed + 0.5 + (speed / maxSpeed), maxSpeed)
+				elseif speed > 0 then
+					speed = math.max(speed - 1, 0)
+				end
+
+				if moving then
+					bv.Velocity = (
+						(cf.LookVector * (ctrl.f + ctrl.b)) +
+						((cf * CFrame.new(ctrl.l + ctrl.r, (ctrl.f + ctrl.b) * 0.2, 0).Position) - cf.Position)
+					) * speed
+					lastCtrl = {f=ctrl.f, b=ctrl.b, l=ctrl.l, r=ctrl.r}
+				elseif speed > 0 then
+					bv.Velocity = (
+						(cf.LookVector * (lastCtrl.f + lastCtrl.b)) +
+						((cf * CFrame.new(lastCtrl.l + lastCtrl.r, (lastCtrl.f + lastCtrl.b) * 0.2, 0).Position) - cf.Position)
+					) * speed
+				else
+					bv.Velocity = Vector3.new(0, 0.1, 0)
+				end
+
+				-- sobe/desce com Space/Ctrl
+				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+					bv.Velocity = Vector3.new(bv.Velocity.X, flySpeed * 0.6, bv.Velocity.Z)
+				elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+					or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+					bv.Velocity = Vector3.new(bv.Velocity.X, -flySpeed * 0.6, bv.Velocity.Z)
+				end
+
+				bg.CFrame = cf * CFrame.Angles(-math.rad((ctrl.f + ctrl.b) * 50 * speed / math.max(maxSpeed, 1)), 0, 0)
 			end
 
-			flyBodyVel.Velocity = dir.Magnitude > 0
-				and dir.Unit * flySpeed
-				or Vector3.zero
-
-			-- gira o personagem na direção da câmera (só eixo Y)
-			flyBodyGyro.CFrame = CFrame.new(hrp.Position)
-				* CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
+			-- limpa conexões ao sair do loop
+			for _, c in ipairs(conns) do c:Disconnect() end
 		end)
 	end
 
@@ -812,8 +1026,12 @@ do
 	end)
 
 	sec:Toggle("fly", false, function(v)
-		flyEnabled = v
-		if v then startFly() else stopFly() end
+		if v then
+			flyEnabled = true
+			startFly()
+		else
+			stopFly()
+		end
 	end)
 
 	sec:Slider("fly speed", 10, 200, 50, function(v)
@@ -950,6 +1168,129 @@ do
 	sec:Toggle("visualize range", false, function(v)
 		visualizeRange = v
 		if hitboxEnabled then refreshAll() end
+	end)
+end
+
+-- ===== TARGET =====
+local target_tab = Library:CreateTab("target")
+do
+	local targetPlayer = nil
+
+	local sec = target_tab:Section("player")
+	sec:Divider("search")
+
+	-- card do avatar
+	local card = sec:AvatarCard()
+
+	-- helper de busca
+	local function findPlayer(name)
+		if name == "" then return nil end
+		name = name:lower()
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player then
+				if p.Name:lower():find(name, 1, true)
+					or p.DisplayName:lower():find(name, 1, true) then
+					return p
+				end
+			end
+		end
+		return nil
+	end
+
+	local function setTarget(t)
+		targetPlayer = t
+		card.Set(t)
+	end
+
+	local nickInput = sec:TextInput("nick", "ex: PlayerName", function(text, enter)
+		if enter then
+			local found = findPlayer(text)
+			setTarget(found)
+		end
+	end)
+
+	sec:Button("search", function()
+		local found = findPlayer(nickInput.Get())
+		setTarget(found)
+	end)
+
+	-- atualiza HP do card em tempo real
+	RunService.RenderStepped:Connect(function()
+		if targetPlayer then card.UpdateHp(targetPlayer) end
+	end)
+
+	Players.PlayerRemoving:Connect(function(p)
+		if p == targetPlayer then setTarget(nil) end
+	end)
+
+	sec:Divider("actions")
+
+	-- Teleport até o target
+	sec:Button("teleport to target", function()
+		if not targetPlayer then return end
+		local char  = player.Character
+		local tchar = targetPlayer.Character
+		if not char or not tchar then return end
+		local hrp  = char:FindFirstChild("HumanoidRootPart")
+		local thrp = tchar:FindFirstChild("HumanoidRootPart")
+		if hrp and thrp then
+			hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, -3)
+		end
+	end)
+
+	-- Teleport do target até mim
+	sec:Button("bring target to me", function()
+		if not targetPlayer then return end
+		local char  = player.Character
+		local tchar = targetPlayer.Character
+		if not char or not tchar then return end
+		local hrp  = char:FindFirstChild("HumanoidRootPart")
+		local thrp = tchar:FindFirstChild("HumanoidRootPart")
+		if hrp and thrp then
+			thrp.CFrame = hrp.CFrame * CFrame.new(3, 0, 0)
+		end
+	end)
+
+	-- Olhar para o target
+	sec:Button("look at target", function()
+		if not targetPlayer then return end
+		local char  = player.Character
+		local tchar = targetPlayer.Character
+		if not char or not tchar then return end
+		local hrp  = char:FindFirstChild("HumanoidRootPart")
+		local thrp = tchar:FindFirstChild("HumanoidRootPart")
+		if hrp and thrp then
+			hrp.CFrame = CFrame.new(hrp.Position, thrp.Position)
+		end
+	end)
+
+	-- Seguir target continuamente
+	local followEnabled = false
+	local followConn    = nil
+
+	sec:Toggle("follow target", false, function(v)
+		followEnabled = v
+		if not v then
+			if followConn then followConn:Disconnect() followConn = nil end
+			return
+		end
+		followConn = RunService.RenderStepped:Connect(function()
+			if not followEnabled or not targetPlayer then return end
+			local char  = player.Character
+			local tchar = targetPlayer.Character
+			if not char or not tchar then return end
+			local hrp  = char:FindFirstChild("HumanoidRootPart")
+			local thrp = tchar:FindFirstChild("HumanoidRootPart")
+			if hrp and thrp then
+				local dist = (hrp.Position - thrp.Position).Magnitude
+				if dist > 4 then
+					hrp.CFrame = hrp.CFrame:Lerp(
+						thrp.CFrame * CFrame.new(0, 0, -3),
+						0.15
+					)
+				end
+			end
+		end)
 	end)
 end
 

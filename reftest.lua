@@ -104,13 +104,13 @@ Main.Parent = ScreenGui
 addCorner(Main, 14)
 addStroke(Main, 1, 0.75, Theme.Stroke)
 
--- Shadow (sem halo branco)
+-- Shadow
 local Shadow = Instance.new("ImageLabel")
 Shadow.Name = "Shadow"
 Shadow.BackgroundTransparency = 1
-Shadow.Image = "rbxassetid://1316045217" -- soft shadow
-Shadow.ImageTransparency = 0.90        -- mais suave
-Shadow.ImageColor3 = Color3.fromRGB(0, 0, 0) -- força sombra preta (evita “borda branca”)
+Shadow.Image = "rbxassetid://1316045217"
+Shadow.ImageTransparency = 0.90
+Shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
 Shadow.ScaleType = Enum.ScaleType.Slice
 Shadow.SliceCenter = Rect.new(10, 10, 118, 118)
 Shadow.Size = UDim2.new(1, 34, 1, 34)
@@ -127,7 +127,6 @@ Topbar.BackgroundColor3 = Theme.Panel2
 Topbar.Parent = Main
 addCorner(Topbar, 14)
 
--- linha accent sutil
 local AccentLine = Instance.new("Frame")
 AccentLine.BackgroundColor3 = Theme.Accent
 AccentLine.BorderSizePixel = 0
@@ -136,7 +135,6 @@ AccentLine.Position = UDim2.new(0, 0, 1, -1)
 AccentLine.BackgroundTransparency = 0.35
 AccentLine.Parent = Topbar
 
--- título centralizado (ref + ui)
 local TitleWrap = Instance.new("Frame")
 TitleWrap.BackgroundTransparency = 1
 TitleWrap.Size = UDim2.new(0, 180, 0, 24)
@@ -166,7 +164,6 @@ TitleSmall.TextColor3 = Theme.SubText
 TitleSmall.TextXAlignment = Enum.TextXAlignment.Left
 TitleSmall.Parent = TitleWrap
 
--- minimizar
 local MinBtn = Instance.new("TextButton")
 MinBtn.Name = "Minimize"
 MinBtn.Size = UDim2.new(0, 36, 0, 28)
@@ -455,7 +452,7 @@ function Library:CreateTab(name)
 				if callback then callback(state) end
 			end)
 
-			return { Get=function() return state end }
+			return { Get=function() return state end, Set=function(v) state=v render() if callback then callback(state) end end }
 		end
 
 		function secObj:Slider(text, min, max, default, callback)
@@ -573,19 +570,53 @@ do
 
 	sec:Divider("session")
 
-	-- Anti-AFK (callback seguro: você liga no seu sistema / seu jogo)
+	-- Anti-AFK
 	sec:Toggle("anti-afk", false, function(enabled)
-		-- ⚠️ Use isso apenas no seu jogo/experiência ou em testes com permissão.
-		print("anti-afk:", enabled)
+		if enabled then
+			-- Previne AFK simulando movimento virtual
+			local VirtualUser = game:GetService("VirtualUser")
+			player.Idled:Connect(function()
+				VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+				task.wait(1)
+				VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+			end)
+		end
 	end)
 
 	sec:Divider("movement")
 
-	-- WalkSpeed (callback)
-	sec:Slider("walk speed", 8, 32, 16, function(v)
-		-- ⚠️ Ideal é controlar isso pelo SERVIDOR no seu jogo.
-		-- Aqui é só callback de UI.
-		print("walk speed:", v)
+	-- WalkSpeed: toggle de ativação + slider de valor
+	local DEFAULT_SPEED = 16
+	local speedEnabled = false
+	local currentSpeed = DEFAULT_SPEED
+
+	-- Função central que aplica (ou reverte) o walkspeed no personagem
+	local function applySpeed()
+		local char = player.Character or player.CharacterAdded:Wait()
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.WalkSpeed = speedEnabled and currentSpeed or 16
+		end
+	end
+
+	-- Reaplica sempre que o personagem for adicionado (respawn)
+	player.CharacterAdded:Connect(function(char)
+		local hum = char:WaitForChild("Humanoid")
+		hum.WalkSpeed = speedEnabled and currentSpeed or 16
+	end)
+
+	-- Toggle: ativa/desativa o controle de walkspeed
+	sec:Toggle("custom walkspeed", false, function(enabled)
+		speedEnabled = enabled
+		applySpeed()
+	end)
+
+	-- Slider: define o valor de walkspeed (só surte efeito se o toggle estiver on)
+	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
+		currentSpeed = v
+		if speedEnabled then
+			applySpeed()
+		end
 	end)
 end
 

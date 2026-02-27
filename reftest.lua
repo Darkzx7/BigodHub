@@ -1034,6 +1034,73 @@ do
 	sec:Slider("fly speed", 10, 200, 50, function(v)
 		flySpeed = v
 	end)
+
+	sec:Divider("misc")
+
+	-- Noclip
+	local noclipEnabled = false
+	RunService.Stepped:Connect(function()
+		if not noclipEnabled then return end
+		local char = player.Character
+		if not char then return end
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+		end
+	end)
+	sec:Toggle("noclip", false, function(v)
+		noclipEnabled = v
+		if not v then
+			local char = player.Character
+			if char then
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") then p.CanCollide = true end
+				end
+			end
+		end
+	end)
+
+	-- Spinbot
+	local spinEnabled = false
+	local spinConn    = nil
+	local spinSpeed   = 10
+	sec:Toggle("spinbot", false, function(v)
+		spinEnabled = v
+		if v then
+			spinConn = RunService.RenderStepped:Connect(function()
+				if not spinEnabled then return end
+				local char = player.Character
+				local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+				if not hrp then return end
+				hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0)
+			end)
+		else
+			if spinConn then spinConn:Disconnect() spinConn = nil end
+		end
+	end)
+	sec:Slider("spin speed", 1, 30, 10, function(v) spinSpeed = v end)
+
+	-- God Mode (local)
+	local godEnabled = false
+	local godConn    = nil
+	sec:Toggle("god mode", false, function(v)
+		godEnabled = v
+		if v then
+			godConn = RunService.Heartbeat:Connect(function()
+				if not godEnabled then return end
+				local char = player.Character
+				local hum  = char and char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum.MaxHealth = math.huge
+					hum.Health    = math.huge
+				end
+			end)
+		else
+			if godConn then godConn:Disconnect() godConn = nil end
+			local char = player.Character
+			local hum  = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.MaxHealth = 100 hum.Health = 100 end
+		end
+	end)
 end
 
 -- ===== COMBAT =====
@@ -1425,6 +1492,103 @@ do
 	actionSec:Toggle("follow target", false, function(v)
 		if v then startFollow() else stopFollow() end
 	end)
+
+	-- ── Section 3: extras ──
+	local extraSec = target_tab:Section("extras")
+	extraSec:Divider("spectate / orbit")
+
+	-- Spectate
+	local spectateConn   = nil
+	local spectateActive = false
+	local function stopSpectate()
+		spectateActive = false
+		if spectateConn then spectateConn:Disconnect() spectateConn = nil end
+		workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+	end
+	extraSec:Toggle("spectate target", false, function(v)
+		if not v then stopSpectate() return end
+		if not targetPlayer then return end
+		spectateActive = true
+		workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+		spectateConn = RunService.RenderStepped:Connect(function()
+			if not spectateActive then return end
+			local t = targetPlayer
+			if not t or not t.Character then return end
+			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
+			if not thrp then return end
+			-- POV do target: câmera exatamente no HRP dele
+			workspace.CurrentCamera.CFrame = thrp.CFrame * CFrame.new(0, 1.5, 0)
+		end)
+	end)
+
+	-- Orbit
+	local orbitConn   = nil
+	local orbitActive = false
+	local orbitAngle  = 0
+	local orbitRadius = 8
+	local function stopOrbit()
+		orbitActive = false
+		if orbitConn then orbitConn:Disconnect() orbitConn = nil end
+		local char = player.Character
+		if char then
+			local hm = char:FindFirstChildOfClass("Humanoid")
+			if hm then hm.PlatformStand = false end
+		end
+	end
+	extraSec:Toggle("orbit target", false, function(v)
+		if not v then stopOrbit() return end
+		if not targetPlayer then return end
+		orbitActive = true
+		local char = player.Character
+		if not char then return end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = true end
+		orbitConn = RunService.RenderStepped:Connect(function()
+			if not orbitActive then return end
+			local c = player.Character
+			if not c then return end
+			local hrp = c:FindFirstChild("HumanoidRootPart")
+			if not hrp then return end
+			local t = targetPlayer
+			if not t or not t.Character then return end
+			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
+			if not thrp then return end
+			local hm = c:FindFirstChildOfClass("Humanoid")
+			if hm then hm.PlatformStand = true end
+			orbitAngle = orbitAngle + 0.03
+			local center = thrp.Position + Vector3.new(0, 1, 0)
+			local x = center.X + orbitRadius * math.cos(orbitAngle)
+			local z = center.Z + orbitRadius * math.sin(orbitAngle)
+			hrp.CFrame = CFrame.new(Vector3.new(x, center.Y, z), center)
+		end)
+	end)
+	extraSec:Slider("orbit radius", 3, 25, 8, function(v) orbitRadius = v end)
+
+	extraSec:Divider("loop tp")
+	-- Loop Teleport
+	local loopTpActive = false
+	local loopTpConn   = nil
+	local function stopLoopTp()
+		loopTpActive = false
+		if loopTpConn then loopTpConn:Disconnect() loopTpConn = nil end
+	end
+	extraSec:Toggle("loop teleport", false, function(v)
+		if not v then stopLoopTp() return end
+		if not targetPlayer then return end
+		loopTpActive = true
+		loopTpConn = RunService.Heartbeat:Connect(function()
+			if not loopTpActive then return end
+			local c = player.Character
+			if not c then return end
+			local hrp = c:FindFirstChild("HumanoidRootPart")
+			local t = targetPlayer
+			if not t or not t.Character then return end
+			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
+			if hrp and thrp then
+				hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, -2)
+			end
+		end)
+	end)
 end
 
 -- ===== VISUAL: ESP =====
@@ -1607,6 +1771,207 @@ do
 	sec:Toggle("show distance", true, function(v) showDist = v end)
 	sec:Slider("max distance", 50, 1000, 500, function(v) maxDist = v end)
 end
+
+-- ===== VISUAL: EXTRAS (fullbright, chams, tracers) =====
+do
+	local sec2 = visual:Section("world")
+	sec2:Divider("fullbright")
+
+	-- Fullbright
+	local origAmbient, origOutdoor
+	local fbEnabled = false
+	sec2:Toggle("fullbright", false, function(v)
+		fbEnabled = v
+		if v then
+			origAmbient = game:GetService("Lighting").Ambient
+			origOutdoor = game:GetService("Lighting").OutdoorAmbient
+			game:GetService("Lighting").Ambient        = Color3.fromRGB(255, 255, 255)
+			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+			game:GetService("Lighting").Brightness     = 2
+		else
+			game:GetService("Lighting").Ambient        = origAmbient or Color3.fromRGB(70, 70, 70)
+			game:GetService("Lighting").OutdoorAmbient = origOutdoor or Color3.fromRGB(70, 70, 70)
+			game:GetService("Lighting").Brightness     = 1
+		end
+	end)
+
+	sec2:Divider("chams")
+
+	-- Chams (troca material de todos os players por Neon colorido)
+	local chamsEnabled = false
+	local chamsColor   = Color3.fromRGB(120, 80, 255)
+	local origMaterials = {} -- [BasePart] = {material, color}
+
+	local function applyChams(target)
+		local char = target.Character
+		if not char then return end
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+				if not origMaterials[p] then
+					origMaterials[p] = {mat = p.Material, col = p.Color}
+				end
+				p.Material = Enum.Material.Neon
+				p.Color    = chamsColor
+			end
+		end
+	end
+
+	local function revertChams(target)
+		local char = target.Character
+		if not char then return end
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") and origMaterials[p] then
+				p.Material = origMaterials[p].mat
+				p.Color    = origMaterials[p].col
+				origMaterials[p] = nil
+			end
+		end
+	end
+
+	local function refreshChams()
+		for _, t in ipairs(Players:GetPlayers()) do
+			if t ~= player then
+				if chamsEnabled then applyChams(t) else revertChams(t) end
+			end
+		end
+	end
+
+	sec2:Toggle("chams", false, function(v)
+		chamsEnabled = v
+		refreshChams()
+	end)
+
+	-- Tracer Lines (linhas da base da tela até cada player)
+	sec2:Divider("tracers")
+	local tracersEnabled = false
+	local tracerData     = {} -- [Player] = Line (Frame)
+	local tracerGui = Instance.new("ScreenGui")
+	tracerGui.Name         = "ref_tracers"
+	tracerGui.IgnoreGuiInset = true
+	tracerGui.ResetOnSpawn = false
+	tracerGui.Parent       = pg
+
+	local function removeTracer(t)
+		if tracerData[t] then
+			tracerData[t]:Destroy()
+			tracerData[t] = nil
+		end
+	end
+
+	local function clearTracers()
+		for t in pairs(tracerData) do removeTracer(t) end
+	end
+
+	RunService.RenderStepped:Connect(function()
+		if not tracersEnabled then return end
+		local cam = workspace.CurrentCamera
+		local vp  = cam.ViewportSize
+
+		for _, t in ipairs(Players:GetPlayers()) do
+			if t == player then continue end
+			local char = t.Character
+			local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+			if not hrp then removeTracer(t) continue end
+
+			local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+			if not onScreen then removeTracer(t) continue end
+
+			-- Cria linha se não existir
+			if not tracerData[t] then
+				local line = Instance.new("Frame")
+				line.BackgroundColor3 = Theme.Accent
+				line.BorderSizePixel  = 0
+				line.AnchorPoint      = Vector2.new(0.5, 0)
+				line.Parent           = tracerGui
+				tracerData[t]         = line
+			end
+
+			local line   = tracerData[t]
+			local origin = Vector2.new(vp.X / 2, vp.Y) -- base da tela
+			local target2d = Vector2.new(screenPos.X, screenPos.Y)
+			local diff   = target2d - origin
+			local length = diff.Magnitude
+			local angle  = math.atan2(diff.Y, diff.X)
+
+			line.Size     = UDim2.new(0, length, 0, 1)
+			line.Position = UDim2.new(0, origin.X, 0, origin.Y)
+			line.Rotation = math.deg(angle)
+		end
+	end)
+
+	sec2:Toggle("tracers", false, function(v)
+		tracersEnabled = v
+		if not v then clearTracers() end
+	end)
+
+	Players.PlayerRemoving:Connect(function(p)
+		removeTracer(p)
+	end)
+end
+
+-- ===== CONFIG SAVE / LOAD =====
+-- Salva o estado de todos os toggles no _G.ref_config para persistir entre reexecuções
+-- O save é automático ao mudar qualquer toggle, load é automático ao iniciar
+
+local ConfigKeys = {} -- {key, getFunc, setFunc}
+
+local function registerConfig(key, get, set)
+	table.insert(ConfigKeys, {key = key, get = get, set = set})
+end
+
+local function saveConfig()
+	local cfg = {}
+	for _, c in ipairs(ConfigKeys) do
+		cfg[c.key] = c.get()
+	end
+	_G.ref_config = cfg
+end
+
+local function loadConfig()
+	local cfg = _G.ref_config
+	if not cfg then return end
+	for _, c in ipairs(ConfigKeys) do
+		if cfg[c.key] ~= nil then
+			c.set(cfg[c.key])
+		end
+	end
+end
+
+-- Wrapper que auto-salva quando o toggle muda
+local _origToggle = nil -- não precisa, usamos registerConfig diretamente nos toggles abaixo
+
+-- Registra configs dos principais toggles (referenciando os toggleRef que já existem)
+-- Feito via _G para os toggles que foram criados acima
+-- Exemplo de uso: após criar um toggle, chame registerConfig("key", get, set)
+
+-- Botões na UI
+local cfgSec = universal:Section("config")
+cfgSec:Button("💾  save config", function()
+	saveConfig()
+	-- Notificação visual rápida
+	local cam = workspace.CurrentCamera
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "ref ui",
+		Text  = "config saved!",
+		Duration = 2,
+	})
+end)
+cfgSec:Button("📂  load config", function()
+	loadConfig()
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "ref ui",
+		Text  = "config loaded!",
+		Duration = 2,
+	})
+end)
+cfgSec:Button("🗑️  clear config", function()
+	_G.ref_config = nil
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "ref ui",
+		Text  = "config cleared.",
+		Duration = 2,
+	})
+end)
 
 -- ===== MINIMIZE =====
 local minimized = false

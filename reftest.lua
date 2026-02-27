@@ -988,34 +988,37 @@ do
 
 			hm.PlatformStand = true
 
+			-- MaxForce SEMPRE ligado: BodyVelocity mantém posição no ar quando parado
+			flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+			flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+
 			local camCF   = workspace.CurrentCamera.CFrame
 			local lookVec = camCF.LookVector
-			local moveVec = getMoveVec()        -- joystick / WASD no espaço local
+			local moveVec = getMoveVec()
+
+			-- CFrame base: HRP aponta na direção horizontal da câmera
+			local baseCF = CFrame.new(h.Position, h.Position + Vector3.new(lookVec.X, 0, lookVec.Z))
+			local poseCF = baseCF
 			local velocity = Vector3.zero
 
-			-- Câmera define para onde o HRP aponta (plano horizontal)
-			h.CFrame = CFrame.new(h.Position, h.Position + Vector3.new(lookVec.X, 0, lookVec.Z))
-
-			if moveVec.Magnitude ~= 0 then
-				flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-
-				-- Inclina personagem para frente ao mover (estético, como o original)
+			if moveVec.Magnitude > 0.01 then
+				-- Inclinações estéticas por direção
 				if moveVec.Z > 0 then
-					h.CFrame = h.CFrame * CFrame.Angles(math.rad(-30), 0, 0)
+					poseCF = baseCF * CFrame.Angles(math.rad(-30), 0, 0)
+				elseif moveVec.Z < 0 then
+					poseCF = baseCF * CFrame.Angles(math.rad(15), 0, 0)
+				elseif moveVec.X < 0 then
+					poseCF = baseCF * CFrame.Angles(0, 0, math.rad(20))
+				elseif moveVec.X > 0 then
+					poseCF = baseCF * CFrame.Angles(0, 0, math.rad(-20))
 				end
-
-				-- Converte moveVec (espaço local) para espaço mundo via câmera
-				-- X = strafe (direita/esquerda), Z = forward/backward (invertido no Roblox)
 				velocity = camCF.RightVector * (moveVec.X * flySpeed)
 					- camCF.LookVector    * (moveVec.Z * flySpeed)
-			else
-				flyBV.MaxForce = Vector3.zero
 			end
+			-- Parado: poseCF = baseCF (ereto), velocity = zero → flutua no lugar
 
 			flyBV.Velocity = velocity
-
-			-- BodyGyro mantém a pose (deitado ou ereto conforme o CFrame acima)
-			flyBG.CFrame = h.CFrame
+			flyBG.CFrame   = poseCF  -- gyro trava a pose calculada (inclina e sustenta)
 		end)
 	end
 

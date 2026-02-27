@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
@@ -91,37 +92,24 @@ ScreenGui.IgnoreGuiInset = true
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = pg
 
--- ===== ÍCONE MINIMIZADO =====
+-- ===== ÍCONE (sempre visível, sem sombra) =====
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "IconBtn"
 IconBtn.Size = UDim2.new(0, 52, 0, 52)
-IconBtn.Position = UDim2.new(0.5, -270, 0.5, -170)
+IconBtn.Position = UDim2.new(0, 16, 0.5, -26)
 IconBtn.BackgroundColor3 = Theme.Panel2
 IconBtn.Image = "rbxassetid://131165537896572"
 IconBtn.ScaleType = Enum.ScaleType.Fit
 IconBtn.AutoButtonColor = false
-IconBtn.Visible = false
 IconBtn.ZIndex = 10
 IconBtn.Parent = ScreenGui
 addCorner(IconBtn, 14)
 addStroke(IconBtn, 1, 0.70, Theme.Stroke)
 
-local IconShadow = Instance.new("ImageLabel")
-IconShadow.BackgroundTransparency = 1
-IconShadow.Image = "rbxassetid://1316045217"
-IconShadow.ImageTransparency = 0.88
-IconShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-IconShadow.ScaleType = Enum.ScaleType.Slice
-IconShadow.SliceCenter = Rect.new(10, 10, 118, 118)
-IconShadow.Size = UDim2.new(1, 28, 1, 28)
-IconShadow.Position = UDim2.new(0, -14, 0, -14)
-IconShadow.ZIndex = 9
-IconShadow.Parent = IconBtn
-
 makeDraggable(IconBtn, IconBtn)
 
 IconBtn.MouseEnter:Connect(function()
-	tween(IconBtn, {BackgroundColor3 = Color3.fromRGB(30, 30, 40)}, 0.12)
+	tween(IconBtn, {BackgroundColor3 = Color3.fromRGB(34, 34, 46)}, 0.12)
 end)
 IconBtn.MouseLeave:Connect(function()
 	tween(IconBtn, {BackgroundColor3 = Theme.Panel2}, 0.12)
@@ -527,8 +515,8 @@ function Library:CreateTab(name)
 			end
 
 			local function updateFromX(x)
-				local rel = (x - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X
-				setValue(min + (max - min) * math.clamp(rel, 0, 1))
+				local rel = math.clamp((x - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X, 0, 1)
+				setValue(min + (max - min) * rel)
 			end
 
 			setValue(default)
@@ -579,16 +567,12 @@ universal._activate()
 -- ===== UNIVERSAL =====
 do
 	local sec = universal:Section("essentials")
-
 	sec:Divider("session")
 
-	-- Anti-AFK: conexão única ao evento Idled, controlada por flag
-	-- Sem acumular múltiplas conexões ao ligar/desligar
+	-- Anti-AFK: uma única conexão ao Idled, flag controla se age
 	local afkEnabled = false
-
 	player.Idled:Connect(function()
 		if not afkEnabled then return end
-		-- Rotaciona a câmera em 0.001 grau — imperceptível, mas reseta o timer de idle
 		local cam = workspace.CurrentCamera
 		if cam then
 			cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.001), 0)
@@ -601,7 +585,6 @@ do
 
 	sec:Divider("movement")
 
-	-- WalkSpeed: toggle de ativação + slider de valor
 	local DEFAULT_SPEED = 16
 	local speedEnabled  = false
 	local currentSpeed  = DEFAULT_SPEED
@@ -615,10 +598,9 @@ do
 		end
 	end
 
-	-- Reaplica ao respawnar
 	player.CharacterAdded:Connect(function(char)
 		local hum = char:WaitForChild("Humanoid")
-		task.wait() -- aguarda 1 frame para o personagem inicializar
+		task.wait()
 		hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED
 	end)
 
@@ -640,29 +622,196 @@ do
 	sec:Toggle("aim assist", false, function(v) print("aim assist:", v) end)
 end
 
--- ===== VISUAL =====
+-- ===== VISUAL: ESP PLAYER =====
 do
 	local sec = visual:Section("esp")
-	sec:Divider("options")
-	sec:Toggle("items esp", false, function(v) print("items esp:", v) end)
+	sec:Divider("players")
+
+	-- Configurações do ESP
+	local espEnabled   = false
+	local showName     = true
+	local showDist     = true
+	local showHealth   = true
+	local espColor     = Color3.fromRGB(120, 80, 255) -- accent por padrão
+	local maxDist      = 500
+
+	-- Tabela de highlights ativos
+	local espObjects = {} -- [player] = { highlight, billboard }
+
+	local camera = workspace.CurrentCamera
+
+	-- Cria os elementos visuais para um player
+	local function createESP(target)
+		if espObjects[target] then return end
+		local char = target.Character
+		if not char then return end
+
+		-- Highlight (chama atenção com fill + outline)
+		local hl = Instance.new("SelectionBox")
+		hl.LineThickness = 0.03
+		hl.Color3 = espColor
+		hl.SurfaceColor3 = espColor
+		hl.SurfaceTransparency = 0.80
+		hl.Adornee = char
+		hl.Parent = ScreenGui
+
+		-- Billboard com nome, vida e distância
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.new(0, 160, 0, 50)
+		bb.StudsOffset = Vector3.new(0, 3.2, 0)
+		bb.AlwaysOnTop = true
+		bb.Adornee = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+		bb.Parent = ScreenGui
+
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Size = UDim2.new(1, 0, 0.5, 0)
+		nameLbl.Font = Enum.Font.GothamSemibold
+		nameLbl.TextSize = 13
+		nameLbl.TextColor3 = Color3.fromRGB(235, 235, 240)
+		nameLbl.TextStrokeTransparency = 0.4
+		nameLbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+		nameLbl.Text = target.DisplayName
+		nameLbl.Parent = bb
+
+		local infoLbl = Instance.new("TextLabel")
+		infoLbl.BackgroundTransparency = 1
+		infoLbl.Size = UDim2.new(1, 0, 0.5, 0)
+		infoLbl.Position = UDim2.new(0, 0, 0.5, 0)
+		infoLbl.Font = Enum.Font.Gotham
+		infoLbl.TextSize = 11
+		infoLbl.TextColor3 = espColor
+		infoLbl.TextStrokeTransparency = 0.4
+		infoLbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+		infoLbl.Text = ""
+		infoLbl.Parent = bb
+
+		espObjects[target] = {
+			hl = hl,
+			bb = bb,
+			nameLbl = nameLbl,
+			infoLbl = infoLbl,
+		}
+	end
+
+	-- Remove ESP de um player
+	local function removeESP(target)
+		local obj = espObjects[target]
+		if not obj then return end
+		obj.hl:Destroy()
+		obj.bb:Destroy()
+		espObjects[target] = nil
+	end
+
+	-- Limpa tudo
+	local function clearAllESP()
+		for target, _ in pairs(espObjects) do
+			removeESP(target)
+		end
+	end
+
+	-- Atualiza visibilidade/info dos ESPs a cada frame
+	RunService.RenderStepped:Connect(function()
+		if not espEnabled then return end
+
+		for _, target in ipairs(Players:GetPlayers()) do
+			if target == player then continue end
+
+			local char = target.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+			if not char or not hum or not hrp or hum.Health <= 0 then
+				removeESP(target)
+				continue
+			end
+
+			local dist = math.floor((camera.CFrame.Position - hrp.Position).Magnitude)
+			if dist > maxDist then
+				removeESP(target)
+				continue
+			end
+
+			-- Cria se ainda não existe
+			if not espObjects[target] then
+				createESP(target)
+			end
+
+			local obj = espObjects[target]
+			if not obj then continue end
+
+			-- Atualiza cor
+			obj.hl.Color3 = espColor
+			obj.hl.SurfaceColor3 = espColor
+
+			-- Atualiza nome
+			obj.nameLbl.Visible = showName
+			obj.nameLbl.Text = target.DisplayName
+
+			-- Atualiza info (hp + dist)
+			local parts = {}
+			if showHealth then
+				local hp = math.floor(hum.Health)
+				local maxHp = math.floor(hum.MaxHealth)
+				table.insert(parts, hp .. "/" .. maxHp .. " hp")
+			end
+			if showDist then
+				table.insert(parts, dist .. "m")
+			end
+			obj.infoLbl.Visible = showHealth or showDist
+			obj.infoLbl.Text = table.concat(parts, "  ·  ")
+			obj.infoLbl.TextColor3 = espColor
+
+			-- Readorna se o personagem mudou
+			local root = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+			if root and obj.bb.Adornee ~= root then
+				obj.bb.Adornee = root
+			end
+			if obj.hl.Adornee ~= char then
+				obj.hl.Adornee = char
+			end
+		end
+	end)
+
+	-- Limpa ESP quando player sai
+	Players.PlayerRemoving:Connect(function(target)
+		removeESP(target)
+	end)
+
+	-- UI: toggles e slider
+	sec:Toggle("player esp", false, function(enabled)
+		espEnabled = enabled
+		if not enabled then clearAllESP() end
+	end)
+
+	sec:Toggle("show name", true, function(v)
+		showName = v
+	end)
+
+	sec:Toggle("show health", true, function(v)
+		showHealth = v
+	end)
+
+	sec:Toggle("show distance", true, function(v)
+		showDist = v
+	end)
+
+	sec:Slider("max distance", 50, 1000, 500, function(v)
+		maxDist = v
+	end)
 end
 
--- ===== MINIMIZE → ÍCONE =====
+-- ===== MINIMIZE / ÍCONE TOGGLE =====
+-- O ícone fica SEMPRE visível. Clicar nele ou no "–" minimiza/abre a UI.
 local minimized = false
 
 local function setMinimized(state)
 	minimized = state
-	if state then
-		-- ícone aparece na posição atual da UI
-		IconBtn.Position = Main.Position
-		Main.Visible = false
-		IconBtn.Visible = true
-	else
-		-- UI reabre na posição atual do ícone
-		Main.Position = IconBtn.Position
-		IconBtn.Visible = false
-		Main.Visible = true
-	end
+	Main.Visible = not state
+	-- feedback visual no ícone: fica mais iluminado quando minimizado
+	tween(IconBtn, {
+		BackgroundColor3 = state and Color3.fromRGB(40, 34, 60) or Theme.Panel2
+	}, 0.15)
 end
 
 MinBtn.MouseButton1Click:Connect(function()
@@ -670,17 +819,13 @@ MinBtn.MouseButton1Click:Connect(function()
 end)
 
 IconBtn.MouseButton1Click:Connect(function()
-	setMinimized(false)
+	setMinimized(not minimized)
 end)
 
--- RightShift: toggle visibilidade
+-- RightShift: toggle
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.RightShift then
-		if minimized then
-			setMinimized(false)
-		else
-			ScreenGui.Enabled = not ScreenGui.Enabled
-		end
+		setMinimized(not minimized)
 	end
 end)

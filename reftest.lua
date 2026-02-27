@@ -892,30 +892,30 @@ do
 	sec:Divider("fly")
 
 	-- ================================================================
-	-- FLY — estilo InfiniteYield real
-	-- W/S/A/D: move na direção da câmera (incluindo vertical se câmera inclinada)
-	-- Space: sobe | Ctrl/Shift: desce
-	-- Mobile: joystick move horizontalmente, câmera inclinada sobe/desce
-	-- BodyGyro só trava o roll (não trava pitch), personagem fica ereto
+	-- FLY — método exato do InfiniteYield
+	-- BodyGyro.MaxTorque Y = 0 → não interfere no eixo vertical
+	-- BodyForce cancela gravidade para flutuar no lugar
+	-- W/S/A/D + câmera (inclui Y), Space sobe, Ctrl/Shift desce
 	-- ================================================================
 	local flyEnabled = false
 	local flySpeed   = 50
 
-	local flyBodyVel  = nil
-	local flyBodyGyro = nil
-	local flyConn     = nil
+	local flyBV   = nil
+	local flyBG   = nil
+	local flyBF   = nil
+	local flyConn = nil
 
-	local function cleanFlyObjects()
-		if flyBodyVel  and flyBodyVel.Parent  then flyBodyVel:Destroy()  end
-		if flyBodyGyro and flyBodyGyro.Parent then flyBodyGyro:Destroy() end
-		flyBodyVel  = nil
-		flyBodyGyro = nil
+	local function cleanFly()
+		if flyBV and flyBV.Parent then flyBV:Destroy() end
+		if flyBG and flyBG.Parent then flyBG:Destroy() end
+		if flyBF and flyBF.Parent then flyBF:Destroy() end
+		flyBV, flyBG, flyBF = nil, nil, nil
 	end
 
 	local function stopFly()
 		flyEnabled = false
 		if flyConn then flyConn:Disconnect() flyConn = nil end
-		cleanFlyObjects()
+		cleanFly()
 		local char = player.Character
 		if not char then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
@@ -925,7 +925,6 @@ do
 	local function startFly()
 		stopFly()
 		flyEnabled = true
-
 		local char = player.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -934,20 +933,24 @@ do
 
 		hum.PlatformStand = true
 
-		flyBodyVel = Instance.new("BodyVelocity")
-		flyBodyVel.Velocity  = Vector3.zero
-		flyBodyVel.MaxForce  = Vector3.new(1e5, 1e5, 1e5)
-		flyBodyVel.P         = 1e4
-		flyBodyVel.Parent    = hrp
+		flyBV = Instance.new("BodyVelocity")
+		flyBV.Velocity = Vector3.zero
+		flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+		flyBV.P        = 2e4
+		flyBV.Parent   = hrp
 
-		-- BodyGyro: só trava rotação no eixo X e Z (sem pitch/roll),
-		-- personagem fica ereto mas livre para subir/descer via velocidade
-		flyBodyGyro = Instance.new("BodyGyro")
-		flyBodyGyro.MaxTorque = Vector3.new(1e4, 1e4, 1e4)
-		flyBodyGyro.P         = 1e4
-		flyBodyGyro.D         = 500
-		flyBodyGyro.CFrame    = CFrame.new(hrp.Position, hrp.Position + Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z))
-		flyBodyGyro.Parent    = hrp
+		-- Y=0 é a chave: gyro só mantém ereto (X/Z), nunca briga com velocidade vertical
+		flyBG = Instance.new("BodyGyro")
+		flyBG.MaxTorque = Vector3.new(4e5, 0, 4e5)
+		flyBG.P         = 2e4
+		flyBG.D         = 100
+		flyBG.CFrame    = hrp.CFrame
+		flyBG.Parent    = hrp
+
+		-- Cancela gravidade para flutuar parado
+		flyBF = Instance.new("BodyForce")
+		flyBF.Force  = Vector3.new(0, workspace.Gravity * hrp:GetMass(), 0)
+		flyBF.Parent = hrp
 
 		flyConn = RunService.RenderStepped:Connect(function()
 			if not flyEnabled then return end
@@ -958,79 +961,40 @@ do
 			if not h or not hm then return end
 
 			hm.PlatformStand = true
+			if flyBF and flyBF.Parent then
+				flyBF.Force = Vector3.new(0, workspace.Gravity * h:GetMass(), 0)
+			end
 
-			local cam = workspace.CurrentCamera
-			local cf  = cam.CFrame
-
-			-- Vetores da câmera
-			local camLook  = cf.LookVector   -- inclui componente Y (câmera inclinada)
-			local camRight = cf.RightVector
-
+			local cf = workspace.CurrentCamera.CFrame
 			local mv = Vector3.zero
-			local hasInput = false
 
-			-- WASD — usa direção COMPLETA da câmera (W voa na direção que a câmera aponta,
-			-- inclusive para cima se a câmera estiver inclinada, igual ao IY)
-			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-				mv = mv + camLook
-				hasInput = true
-			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-				mv = mv - camLook
-				hasInput = true
-			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-				mv = mv - camRight
-				hasInput = true
-			end
-			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-				mv = mv + camRight
-				hasInput = true
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + cf.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv - cf.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv - cf.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + cf.RightVector end
+
+			-- Mobile joystick
+			if hm.MoveDirection.Magnitude > 0.1 then
+				local yaw = CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
+				mv = mv + yaw * hm.MoveDirection
 			end
 
-			-- Joystick mobile: usa MoveDirection da humanoid + câmera
-			local moveDir = hm.MoveDirection
-			if moveDir.Magnitude > 0.1 then
-				-- Rotaciona a direção do joystick pela câmera (igual ao IY mobile)
-				local camYaw = CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
-				local rotated = camYaw * moveDir
-				mv = mv + rotated
-				hasInput = true
-			end
-
-			-- Vertical explícito (Space = sobe, Ctrl/Shift = desce)
-			local vy = 0
+			-- Vertical dedicado
 			if UserInputService:IsKeyDown(Enum.KeyCode.Space)
 				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonA) then
-				vy = flySpeed
-				hasInput = true
+				mv = mv + Vector3.new(0, 1, 0)
 			elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
 				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
 				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonB) then
-				vy = -flySpeed
-				hasInput = true
+				mv = mv - Vector3.new(0, 1, 0)
 			end
 
-			local targetVel
-			if hasInput then
-				local normalized = mv.Magnitude > 0.01 and mv.Unit or Vector3.zero
-				targetVel = normalized * flySpeed + Vector3.new(0, vy, 0)
-				-- Se há vertical explícita E input horizontal, soma mas normaliza para não ultrapassar flySpeed
-				if mv.Magnitude > 0.01 and vy ~= 0 then
-					targetVel = (normalized * flySpeed + Vector3.new(0, vy, 0))
-				end
-			else
-				-- Sem input: flutua no lugar (zera velocidade)
-				targetVel = Vector3.zero
-			end
+			flyBV.Velocity = mv.Magnitude > 0.01 and mv.Unit * flySpeed or Vector3.zero
 
-			flyBodyVel.Velocity = targetVel
-
-			-- BodyGyro só mantém o personagem ereto (sem virar de lado/cabeça pra baixo)
-			-- Aponta para onde a câmera está olhando no plano horizontal
-			local lookHoriz = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
-			if lookHoriz.Magnitude > 0.01 then
-				flyBodyGyro.CFrame = CFrame.new(Vector3.zero, lookHoriz)
+			-- Gyro aponta para frente da câmera (só horizontal, personagem ereto)
+			local flat = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+			if flat.Magnitude > 0.01 then
+				flyBG.CFrame = CFrame.new(Vector3.zero, flat)
 			end
 		end)
 	end
@@ -1175,72 +1139,80 @@ do
 	end)
 
 	-- ================================================================
-	-- LOCK-ON — trava a câmera no target selecionado na aba Target
-	-- A câmera suavemente acompanha o HRP do alvo
-	-- Para destravar: desligar o toggle ou pressionar Q
+	-- LOCK-ON — estilo Rocket League
+	-- A câmera mantém sua posição normal (você controla onde ela fica),
+	-- mas a rotação é sempre travada para olhar para o target.
+	-- Desativar: toggle ou Q
 	-- ================================================================
 	sec:Divider("lock-on")
 
 	local lockEnabled   = false
 	local lockConn      = nil
-	local lockToggleRef = nil -- referência ao toggle para desligar via Q
+	local lockToggleRef = nil
 
 	local function getLockTarget()
-		-- Tenta pegar o targetPlayer da aba Target (variável no escopo do target_tab)
-		-- Como target_tab é construído depois, usamos uma referência compartilhada
 		return _G.ref_lockTarget
 	end
 
 	local function stopLock()
 		lockEnabled = false
 		if lockConn then lockConn:Disconnect() lockConn = nil end
-		-- Restaura câmera para modo normal
 		local cam = workspace.CurrentCamera
 		if cam then cam.CameraType = Enum.CameraType.Custom end
-		if lockToggleRef then lockToggleRef.Set(false) end
+		if lockToggleRef then
+			task.delay(0.05, function() lockToggleRef.Set(false) end)
+		end
 	end
 
 	local function startLock()
+		local target = getLockTarget()
+		if not target then return end
 		lockEnabled = true
+
 		local cam = workspace.CurrentCamera
-		cam.CameraType = Enum.CameraType.Scriptable
+		-- Scriptable: a câmera fica totalmente sob controle do script
+		-- mas preservamos a posição que o Roblox calcularia normalmente
+		cam.CameraType = Enum.CameraType.Custom
 
 		lockConn = RunService.RenderStepped:Connect(function()
 			if not lockEnabled then return end
-			local target = getLockTarget()
-			if not target or not target.Character then return end
+			local t = getLockTarget()
+			if not t or not t.Character then return end
+			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
+			if not thrp then return end
 
-			local thrp = target.Character:FindFirstChild("HumanoidRootPart")
-			local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-			if not thrp or not myHrp then return end
+			-- Pega a CFrame atual da câmera (posição calculada pelo Roblox normalmente)
+			-- e apenas SUBSTITUI a rotação para apontar para o target
+			local camPos   = cam.CFrame.Position
+			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0) -- mira no torso/cabeça
 
-			-- Câmera atrás do próprio personagem, olhando para o target
-			local camOffset = Vector3.new(0, 2, -5) -- posição atrás e levemente acima
-			local camPos = myHrp.CFrame:PointToWorldSpace(camOffset)
-			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0)
+			local dist = (camPos - targetPos).Magnitude
+			if dist < 0.5 then return end  -- muito perto, evita NaN
 
+			-- Cria novo CFrame: mesma posição, rotação apontando para o target
 			local newCF = CFrame.new(camPos, targetPos)
-			cam.CFrame = cam.CFrame:Lerp(newCF, 0.2)
+
+			-- Lerp suave para não tremer (0.35 = responsivo mas fluido)
+			cam.CFrame = cam.CFrame:Lerp(newCF, 0.35)
 		end)
 	end
 
 	lockToggleRef = sec:Toggle("lock-on (target tab)", false, function(v)
 		if v then
 			if not getLockTarget() then
-				-- sem target: não liga
 				task.delay(0.05, function() lockToggleRef.Set(false) end)
 				return
 			end
 			startLock()
 		else
 			stopLock()
-			lockEnabled = false -- já setado mas garante
+			lockEnabled = false
 			local cam = workspace.CurrentCamera
 			if cam then cam.CameraType = Enum.CameraType.Custom end
 		end
 	end)
 
-	-- Desbloqueia com Q
+	-- Q para destravar
 	UserInputService.InputBegan:Connect(function(input, gp)
 		if gp then return end
 		if input.KeyCode == Enum.KeyCode.Q and lockEnabled then
@@ -1248,7 +1220,7 @@ do
 		end
 	end)
 
-	-- Para o lock se o target morrer ou sair
+	-- Para se target sair
 	Players.PlayerRemoving:Connect(function(p)
 		if p == getLockTarget() and lockEnabled then stopLock() end
 	end)

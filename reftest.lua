@@ -132,32 +132,6 @@ AccentLine.Size = UDim2.new(1, 0, 0, 1)
 AccentLine.Position = UDim2.new(0, 0, 1, -1)
 AccentLine.BackgroundTransparency = 0.35
 AccentLine.Parent = Topbar
-local TitleWrap = Instance.new("Frame")
-TitleWrap.BackgroundTransparency = 1
-TitleWrap.Size = UDim2.new(0, 180, 0, 24)
-TitleWrap.AnchorPoint = Vector2.new(0.5, 0.5)
-TitleWrap.Position = UDim2.new(0.5, 0, 0.5, 0)
-TitleWrap.Parent = Topbar
-local TitleA = Instance.new("TextLabel")
-TitleA.BackgroundTransparency = 1
-TitleA.Size = UDim2.new(0, 60, 1, 0)
-TitleA.Position = UDim2.new(0.5, -30, 0, 0)
-TitleA.Font = Enum.Font.GothamSemibold
-TitleA.Text = "ref"
-TitleA.TextSize = 18
-TitleA.TextColor3 = Theme.Text
-TitleA.TextXAlignment = Enum.TextXAlignment.Right
-TitleA.Parent = TitleWrap
-local TitleB = Instance.new("TextLabel")
-TitleB.BackgroundTransparency = 1
-TitleB.Size = UDim2.new(0, 50, 1, 0)
-TitleB.Position = UDim2.new(0.5, 32, 0, 0)
-TitleB.Font = Enum.Font.Gotham
-TitleB.Text = "ui"
-TitleB.TextSize = 14
-TitleB.TextColor3 = Theme.Sub
-TitleB.TextXAlignment = Enum.TextXAlignment.Left
-TitleB.Parent = TitleWrap
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 36, 0, 28)
 MinBtn.Position = UDim2.new(1, -48, 0.5, -14)local Topbar = Instance.new("Frame")
@@ -186,7 +160,7 @@ TitleIconBg.BorderSizePixel = 0
 TitleIconBg.ZIndex = 2
 TitleIconBg.Parent = Topbar
 addCorner(TitleIconBg, 12)
-addStroke(TitleIconBg, 1, 0.88, Theme.Stroke)
+-- addStroke(TitleIconBg, 1, 0.88, Theme.Stroke)
 
 local TitleIcon = Instance.new("ImageLabel")
 TitleIcon.Name = "TitleIcon"

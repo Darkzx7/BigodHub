@@ -1,4 +1,4 @@
---// ref ui (repaginada) - LocalScript
+--// ref ui - LocalScript
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -6,7 +6,6 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
--- remove UI antiga
 local old = pg:FindFirstChild("ref_ui")
 if old then old:Destroy() end
 
@@ -31,7 +30,7 @@ local function addStroke(inst, th, tr, color)
 	local s = Instance.new("UIStroke")
 	s.Thickness = th or 1
 	s.Transparency = tr or 0.65
-	s.Color = color or Color3.fromRGB(255,255,255)
+	s.Color = color or Color3.fromRGB(255, 255, 255)
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.Parent = inst
 	return s
@@ -39,24 +38,22 @@ end
 
 local function addPadding(inst, p)
 	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, p or 10)
-	pad.PaddingRight = UDim.new(0, p or 10)
-	pad.PaddingTop = UDim.new(0, p or 10)
+	pad.PaddingLeft   = UDim.new(0, p or 10)
+	pad.PaddingRight  = UDim.new(0, p or 10)
+	pad.PaddingTop    = UDim.new(0, p or 10)
 	pad.PaddingBottom = UDim.new(0, p or 10)
 	pad.Parent = inst
 	return pad
 end
 
-local function makeDraggable(topbar, frame)
-	local dragging = false
-	local dragStart, startPos
-
-	topbar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+local function makeDraggable(handle, frame)
+	local dragging, dragStart, startPos = false, nil, nil
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			dragStart = input.Position
-			startPos = frame.Position
-
+			startPos  = frame.Position
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					dragging = false
@@ -64,27 +61,27 @@ local function makeDraggable(topbar, frame)
 			end)
 		end
 	end)
-
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			local delta = input.Position - dragStart
-			frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			local d = input.Position - dragStart
+			frame.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + d.X,
+				startPos.Y.Scale, startPos.Y.Offset + d.Y
+			)
 		end
 	end)
 end
 
 -- theme
 local Theme = {
-	BG = Color3.fromRGB(14, 14, 16),
-	Panel = Color3.fromRGB(18, 18, 22),
+	Panel  = Color3.fromRGB(18, 18, 22),
 	Panel2 = Color3.fromRGB(22, 22, 27),
 	Stroke = Color3.fromRGB(255, 255, 255),
-
-	Text = Color3.fromRGB(235, 235, 240),
-	SubText = Color3.fromRGB(170, 170, 180),
-
+	Text   = Color3.fromRGB(235, 235, 240),
+	Sub    = Color3.fromRGB(170, 170, 180),
 	Accent = Color3.fromRGB(120, 80, 255),
-	Line = Color3.fromRGB(60, 60, 72),
+	Line   = Color3.fromRGB(60, 60, 72),
 }
 
 -- ScreenGui
@@ -94,7 +91,43 @@ ScreenGui.IgnoreGuiInset = true
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = pg
 
--- Main
+-- ===== ÍCONE MINIMIZADO =====
+local IconBtn = Instance.new("ImageButton")
+IconBtn.Name = "IconBtn"
+IconBtn.Size = UDim2.new(0, 52, 0, 52)
+IconBtn.Position = UDim2.new(0.5, -270, 0.5, -170)
+IconBtn.BackgroundColor3 = Theme.Panel2
+IconBtn.Image = "rbxassetid://131165537896572"
+IconBtn.ScaleType = Enum.ScaleType.Fit
+IconBtn.AutoButtonColor = false
+IconBtn.Visible = false
+IconBtn.ZIndex = 10
+IconBtn.Parent = ScreenGui
+addCorner(IconBtn, 14)
+addStroke(IconBtn, 1, 0.70, Theme.Stroke)
+
+local IconShadow = Instance.new("ImageLabel")
+IconShadow.BackgroundTransparency = 1
+IconShadow.Image = "rbxassetid://1316045217"
+IconShadow.ImageTransparency = 0.88
+IconShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+IconShadow.ScaleType = Enum.ScaleType.Slice
+IconShadow.SliceCenter = Rect.new(10, 10, 118, 118)
+IconShadow.Size = UDim2.new(1, 28, 1, 28)
+IconShadow.Position = UDim2.new(0, -14, 0, -14)
+IconShadow.ZIndex = 9
+IconShadow.Parent = IconBtn
+
+makeDraggable(IconBtn, IconBtn)
+
+IconBtn.MouseEnter:Connect(function()
+	tween(IconBtn, {BackgroundColor3 = Color3.fromRGB(30, 30, 40)}, 0.12)
+end)
+IconBtn.MouseLeave:Connect(function()
+	tween(IconBtn, {BackgroundColor3 = Theme.Panel2}, 0.12)
+end)
+
+-- ===== MAIN FRAME =====
 local Main = Instance.new("Frame")
 Main.Name = "Main"
 Main.Size = UDim2.new(0, 540, 0, 340)
@@ -104,9 +137,7 @@ Main.Parent = ScreenGui
 addCorner(Main, 14)
 addStroke(Main, 1, 0.75, Theme.Stroke)
 
--- Shadow
 local Shadow = Instance.new("ImageLabel")
-Shadow.Name = "Shadow"
 Shadow.BackgroundTransparency = 1
 Shadow.Image = "rbxassetid://1316045217"
 Shadow.ImageTransparency = 0.90
@@ -121,7 +152,6 @@ Main.ZIndex = 1
 
 -- Topbar
 local Topbar = Instance.new("Frame")
-Topbar.Name = "Topbar"
 Topbar.Size = UDim2.new(1, 0, 0, 48)
 Topbar.BackgroundColor3 = Theme.Panel2
 Topbar.Parent = Main
@@ -142,30 +172,29 @@ TitleWrap.AnchorPoint = Vector2.new(0.5, 0.5)
 TitleWrap.Position = UDim2.new(0.5, 0, 0.5, 0)
 TitleWrap.Parent = Topbar
 
-local Title = Instance.new("TextLabel")
-Title.BackgroundTransparency = 1
-Title.Size = UDim2.new(0, 60, 1, 0)
-Title.Position = UDim2.new(0.5, -30, 0, 0)
-Title.Font = Enum.Font.GothamSemibold
-Title.Text = "ref"
-Title.TextSize = 18
-Title.TextColor3 = Theme.Text
-Title.TextXAlignment = Enum.TextXAlignment.Right
-Title.Parent = TitleWrap
+local TitleA = Instance.new("TextLabel")
+TitleA.BackgroundTransparency = 1
+TitleA.Size = UDim2.new(0, 60, 1, 0)
+TitleA.Position = UDim2.new(0.5, -30, 0, 0)
+TitleA.Font = Enum.Font.GothamSemibold
+TitleA.Text = "ref"
+TitleA.TextSize = 18
+TitleA.TextColor3 = Theme.Text
+TitleA.TextXAlignment = Enum.TextXAlignment.Right
+TitleA.Parent = TitleWrap
 
-local TitleSmall = Instance.new("TextLabel")
-TitleSmall.BackgroundTransparency = 1
-TitleSmall.Size = UDim2.new(0, 50, 1, 0)
-TitleSmall.Position = UDim2.new(0.5, 32, 0, 0)
-TitleSmall.Font = Enum.Font.Gotham
-TitleSmall.Text = "ui"
-TitleSmall.TextSize = 14
-TitleSmall.TextColor3 = Theme.SubText
-TitleSmall.TextXAlignment = Enum.TextXAlignment.Left
-TitleSmall.Parent = TitleWrap
+local TitleB = Instance.new("TextLabel")
+TitleB.BackgroundTransparency = 1
+TitleB.Size = UDim2.new(0, 50, 1, 0)
+TitleB.Position = UDim2.new(0.5, 32, 0, 0)
+TitleB.Font = Enum.Font.Gotham
+TitleB.Text = "ui"
+TitleB.TextSize = 14
+TitleB.TextColor3 = Theme.Sub
+TitleB.TextXAlignment = Enum.TextXAlignment.Left
+TitleB.Parent = TitleWrap
 
 local MinBtn = Instance.new("TextButton")
-MinBtn.Name = "Minimize"
 MinBtn.Size = UDim2.new(0, 36, 0, 28)
 MinBtn.Position = UDim2.new(1, -48, 0.5, -14)
 MinBtn.BackgroundColor3 = Theme.Panel
@@ -189,23 +218,16 @@ makeDraggable(Topbar, Main)
 
 -- Body
 local Body = Instance.new("Frame")
-Body.Name = "Body"
 Body.Size = UDim2.new(1, 0, 1, -48)
 Body.Position = UDim2.new(0, 0, 0, 48)
 Body.BackgroundTransparency = 1
 Body.Parent = Main
 
 -- Sidebar
-local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0, 160, 1, 0)
-Sidebar.BackgroundTransparency = 1
-Sidebar.Parent = Body
-
 local SidePad = Instance.new("Frame")
 SidePad.BackgroundTransparency = 1
-SidePad.Size = UDim2.new(1, 0, 1, 0)
-SidePad.Parent = Sidebar
+SidePad.Size = UDim2.new(0, 160, 1, 0)
+SidePad.Parent = Body
 addPadding(SidePad, 12)
 
 local TabsList = Instance.new("UIListLayout")
@@ -214,26 +236,19 @@ TabsList.SortOrder = Enum.SortOrder.LayoutOrder
 TabsList.Parent = SidePad
 
 -- Content
-local Content = Instance.new("Frame")
-Content.Name = "Content"
-Content.Size = UDim2.new(1, -160, 1, 0)
-Content.Position = UDim2.new(0, 160, 0, 0)
-Content.BackgroundTransparency = 1
-Content.Parent = Body
-
 local ContentPad = Instance.new("Frame")
 ContentPad.BackgroundTransparency = 1
-ContentPad.Size = UDim2.new(1, 0, 1, 0)
-ContentPad.Parent = Content
+ContentPad.Size = UDim2.new(1, -160, 1, 0)
+ContentPad.Position = UDim2.new(0, 160, 0, 0)
+ContentPad.Parent = Body
 addPadding(ContentPad, 12)
 
 local Pages = Instance.new("Folder")
-Pages.Name = "Pages"
 Pages.Parent = ContentPad
 
--- Library
+-- ===== LIBRARY =====
 local Library = {}
-local Active = {TabBtn=nil, Page=nil}
+local Active = {TabBtn = nil, Page = nil}
 
 function Library:Divider(parent, text)
 	local Wrap = Instance.new("Frame")
@@ -263,19 +278,19 @@ function Library:Divider(parent, text)
 	Grad.Parent = Line
 
 	if text and text ~= "" then
-		local Label = Instance.new("TextLabel")
-		Label.BackgroundColor3 = Theme.Panel2
-		Label.BorderSizePixel = 0
-		Label.AnchorPoint = Vector2.new(0.5, 0.5)
-		Label.Position = UDim2.new(0.5, 0, 0.5, 0)
-		Label.Size = UDim2.new(0, 140, 0, 20)
-		Label.Font = Enum.Font.GothamSemibold
-		Label.Text = text
-		Label.TextSize = 12
-		Label.TextColor3 = Theme.SubText
-		Label.Parent = Wrap
-		addCorner(Label, 999)
-		addStroke(Label, 1, 0.9, Theme.Stroke)
+		local Lbl = Instance.new("TextLabel")
+		Lbl.BackgroundColor3 = Theme.Panel2
+		Lbl.BorderSizePixel = 0
+		Lbl.AnchorPoint = Vector2.new(0.5, 0.5)
+		Lbl.Position = UDim2.new(0.5, 0, 0.5, 0)
+		Lbl.Size = UDim2.new(0, 140, 0, 20)
+		Lbl.Font = Enum.Font.GothamSemibold
+		Lbl.Text = text
+		Lbl.TextSize = 12
+		Lbl.TextColor3 = Theme.Sub
+		Lbl.Parent = Wrap
+		addCorner(Lbl, 999)
+		addStroke(Lbl, 1, 0.9, Theme.Stroke)
 	end
 
 	return Wrap
@@ -288,7 +303,7 @@ function Library:CreateTab(name)
 	TabBtn.Text = name
 	TabBtn.Font = Enum.Font.GothamSemibold
 	TabBtn.TextSize = 13
-	TabBtn.TextColor3 = Theme.SubText
+	TabBtn.TextColor3 = Theme.Sub
 	TabBtn.AutoButtonColor = false
 	TabBtn.Parent = SidePad
 	addCorner(TabBtn, 10)
@@ -299,7 +314,7 @@ function Library:CreateTab(name)
 	Page.BackgroundTransparency = 1
 	Page.ScrollBarThickness = 3
 	Page.ScrollBarImageTransparency = 0.65
-	Page.CanvasSize = UDim2.new(0,0,0,0)
+	Page.CanvasSize = UDim2.new(0, 0, 0, 0)
 	Page.Visible = false
 	Page.Parent = Pages
 
@@ -315,10 +330,9 @@ function Library:CreateTab(name)
 	local function setActive()
 		if Active.TabBtn then
 			tween(Active.TabBtn, {BackgroundColor3 = Theme.Panel2}, 0.12)
-			Active.TabBtn.TextColor3 = Theme.SubText
+			Active.TabBtn.TextColor3 = Theme.Sub
 		end
 		if Active.Page then Active.Page.Visible = false end
-
 		Active.TabBtn, Active.Page = TabBtn, Page
 		Page.Visible = true
 		tween(TabBtn, {BackgroundColor3 = Color3.fromRGB(34, 34, 46)}, 0.12)
@@ -336,7 +350,6 @@ function Library:CreateTab(name)
 			tween(TabBtn, {BackgroundColor3 = Theme.Panel2}, 0.12)
 		end
 	end)
-
 	TabBtn.MouseButton1Click:Connect(setActive)
 
 	local tabObj = {}
@@ -355,15 +368,15 @@ function Library:CreateTab(name)
 		Pad.Parent = Section
 		addPadding(Pad, 12)
 
-		local TitleLabel = Instance.new("TextLabel")
-		TitleLabel.BackgroundTransparency = 1
-		TitleLabel.Size = UDim2.new(1, 0, 0, 18)
-		TitleLabel.Font = Enum.Font.GothamSemibold
-		TitleLabel.Text = titleText
-		TitleLabel.TextSize = 13
-		TitleLabel.TextColor3 = Theme.Text
-		TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-		TitleLabel.Parent = Pad
+		local TitleLbl = Instance.new("TextLabel")
+		TitleLbl.BackgroundTransparency = 1
+		TitleLbl.Size = UDim2.new(1, 0, 0, 18)
+		TitleLbl.Font = Enum.Font.GothamSemibold
+		TitleLbl.Text = titleText
+		TitleLbl.TextSize = 13
+		TitleLbl.TextColor3 = Theme.Text
+		TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
+		TitleLbl.Parent = Pad
 
 		local Items = Instance.new("Frame")
 		Items.BackgroundTransparency = 1
@@ -394,16 +407,16 @@ function Library:CreateTab(name)
 			addCorner(Row, 10)
 			addStroke(Row, 1, 0.86, Theme.Stroke)
 
-			local Label = Instance.new("TextLabel")
-			Label.BackgroundTransparency = 1
-			Label.Size = UDim2.new(1, -70, 1, 0)
-			Label.Position = UDim2.new(0, 12, 0, 0)
-			Label.Font = Enum.Font.GothamSemibold
-			Label.Text = text
-			Label.TextSize = 13
-			Label.TextColor3 = Theme.Text
-			Label.TextXAlignment = Enum.TextXAlignment.Left
-			Label.Parent = Row
+			local Lbl = Instance.new("TextLabel")
+			Lbl.BackgroundTransparency = 1
+			Lbl.Size = UDim2.new(1, -70, 1, 0)
+			Lbl.Position = UDim2.new(0, 12, 0, 0)
+			Lbl.Font = Enum.Font.GothamSemibold
+			Lbl.Text = text
+			Lbl.TextSize = 13
+			Lbl.TextColor3 = Theme.Text
+			Lbl.TextXAlignment = Enum.TextXAlignment.Left
+			Lbl.Parent = Row
 
 			local Switch = Instance.new("Frame")
 			Switch.Size = UDim2.new(0, 44, 0, 22)
@@ -416,7 +429,7 @@ function Library:CreateTab(name)
 			local Knob = Instance.new("Frame")
 			Knob.Size = UDim2.new(0, 18, 0, 18)
 			Knob.Position = UDim2.new(0, 2, 0.5, -9)
-			Knob.BackgroundColor3 = Theme.SubText
+			Knob.BackgroundColor3 = Theme.Sub
 			Knob.Parent = Switch
 			addCorner(Knob, 999)
 
@@ -428,7 +441,7 @@ function Library:CreateTab(name)
 					tween(Knob, {Position = UDim2.new(1, -20, 0.5, -9), BackgroundColor3 = Theme.Text}, 0.12)
 				else
 					tween(Switch, {BackgroundColor3 = Color3.fromRGB(35, 35, 42)}, 0.12)
-					tween(Knob, {Position = UDim2.new(0, 2, 0.5, -9), BackgroundColor3 = Theme.SubText}, 0.12)
+					tween(Knob, {Position = UDim2.new(0, 2, 0.5, -9), BackgroundColor3 = Theme.Sub}, 0.12)
 				end
 			end
 			render()
@@ -445,19 +458,21 @@ function Library:CreateTab(name)
 			Click.MouseLeave:Connect(function()
 				tween(Row, {BackgroundColor3 = Theme.Panel}, 0.12)
 			end)
-
 			Click.MouseButton1Click:Connect(function()
 				state = not state
 				render()
 				if callback then callback(state) end
 			end)
 
-			return { Get=function() return state end, Set=function(v) state=v render() if callback then callback(state) end end }
+			return {
+				Get = function() return state end,
+				Set = function(v) state = v render() if callback then callback(state) end end,
+			}
 		end
 
 		function secObj:Slider(text, min, max, default, callback)
 			min, max = min or 0, max or 100
-			default = default or min
+			default = math.clamp(default or min, min, max)
 
 			local Holder = Instance.new("Frame")
 			Holder.Size = UDim2.new(1, 0, 0, 48)
@@ -466,27 +481,26 @@ function Library:CreateTab(name)
 			addCorner(Holder, 10)
 			addStroke(Holder, 1, 0.86, Theme.Stroke)
 
-			local Label = Instance.new("TextLabel")
-			Label.BackgroundTransparency = 1
-			Label.Size = UDim2.new(1, -80, 0, 18)
-			Label.Position = UDim2.new(0, 12, 0, 8)
-			Label.Font = Enum.Font.GothamSemibold
-			Label.Text = text
-			Label.TextSize = 13
-			Label.TextColor3 = Theme.Text
-			Label.TextXAlignment = Enum.TextXAlignment.Left
-			Label.Parent = Holder
+			local Lbl = Instance.new("TextLabel")
+			Lbl.BackgroundTransparency = 1
+			Lbl.Size = UDim2.new(1, -80, 0, 18)
+			Lbl.Position = UDim2.new(0, 12, 0, 8)
+			Lbl.Font = Enum.Font.GothamSemibold
+			Lbl.Text = text
+			Lbl.TextSize = 13
+			Lbl.TextColor3 = Theme.Text
+			Lbl.TextXAlignment = Enum.TextXAlignment.Left
+			Lbl.Parent = Holder
 
-			local ValLabel = Instance.new("TextLabel")
-			ValLabel.BackgroundTransparency = 1
-			ValLabel.Size = UDim2.new(0, 60, 0, 18)
-			ValLabel.Position = UDim2.new(1, -72, 0, 8)
-			ValLabel.Font = Enum.Font.Gotham
-			ValLabel.Text = tostring(default)
-			ValLabel.TextSize = 12
-			ValLabel.TextColor3 = Theme.SubText
-			ValLabel.TextXAlignment = Enum.TextXAlignment.Right
-			ValLabel.Parent = Holder
+			local ValLbl = Instance.new("TextLabel")
+			ValLbl.BackgroundTransparency = 1
+			ValLbl.Size = UDim2.new(0, 60, 0, 18)
+			ValLbl.Position = UDim2.new(1, -72, 0, 8)
+			ValLbl.Font = Enum.Font.Gotham
+			ValLbl.TextSize = 12
+			ValLbl.TextColor3 = Theme.Sub
+			ValLbl.TextXAlignment = Enum.TextXAlignment.Right
+			ValLbl.Parent = Holder
 
 			local Bar = Instance.new("Frame")
 			Bar.Size = UDim2.new(1, -24, 0, 8)
@@ -507,34 +521,34 @@ function Library:CreateTab(name)
 			local function setValue(v)
 				v = math.clamp(v, min, max)
 				value = v
-				ValLabel.Text = tostring(math.floor(v + 0.5))
-				local a = (v - min) / (max - min)
-				Fill.Size = UDim2.new(a, 0, 1, 0)
+				ValLbl.Text = tostring(math.floor(v + 0.5))
+				Fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0)
 				if callback then callback(value) end
 			end
 
 			local function updateFromX(x)
 				local rel = (x - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X
-				setValue(min + (max - min) * rel)
+				setValue(min + (max - min) * math.clamp(rel, 0, 1))
 			end
 
 			setValue(default)
 
 			Bar.InputBegan:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				if input.UserInputType == Enum.UserInputType.MouseButton1
+					or input.UserInputType == Enum.UserInputType.Touch then
 					dragging = true
 					updateFromX(input.Position.X)
 				end
 			end)
-
 			Bar.InputEnded:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				if input.UserInputType == Enum.UserInputType.MouseButton1
+					or input.UserInputType == Enum.UserInputType.Touch then
 					dragging = false
 				end
 			end)
-
 			UserInputService.InputChanged:Connect(function(input)
-				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+					or input.UserInputType == Enum.UserInputType.Touch) then
 					updateFromX(input.Position.X)
 				end
 			end)
@@ -546,7 +560,7 @@ function Library:CreateTab(name)
 				tween(Holder, {BackgroundColor3 = Theme.Panel}, 0.12)
 			end)
 
-			return { Get=function() return value end, Set=setValue }
+			return { Get = function() return value end, Set = setValue }
 		end
 
 		return secObj
@@ -558,110 +572,115 @@ end
 
 -- ===== BUILD TABS =====
 local universal = Library:CreateTab("universal")
-local combat = Library:CreateTab("combat")
-local visual = Library:CreateTab("visual")
-
--- ativar primeira tab
+local combat    = Library:CreateTab("combat")
+local visual    = Library:CreateTab("visual")
 universal._activate()
 
--- ===== UNIVERSAL CONTENT =====
+-- ===== UNIVERSAL =====
 do
 	local sec = universal:Section("essentials")
 
 	sec:Divider("session")
 
-	-- Anti-AFK
-	sec:Toggle("anti-afk", false, function(enabled)
-		if enabled then
-			-- Previne AFK simulando movimento virtual
-			local VirtualUser = game:GetService("VirtualUser")
-			player.Idled:Connect(function()
-				VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-				task.wait(1)
-				VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-			end)
+	-- Anti-AFK: conexão única ao evento Idled, controlada por flag
+	-- Sem acumular múltiplas conexões ao ligar/desligar
+	local afkEnabled = false
+
+	player.Idled:Connect(function()
+		if not afkEnabled then return end
+		-- Rotaciona a câmera em 0.001 grau — imperceptível, mas reseta o timer de idle
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.001), 0)
 		end
+	end)
+
+	sec:Toggle("anti-afk", false, function(enabled)
+		afkEnabled = enabled
 	end)
 
 	sec:Divider("movement")
 
 	-- WalkSpeed: toggle de ativação + slider de valor
 	local DEFAULT_SPEED = 16
-	local speedEnabled = false
-	local currentSpeed = DEFAULT_SPEED
+	local speedEnabled  = false
+	local currentSpeed  = DEFAULT_SPEED
 
-	-- Função central que aplica (ou reverte) o walkspeed no personagem
 	local function applySpeed()
-		local char = player.Character or player.CharacterAdded:Wait()
+		local char = player.Character
+		if not char then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if hum then
-			hum.WalkSpeed = speedEnabled and currentSpeed or 16
+			hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED
 		end
 	end
 
-	-- Reaplica sempre que o personagem for adicionado (respawn)
+	-- Reaplica ao respawnar
 	player.CharacterAdded:Connect(function(char)
 		local hum = char:WaitForChild("Humanoid")
-		hum.WalkSpeed = speedEnabled and currentSpeed or 16
+		task.wait() -- aguarda 1 frame para o personagem inicializar
+		hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED
 	end)
 
-	-- Toggle: ativa/desativa o controle de walkspeed
 	sec:Toggle("custom walkspeed", false, function(enabled)
 		speedEnabled = enabled
 		applySpeed()
 	end)
 
-	-- Slider: define o valor de walkspeed (só surte efeito se o toggle estiver on)
 	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
 		currentSpeed = v
-		if speedEnabled then
-			applySpeed()
-		end
+		if speedEnabled then applySpeed() end
 	end)
 end
 
--- ===== EXEMPLOS OUTRAS TABS =====
+-- ===== COMBAT =====
 do
 	local sec = combat:Section("main")
 	sec:Divider("controls")
 	sec:Toggle("aim assist", false, function(v) print("aim assist:", v) end)
 end
 
+-- ===== VISUAL =====
 do
 	local sec = visual:Section("esp")
 	sec:Divider("options")
 	sec:Toggle("items esp", false, function(v) print("items esp:", v) end)
 end
 
--- ===== MINIMIZE FIX =====
+-- ===== MINIMIZE → ÍCONE =====
 local minimized = false
-local originalSize = Main.Size
-local bodyVisible = true
 
-local function setBodyVisible(v)
-	bodyVisible = v
-	for _, ch in ipairs(Body:GetChildren()) do
-		ch.Visible = v
+local function setMinimized(state)
+	minimized = state
+	if state then
+		-- ícone aparece na posição atual da UI
+		IconBtn.Position = Main.Position
+		Main.Visible = false
+		IconBtn.Visible = true
+	else
+		-- UI reabre na posição atual do ícone
+		Main.Position = IconBtn.Position
+		IconBtn.Visible = false
+		Main.Visible = true
 	end
 end
 
 MinBtn.MouseButton1Click:Connect(function()
-	minimized = not minimized
-	if minimized then
-		setBodyVisible(false)
-		tween(Main, {Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset, 0, 48)}, 0.18)
-	else
-		tween(Main, {Size = originalSize}, 0.18)
-		task.delay(0.14, function()
-			if not minimized then setBodyVisible(true) end
-		end)
-	end
+	setMinimized(true)
 end)
 
--- hotkey: RightShift
+IconBtn.MouseButton1Click:Connect(function()
+	setMinimized(false)
+end)
+
+-- RightShift: toggle visibilidade
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.RightShift then
-		ScreenGui.Enabled = not ScreenGui.Enabled
+		if minimized then
+			setMinimized(false)
+		else
+			ScreenGui.Enabled = not ScreenGui.Enabled
+		end
 	end
 end)

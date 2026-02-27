@@ -315,7 +315,7 @@ Pages.Parent = ContentPad
 
 -- linha separadora vertical sidebar/content
 local SideDiv = Instance.new("Frame")
-SideDiv.Size = UDim2.new(0, 1, 1, 0)
+SideDiv.Size = UDim2.new(0, 1, 1, -56) -- para antes do painel do usuário (56px)
 SideDiv.Position = UDim2.new(0, 160, 0, 0)
 SideDiv.BackgroundColor3 = Theme.Line
 SideDiv.BackgroundTransparency = 0.5

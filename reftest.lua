@@ -838,8 +838,8 @@ do
 			cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.001), 0)
 		end
 	end)
-	sec:Toggle("anti-afk", false, function(v) afkEnabled = v end)
-	cfgRegister("antiafk", function() return afkEnabled end, function(v) afkEnabled = v end)
+	local t_afk = sec:Toggle("anti-afk", false, function(v) afkEnabled = v end)
+	cfgRegister("antiafk", function() return afkEnabled end, function(v) t_afk.Set(v) end)
 
 	sec:Divider("movement")
 
@@ -859,11 +859,11 @@ do
 		hum.WalkSpeed = speedEnabled and currentSpeed or DEFAULT_SPEED
 	end)
 
-	sec:Toggle("custom walkspeed", false, function(v)
+	local t_wspd = sec:Toggle("custom walkspeed", false, function(v)
 		speedEnabled = v
 		applySpeed()
 	end)
-	cfgRegister("walkspeed_on", function() return speedEnabled end, function(v) speedEnabled = v applySpeed() end)
+	cfgRegister("walkspeed_on", function() return speedEnabled end, function(v) t_wspd.Set(v) end)
 	cfgRegister("walkspeed_val", function() return currentSpeed end, function(v) currentSpeed = v applySpeed() end)
 	sec:Slider("walk speed", 8, 100, DEFAULT_SPEED, function(v)
 		currentSpeed = v
@@ -895,11 +895,11 @@ do
 		applyJump()
 	end)
 
-	sec:Toggle("infinite jump", false, function(v)
+	local t_jump = sec:Toggle("infinite jump", false, function(v)
 		jumpEnabled = v
 		applyJump()
 	end)
-	cfgRegister("infjump", function() return jumpEnabled end, function(v) jumpEnabled = v applyJump() end)
+	cfgRegister("infjump", function() return jumpEnabled end, function(v) t_jump.Set(v) end)
 
 	sec:Divider("fly")
 
@@ -1039,7 +1039,7 @@ do
 			if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
 		end
 	end)
-	sec:Toggle("noclip", false, function(v)
+	local t_noclip = sec:Toggle("noclip", false, function(v)
 		noclipEnabled = v
 		if not v then
 			local char = player.Character
@@ -1050,7 +1050,7 @@ do
 			end
 		end
 	end)
-	cfgRegister("noclip", function() return noclipEnabled end, function(v) noclipEnabled = v end)
+	cfgRegister("noclip", function() return noclipEnabled end, function(v) t_noclip.Set(v) end)
 
 	-- Spinbot
 	local spinEnabled = false
@@ -1183,11 +1183,11 @@ do
 		removeVisual(t)
 	end)
 
-	sec:Toggle("hitbox expander", false, function(v)
+	local t_hitbox = sec:Toggle("hitbox expander", false, function(v)
 		hitboxEnabled = v
 		if v then refreshAll() else revertAll() end
 	end)
-	cfgRegister("hitbox_on", function() return hitboxEnabled end, function(v) hitboxEnabled = v if v then refreshAll() else revertAll() end end)
+	cfgRegister("hitbox_on", function() return hitboxEnabled end, function(v) t_hitbox.Set(v) end)
 	cfgRegister("hitbox_size", function() return hitboxSize end, function(v) hitboxSize = v if hitboxEnabled then refreshAll() end end)
 
 	sec:Slider("hitbox size", 4, 60, 10, function(v)
@@ -1715,11 +1715,11 @@ do
 	end
 	Players.PlayerAdded:Connect(watchCharacter)
 
-	sec:Toggle("player esp", false, function(v)
+	local t_esp = sec:Toggle("player esp", false, function(v)
 		espEnabled = v
 		if not v then clearAll() end
 	end)
-	cfgRegister("esp_on", function() return espEnabled end, function(v) espEnabled = v if not v then clearAll() end end)
+	cfgRegister("esp_on", function() return espEnabled end, function(v) t_esp.Set(v) end)
 	sec:Toggle("show name", true, function(v) showName = v end)
 	sec:Toggle("show health", true, function(v) showHealth = v end)
 	sec:Toggle("show distance", true, function(v) showDist = v end)
@@ -1733,8 +1733,7 @@ do
 
 	local origAmbient, origOutdoor
 	local fbEnabled = false
-	-- FIX: fechamento correto do toggle (end) em vez de só `)`
-	sec2:Toggle("fullbright", false, function(v)
+	local t_fb = sec2:Toggle("fullbright", false, function(v)
 		fbEnabled = v
 		if v then
 			origAmbient = game:GetService("Lighting").Ambient
@@ -1748,18 +1747,7 @@ do
 			game:GetService("Lighting").Brightness     = 1
 		end
 	end)
-	cfgRegister("fullbright", function() return fbEnabled end, function(v)
-		fbEnabled = v
-		if v then
-			game:GetService("Lighting").Ambient        = Color3.fromRGB(255, 255, 255)
-			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-			game:GetService("Lighting").Brightness     = 2
-		else
-			game:GetService("Lighting").Ambient        = Color3.fromRGB(70, 70, 70)
-			game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(70, 70, 70)
-			game:GetService("Lighting").Brightness     = 1
-		end
-	end)
+	cfgRegister("fullbright", function() return fbEnabled end, function(v) t_fb.Set(v) end)
 
 	sec2:Divider("chams")
 
@@ -1826,11 +1814,11 @@ do
 	end)
 	Players.PlayerRemoving:Connect(removeChams)
 
-	sec2:Toggle("chams", false, function(v)
+	local t_chams = sec2:Toggle("chams", false, function(v)
 		chamsEnabled = v
 		refreshChams()
 	end)
-	cfgRegister("chams", function() return chamsEnabled end, function(v) chamsEnabled = v refreshChams() end)
+	cfgRegister("chams", function() return chamsEnabled end, function(v) t_chams.Set(v) end)
 
 	sec2:Divider("tracers")
 	local tracersEnabled = false
@@ -2101,10 +2089,10 @@ do
 	local function repositionDropList()
 		local abs     = HeaderRow.AbsolutePosition
 		local absSize = HeaderRow.AbsoluteSize
-		-- topo do DropList = borda inferior do header + 4px de gap
-		DropList.Position = UDim2.new(0, abs.X, 0, abs.Y + absSize.Y + 4)
+		-- A borda inferior do header = abs.Y + absSize.Y
+		-- O DropList começa 4px abaixo disso
+		DropList.Position  = UDim2.new(0, abs.X, 0, abs.Y + absSize.Y + 4)
 		DropList.AnchorPoint = Vector2.new(0, 0)
-		DropList.Size = UDim2.new(0, absSize.X, 0, 0)
 	end
 
 	local function rebuildItems()
@@ -2249,7 +2237,8 @@ do
 
 	local function closeDropdown()
 		dropOpen = false
-		tween(DropList, {Size = UDim2.new(0, DropList.AbsoluteSize.X, 0, 0)}, 0.14)
+		local w = HeaderRow.AbsoluteSize.X
+		tween(DropList, {Size = UDim2.new(0, w, 0, 0)}, 0.14)
 		tween(ArrowImg, {Rotation = 0}, 0.14)
 		task.delay(0.15, function() if not dropOpen then DropList.Visible = false end end)
 	end
@@ -2258,11 +2247,13 @@ do
 		dropOpen = true
 		repositionDropList()
 		rebuildItems()
+		local w = HeaderRow.AbsoluteSize.X
+		-- começa colapsado (altura 0) e expande pra baixo
+		DropList.Size    = UDim2.new(0, w, 0, 0)
 		DropList.Visible = true
-		DropList.Size = UDim2.new(0, HeaderRow.AbsoluteSize.X, 0, 0)
-		task.wait()  -- deixa layout calcular altura
+		task.wait()  -- deixa o UIListLayout calcular AbsoluteContentSize
 		local h = DropLayout.AbsoluteContentSize.Y + 12
-		tween(DropList, {Size = UDim2.new(0, HeaderRow.AbsoluteSize.X, 0, h)}, 0.16)
+		tween(DropList, {Size = UDim2.new(0, w, 0, h)}, 0.16)
 		tween(ArrowImg, {Rotation = 180}, 0.16)
 	end
 

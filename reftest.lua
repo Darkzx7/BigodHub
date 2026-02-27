@@ -209,10 +209,8 @@ UserPanel.Position = UDim2.new(0, 0, 1, -56) -- encostado no fundo da UI
 UserPanel.BackgroundColor3 = Theme.Panel
 UserPanel.ZIndex = 3
 UserPanel.ClipsDescendants = true
+UserPanel.BorderSizePixel = 0
 UserPanel.Parent = Main
--- só cantos inferiores arredondados para colar no canto da UI
-addCorner(UserPanel, 14)
--- sem stroke no painel de usuário pra encaixar limpo na UI
 
 -- linha accent no topo do painel
 local UserTopLine = Instance.new("Frame")

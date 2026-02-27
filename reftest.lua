@@ -892,9 +892,11 @@ do
 	sec:Divider("fly")
 
 	-- ================================================================
-	-- FLY — método BodyVelocity + BodyGyro (estilo InfiniteYield)
-	-- Funciona corretamente: voa na direção da câmera, sobe/desce,
-	-- mantém orientação ereta e para suavemente ao largar as teclas.
+	-- FLY — estilo InfiniteYield real
+	-- W/S/A/D: move na direção da câmera (incluindo vertical se câmera inclinada)
+	-- Space: sobe | Ctrl/Shift: desce
+	-- Mobile: joystick move horizontalmente, câmera inclinada sobe/desce
+	-- BodyGyro só trava o roll (não trava pitch), personagem fica ereto
 	-- ================================================================
 	local flyEnabled = false
 	local flySpeed   = 50
@@ -914,13 +916,10 @@ do
 		flyEnabled = false
 		if flyConn then flyConn:Disconnect() flyConn = nil end
 		cleanFlyObjects()
-
 		local char = player.Character
 		if not char then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum.PlatformStand = false
-		end
+		if hum then hum.PlatformStand = false end
 	end
 
 	local function startFly()
@@ -935,88 +934,103 @@ do
 
 		hum.PlatformStand = true
 
-		-- BodyVelocity: controla a velocidade linear
 		flyBodyVel = Instance.new("BodyVelocity")
-		flyBodyVel.Velocity    = Vector3.zero
-		flyBodyVel.MaxForce    = Vector3.new(1e5, 1e5, 1e5)
-		flyBodyVel.P           = 1e4
-		flyBodyVel.Parent      = hrp
+		flyBodyVel.Velocity  = Vector3.zero
+		flyBodyVel.MaxForce  = Vector3.new(1e5, 1e5, 1e5)
+		flyBodyVel.P         = 1e4
+		flyBodyVel.Parent    = hrp
 
-		-- BodyGyro: mantém o personagem sempre ereto (sem tombar)
+		-- BodyGyro: só trava rotação no eixo X e Z (sem pitch/roll),
+		-- personagem fica ereto mas livre para subir/descer via velocidade
 		flyBodyGyro = Instance.new("BodyGyro")
-		flyBodyGyro.MaxTorque  = Vector3.new(1e5, 1e5, 1e5)
-		flyBodyGyro.P          = 1e4
-		flyBodyGyro.D          = 400
-		flyBodyGyro.CFrame     = hrp.CFrame
-		flyBodyGyro.Parent     = hrp
+		flyBodyGyro.MaxTorque = Vector3.new(1e4, 1e4, 1e4)
+		flyBodyGyro.P         = 1e4
+		flyBodyGyro.D         = 500
+		flyBodyGyro.CFrame    = CFrame.new(hrp.Position, hrp.Position + Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z))
+		flyBodyGyro.Parent    = hrp
 
 		flyConn = RunService.RenderStepped:Connect(function()
 			if not flyEnabled then return end
-
 			local c = player.Character
 			if not c then return end
-			local h   = c:FindFirstChild("HumanoidRootPart")
-			local hm  = c:FindFirstChildOfClass("Humanoid")
+			local h  = c:FindFirstChild("HumanoidRootPart")
+			local hm = c:FindFirstChildOfClass("Humanoid")
 			if not h or not hm then return end
 
-			-- Garante PlatformStand ativo (pode resetar em alguns jogos)
 			hm.PlatformStand = true
 
 			local cam = workspace.CurrentCamera
 			local cf  = cam.CFrame
 
-			-- Direção horizontal baseada na câmera
-			local forward = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z).Unit
-			local right   = Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z).Unit
+			-- Vetores da câmera
+			local camLook  = cf.LookVector   -- inclui componente Y (câmera inclinada)
+			local camRight = cf.RightVector
 
 			local mv = Vector3.zero
+			local hasInput = false
 
-			-- WASD
+			-- WASD — usa direção COMPLETA da câmera (W voa na direção que a câmera aponta,
+			-- inclusive para cima se a câmera estiver inclinada, igual ao IY)
 			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-				mv = mv + forward
+				mv = mv + camLook
+				hasInput = true
 			end
 			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-				mv = mv - forward
+				mv = mv - camLook
+				hasInput = true
 			end
 			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-				mv = mv - right
+				mv = mv - camRight
+				hasInput = true
 			end
 			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-				mv = mv + right
+				mv = mv + camRight
+				hasInput = true
 			end
 
-			-- Joystick (mobile)
+			-- Joystick mobile: usa MoveDirection da humanoid + câmera
 			local moveDir = hm.MoveDirection
 			if moveDir.Magnitude > 0.1 then
-				mv = mv + Vector3.new(moveDir.X, 0, moveDir.Z)
+				-- Rotaciona a direção do joystick pela câmera (igual ao IY mobile)
+				local camYaw = CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
+				local rotated = camYaw * moveDir
+				mv = mv + rotated
+				hasInput = true
 			end
 
-			-- Vertical
+			-- Vertical explícito (Space = sobe, Ctrl/Shift = desce)
 			local vy = 0
 			if UserInputService:IsKeyDown(Enum.KeyCode.Space)
 				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonA) then
-				vy = 1
+				vy = flySpeed
+				hasInput = true
 			elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
 				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
 				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonB) then
-				vy = -1
+				vy = -flySpeed
+				hasInput = true
 			end
 
-			-- Normaliza direção horizontal se há input
-			local horizVel = Vector3.zero
-			if mv.Magnitude > 0.01 then
-				horizVel = mv.Unit * flySpeed
+			local targetVel
+			if hasInput then
+				local normalized = mv.Magnitude > 0.01 and mv.Unit or Vector3.zero
+				targetVel = normalized * flySpeed + Vector3.new(0, vy, 0)
+				-- Se há vertical explícita E input horizontal, soma mas normaliza para não ultrapassar flySpeed
+				if mv.Magnitude > 0.01 and vy ~= 0 then
+					targetVel = (normalized * flySpeed + Vector3.new(0, vy, 0))
+				end
+			else
+				-- Sem input: flutua no lugar (zera velocidade)
+				targetVel = Vector3.zero
 			end
 
-			local targetVel = Vector3.new(horizVel.X, vy * flySpeed, horizVel.Z)
-
-			-- Aplica velocidade via BodyVelocity (suave, sem trepidação)
 			flyBodyVel.Velocity = targetVel
 
-			-- Mantém o personagem ereto e virado para a câmera (só horizontal)
-			local lookAt = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
-			if lookAt.Magnitude > 0.01 then
-				flyBodyGyro.CFrame = CFrame.new(Vector3.zero, lookAt)
+			-- BodyGyro só mantém o personagem ereto (sem virar de lado/cabeça pra baixo)
+			-- Aponta para onde a câmera está olhando no plano horizontal
+			local lookHoriz = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+			if lookHoriz.Magnitude > 0.01 then
+				flyBodyGyro.CFrame = CFrame.new(Vector3.zero, lookHoriz)
 			end
 		end)
 	end
@@ -1159,6 +1173,85 @@ do
 		visualizeRange = v
 		if hitboxEnabled then refreshAll() end
 	end)
+
+	-- ================================================================
+	-- LOCK-ON — trava a câmera no target selecionado na aba Target
+	-- A câmera suavemente acompanha o HRP do alvo
+	-- Para destravar: desligar o toggle ou pressionar Q
+	-- ================================================================
+	sec:Divider("lock-on")
+
+	local lockEnabled   = false
+	local lockConn      = nil
+	local lockToggleRef = nil -- referência ao toggle para desligar via Q
+
+	local function getLockTarget()
+		-- Tenta pegar o targetPlayer da aba Target (variável no escopo do target_tab)
+		-- Como target_tab é construído depois, usamos uma referência compartilhada
+		return _G.ref_lockTarget
+	end
+
+	local function stopLock()
+		lockEnabled = false
+		if lockConn then lockConn:Disconnect() lockConn = nil end
+		-- Restaura câmera para modo normal
+		local cam = workspace.CurrentCamera
+		if cam then cam.CameraType = Enum.CameraType.Custom end
+		if lockToggleRef then lockToggleRef.Set(false) end
+	end
+
+	local function startLock()
+		lockEnabled = true
+		local cam = workspace.CurrentCamera
+		cam.CameraType = Enum.CameraType.Scriptable
+
+		lockConn = RunService.RenderStepped:Connect(function()
+			if not lockEnabled then return end
+			local target = getLockTarget()
+			if not target or not target.Character then return end
+
+			local thrp = target.Character:FindFirstChild("HumanoidRootPart")
+			local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+			if not thrp or not myHrp then return end
+
+			-- Câmera atrás do próprio personagem, olhando para o target
+			local camOffset = Vector3.new(0, 2, -5) -- posição atrás e levemente acima
+			local camPos = myHrp.CFrame:PointToWorldSpace(camOffset)
+			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0)
+
+			local newCF = CFrame.new(camPos, targetPos)
+			cam.CFrame = cam.CFrame:Lerp(newCF, 0.2)
+		end)
+	end
+
+	lockToggleRef = sec:Toggle("lock-on (target tab)", false, function(v)
+		if v then
+			if not getLockTarget() then
+				-- sem target: não liga
+				task.delay(0.05, function() lockToggleRef.Set(false) end)
+				return
+			end
+			startLock()
+		else
+			stopLock()
+			lockEnabled = false -- já setado mas garante
+			local cam = workspace.CurrentCamera
+			if cam then cam.CameraType = Enum.CameraType.Custom end
+		end
+	end)
+
+	-- Desbloqueia com Q
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then return end
+		if input.KeyCode == Enum.KeyCode.Q and lockEnabled then
+			stopLock()
+		end
+	end)
+
+	-- Para o lock se o target morrer ou sair
+	Players.PlayerRemoving:Connect(function(p)
+		if p == getLockTarget() and lockEnabled then stopLock() end
+	end)
 end
 
 -- ===== TARGET =====
@@ -1185,6 +1278,7 @@ do
 
 	local function setTarget(t)
 		targetPlayer = t
+		_G.ref_lockTarget = t  -- compartilha com o lock-on de combat
 		card.Set(t)
 	end
 
@@ -1238,18 +1332,15 @@ do
 	end)
 
 	-- ================================================================
-	-- FOLLOW TARGET — usa BodyVelocity para mover o personagem de forma
-	-- fluida e real em direção ao target (não só visual/local).
-	-- Mantém uma distância mínima de 4 studs e acompanha movimentos.
+	-- FOLLOW TARGET — rápido, agressivo, tipo perseguição real
 	-- ================================================================
 	local followEnabled   = false
 	local followBodyVel   = nil
 	local followBodyGyro  = nil
 	local followConn      = nil
 
-	local FOLLOW_SPEED    = 28   -- velocidade de perseguição
-	local FOLLOW_DISTANCE = 4    -- distância mínima para parar
-	local FOLLOW_STOP_DST = 3.5  -- distância para zerar velocidade
+	local FOLLOW_SPEED    = 80   -- velocidade de perseguição (bem rápido)
+	local FOLLOW_STOP_DST = 3    -- distância para parar
 
 	local function stopFollow()
 		followEnabled = false
@@ -1258,7 +1349,6 @@ do
 		if followBodyGyro and followBodyGyro.Parent then followBodyGyro:Destroy() end
 		followBodyVel  = nil
 		followBodyGyro = nil
-
 		local char = player.Character
 		if char then
 			local hm = char:FindFirstChildOfClass("Humanoid")
@@ -1276,24 +1366,31 @@ do
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum then return end
 
+		-- Dash imediato até o target quando ativado
+		if targetPlayer and targetPlayer.Character then
+			local thrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if thrp then
+				hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, FOLLOW_STOP_DST + 0.5)
+			end
+		end
+
 		hum.PlatformStand = true
 
 		followBodyVel = Instance.new("BodyVelocity")
 		followBodyVel.Velocity  = Vector3.zero
 		followBodyVel.MaxForce  = Vector3.new(1e5, 1e5, 1e5)
-		followBodyVel.P         = 2e4
+		followBodyVel.P         = 5e4
 		followBodyVel.Parent    = hrp
 
 		followBodyGyro = Instance.new("BodyGyro")
 		followBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-		followBodyGyro.P         = 1e4
-		followBodyGyro.D         = 400
+		followBodyGyro.P         = 2e4
+		followBodyGyro.D         = 500
 		followBodyGyro.CFrame    = hrp.CFrame
 		followBodyGyro.Parent    = hrp
 
 		followConn = RunService.RenderStepped:Connect(function()
 			if not followEnabled then return end
-
 			local c = player.Character
 			if not c then return end
 			local h = c:FindFirstChild("HumanoidRootPart")
@@ -1313,41 +1410,31 @@ do
 
 			hm.PlatformStand = true
 
-			local myPos  = h.Position
-			local tgtPos = thrp.Position
-			local diff   = tgtPos - myPos
-			local dist   = diff.Magnitude
+			local diff = thrp.Position - h.Position
+			local dist = diff.Magnitude
 
 			if dist <= FOLLOW_STOP_DST then
-				-- Chegou perto o suficiente: para
 				followBodyVel.Velocity = Vector3.zero
 			else
-				-- Move em direção ao target com velocidade proporcional à distância
-				local speed = math.min(FOLLOW_SPEED, (dist - FOLLOW_STOP_DST) * 8)
-				local dir   = diff.Unit
-				followBodyVel.Velocity = dir * speed
+				-- Velocidade máxima sempre, sem rampa (perseguição agressiva)
+				followBodyVel.Velocity = diff.Unit * FOLLOW_SPEED
 
-				-- Vira o personagem para o target
-				local lookDir = Vector3.new(diff.X, 0, diff.Z)
-				if lookDir.Magnitude > 0.01 then
-					followBodyGyro.CFrame = CFrame.new(Vector3.zero, lookDir)
+				-- Vira para o target
+				local look = Vector3.new(diff.X, 0, diff.Z)
+				if look.Magnitude > 0.01 then
+					followBodyGyro.CFrame = CFrame.new(Vector3.zero, look)
 				end
 			end
 		end)
 	end
 
-	-- Reaplica follow ao respawnar
 	player.CharacterAdded:Connect(function()
 		task.wait(0.5)
 		if followEnabled then startFollow() end
 	end)
 
 	actionSec:Toggle("follow target", false, function(v)
-		if v then
-			startFollow()
-		else
-			stopFollow()
-		end
+		if v then startFollow() else stopFollow() end
 	end)
 end
 

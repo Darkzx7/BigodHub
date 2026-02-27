@@ -725,6 +725,85 @@ do
 		jumpEnabled = v
 		applyJump()
 	end)
+
+	sec:Divider("fly")
+
+	-- Fly
+	local flyEnabled = false
+	local flySpeed   = 50
+	local flyBodyVel, flyBodyGyro = nil, nil
+
+	local function stopFly()
+		flyEnabled = false
+		local char = player.Character
+		if char then
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				if flyBodyVel  and flyBodyVel.Parent  then flyBodyVel:Destroy()  end
+				if flyBodyGyro and flyBodyGyro.Parent then flyBodyGyro:Destroy() end
+				flyBodyVel, flyBodyGyro = nil, nil
+			end
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.PlatformStand = false end
+		end
+	end
+
+	local function startFly()
+		local char = player.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hrp or not hum then return end
+
+		hum.PlatformStand = true
+
+		flyBodyVel = Instance.new("BodyVelocity")
+		flyBodyVel.Velocity = Vector3.zero
+		flyBodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+		flyBodyVel.Parent = hrp
+
+		flyBodyGyro = Instance.new("BodyGyro")
+		flyBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+		flyBodyGyro.P = 1e4
+		flyBodyGyro.CFrame = hrp.CFrame
+		flyBodyGyro.Parent = hrp
+
+		RunService.RenderStepped:Connect(function()
+			if not flyEnabled or not flyBodyVel or not flyBodyVel.Parent then return end
+			local cam = workspace.CurrentCamera
+			local cf  = cam.CFrame
+			local dir = Vector3.zero
+
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0) end
+
+			if dir.Magnitude > 0 then
+				flyBodyVel.Velocity = dir.Unit * flySpeed
+			else
+				flyBodyVel.Velocity = Vector3.zero
+			end
+
+			flyBodyGyro.CFrame = cf
+		end)
+	end
+
+	player.CharacterAdded:Connect(function()
+		task.wait()
+		if flyEnabled then startFly() end
+	end)
+
+	sec:Toggle("fly", false, function(v)
+		flyEnabled = v
+		if v then startFly() else stopFly() end
+	end)
+
+	sec:Slider("fly speed", 10, 200, 50, function(v)
+		flySpeed = v
+	end)
 end
 
 -- ===== COMBAT =====
@@ -732,6 +811,131 @@ do
 	local sec = combat:Section("main")
 	sec:Divider("controls")
 	sec:Toggle("aim assist", false, function(v) print("aim assist:", v) end)
+
+	sec:Divider("hitbox")
+
+	-- Hitbox Expander
+	local hitboxEnabled  = false
+	local hitboxSize     = 10
+	local visualizeRange = false
+	local hitboxParts    = {} -- [Player] = part visual
+
+	-- armazena tamanhos originais: [BasePart] = Vector3
+	local originalSizes  = {}
+
+	local function removeVisual(target)
+		local p = hitboxParts[target]
+		if p and p.Parent then p:Destroy() end
+		hitboxParts[target] = nil
+	end
+
+	local function clearVisuals()
+		for t in pairs(hitboxParts) do removeVisual(t) end
+	end
+
+	local function applyHitbox(target, size)
+		local char = target.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+
+		-- expande HumanoidRootPart (hitbox principal no Roblox)
+		if not originalSizes[hrp] then
+			originalSizes[hrp] = hrp.Size
+		end
+		hrp.Size = Vector3.new(size, size, size)
+
+		-- visualização: esfera transparente ao redor do HRP
+		if visualizeRange then
+			if not hitboxParts[target] then
+				local vis = Instance.new("Part")
+				vis.Name = "ref_hitbox_vis"
+				vis.Anchored = false
+				vis.CanCollide = false
+				vis.Massless = true
+				vis.Shape = Enum.PartType.Ball
+				vis.Material = Enum.Material.ForceField
+				vis.Color = Color3.fromRGB(120, 80, 255)
+				vis.Transparency = 0.55
+				vis.CastShadow = false
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = hrp
+				weld.Part1 = vis
+				weld.Parent = vis
+				vis.CFrame = hrp.CFrame
+				vis.Parent = char
+				hitboxParts[target] = vis
+			end
+			hitboxParts[target].Size = Vector3.new(size, size, size)
+		else
+			removeVisual(target)
+		end
+	end
+
+	local function revertHitbox(target)
+		local char = target.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp and originalSizes[hrp] then
+			hrp.Size = originalSizes[hrp]
+			originalSizes[hrp] = nil
+		end
+		removeVisual(target)
+	end
+
+	local function revertAll()
+		for _, t in ipairs(Players:GetPlayers()) do
+			if t ~= player then revertHitbox(t) end
+		end
+		clearVisuals()
+	end
+
+	local function refreshAll()
+		for _, t in ipairs(Players:GetPlayers()) do
+			if t ~= player then
+				if hitboxEnabled then
+					applyHitbox(t, hitboxSize)
+				else
+					revertHitbox(t)
+				end
+			end
+		end
+	end
+
+	-- reaplica quando personagem de outro player spawna
+	Players.PlayerAdded:Connect(function(t)
+		t.CharacterAdded:Connect(function()
+			task.wait(1)
+			if hitboxEnabled then applyHitbox(t, hitboxSize) end
+		end)
+	end)
+	for _, t in ipairs(Players:GetPlayers()) do
+		if t ~= player then
+			t.CharacterAdded:Connect(function()
+				task.wait(1)
+				if hitboxEnabled then applyHitbox(t, hitboxSize) end
+			end)
+		end
+	end
+	Players.PlayerRemoving:Connect(function(t)
+		originalSizes[t] = nil
+		removeVisual(t)
+	end)
+
+	sec:Toggle("hitbox expander", false, function(v)
+		hitboxEnabled = v
+		if v then refreshAll() else revertAll() end
+	end)
+
+	sec:Slider("hitbox size", 4, 60, 10, function(v)
+		hitboxSize = v
+		if hitboxEnabled then refreshAll() end
+	end)
+
+	sec:Toggle("visualize range", false, function(v)
+		visualizeRange = v
+		if hitboxEnabled then refreshAll() end
+	end)
 end
 
 -- ===== VISUAL: ESP =====

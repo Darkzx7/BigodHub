@@ -731,24 +731,23 @@ do
 	-- Fly
 	local flyEnabled = false
 	local flySpeed   = 50
+	local flyConn    = nil
 	local flyBodyVel, flyBodyGyro = nil, nil
 
 	local function stopFly()
-		flyEnabled = false
+		if flyConn then flyConn:Disconnect() flyConn = nil end
+		if flyBodyVel  and flyBodyVel.Parent  then flyBodyVel:Destroy()  end
+		if flyBodyGyro and flyBodyGyro.Parent then flyBodyGyro:Destroy() end
+		flyBodyVel, flyBodyGyro = nil, nil
 		local char = player.Character
 		if char then
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				if flyBodyVel  and flyBodyVel.Parent  then flyBodyVel:Destroy()  end
-				if flyBodyGyro and flyBodyGyro.Parent then flyBodyGyro:Destroy() end
-				flyBodyVel, flyBodyGyro = nil, nil
-			end
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			if hum then hum.PlatformStand = false end
 		end
 	end
 
 	local function startFly()
+		stopFly() -- garante que não acumula conexões
 		local char = player.Character
 		if not char then return end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -758,41 +757,57 @@ do
 		hum.PlatformStand = true
 
 		flyBodyVel = Instance.new("BodyVelocity")
-		flyBodyVel.Velocity = Vector3.zero
-		flyBodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-		flyBodyVel.Parent = hrp
+		flyBodyVel.Velocity  = Vector3.zero
+		flyBodyVel.MaxForce  = Vector3.new(1e9, 1e9, 1e9)
+		flyBodyVel.Parent    = hrp
 
 		flyBodyGyro = Instance.new("BodyGyro")
-		flyBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-		flyBodyGyro.P = 1e4
-		flyBodyGyro.CFrame = hrp.CFrame
-		flyBodyGyro.Parent = hrp
+		flyBodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+		flyBodyGyro.P         = 5e4
+		flyBodyGyro.D         = 1e3
+		flyBodyGyro.CFrame    = hrp.CFrame
+		flyBodyGyro.Parent    = hrp
 
-		RunService.RenderStepped:Connect(function()
-			if not flyEnabled or not flyBodyVel or not flyBodyVel.Parent then return end
+		flyConn = RunService.RenderStepped:Connect(function()
+			if not flyEnabled then return end
+			if not flyBodyVel or not flyBodyVel.Parent then return end
+
 			local cam = workspace.CurrentCamera
 			local cf  = cam.CFrame
 			local dir = Vector3.zero
 
-			if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
-			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
-			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0) end
-
-			if dir.Magnitude > 0 then
-				flyBodyVel.Velocity = dir.Unit * flySpeed
-			else
-				flyBodyVel.Velocity = Vector3.zero
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+				dir += Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+				dir -= Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+				dir -= Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+				dir += Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+				dir += Vector3.new(0, 1, 0)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+				dir -= Vector3.new(0, 1, 0)
 			end
 
-			flyBodyGyro.CFrame = cf
+			flyBodyVel.Velocity = dir.Magnitude > 0
+				and dir.Unit * flySpeed
+				or Vector3.zero
+
+			-- gira o personagem na direção da câmera (só eixo Y)
+			flyBodyGyro.CFrame = CFrame.new(hrp.Position)
+				* CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
 		end)
 	end
 
 	player.CharacterAdded:Connect(function()
-		task.wait()
+		task.wait(0.5)
 		if flyEnabled then startFly() end
 	end)
 

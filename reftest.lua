@@ -201,18 +201,17 @@ end)
 
 makeDraggable(Topbar, Main)
 
--- ===== PAINEL DO USUÁRIO (dentro da UI, canto inferior esquerdo) =====
+-- ===== PAINEL DO USUÁRIO =====
 local UserPanel = Instance.new("Frame")
 UserPanel.Name = "UserPanel"
 UserPanel.Size = UDim2.new(0, 160, 0, 56)
-UserPanel.Position = UDim2.new(0, 0, 1, -56) -- encostado no fundo da UI
+UserPanel.Position = UDim2.new(0, 0, 1, -56)
 UserPanel.BackgroundColor3 = Theme.Panel
 UserPanel.ZIndex = 3
 UserPanel.ClipsDescendants = true
 UserPanel.BorderSizePixel = 0
 UserPanel.Parent = Main
 
--- linha accent no topo do painel
 local UserTopLine = Instance.new("Frame")
 UserTopLine.Size = UDim2.new(1, 0, 0, 1)
 UserTopLine.BackgroundColor3 = Theme.Line
@@ -221,7 +220,6 @@ UserTopLine.BorderSizePixel = 0
 UserTopLine.ZIndex = 4
 UserTopLine.Parent = UserPanel
 
--- avatar circular
 local AvatarImg = Instance.new("ImageLabel")
 AvatarImg.Name = "Avatar"
 AvatarImg.Size = UDim2.new(0, 36, 0, 36)
@@ -232,7 +230,6 @@ AvatarImg.Parent = UserPanel
 addCorner(AvatarImg, 999)
 addStroke(AvatarImg, 1.5, 0.50, Theme.Accent)
 
--- carrega thumbnail de forma assíncrona
 task.spawn(function()
 	local ok, img = pcall(function()
 		return Players:GetUserThumbnailAsync(
@@ -244,7 +241,6 @@ task.spawn(function()
 	if ok then AvatarImg.Image = img end
 end)
 
--- linha accent vertical separadora
 local UserDivider = Instance.new("Frame")
 UserDivider.Size = UDim2.new(0, 2, 0, 30)
 UserDivider.Position = UDim2.new(0, 54, 0.5, -15)
@@ -255,7 +251,6 @@ UserDivider.ZIndex = 4
 UserDivider.Parent = UserPanel
 addCorner(UserDivider, 999)
 
--- display name
 local UserName = Instance.new("TextLabel")
 UserName.BackgroundTransparency = 1
 UserName.Size = UDim2.new(1, -68, 0, 18)
@@ -269,7 +264,6 @@ UserName.TextTruncate = Enum.TextTruncate.AtEnd
 UserName.ZIndex = 4
 UserName.Parent = UserPanel
 
--- @username
 local UserTag = Instance.new("TextLabel")
 UserTag.BackgroundTransparency = 1
 UserTag.Size = UDim2.new(1, -68, 0, 14)
@@ -283,14 +277,13 @@ UserTag.TextTruncate = Enum.TextTruncate.AtEnd
 UserTag.ZIndex = 4
 UserTag.Parent = UserPanel
 
--- ===== BODY (descontando painel do usuário embaixo) =====
+-- ===== BODY =====
 local Body = Instance.new("Frame")
-Body.Size = UDim2.new(1, 0, 1, -48 - 56) -- topbar + userpanel
+Body.Size = UDim2.new(1, 0, 1, -48 - 56)
 Body.Position = UDim2.new(0, 0, 0, 48)
 Body.BackgroundTransparency = 1
 Body.Parent = Main
 
--- Sidebar
 local SidePad = Instance.new("Frame")
 SidePad.BackgroundTransparency = 1
 SidePad.Size = UDim2.new(0, 160, 1, 0)
@@ -302,7 +295,6 @@ TabsList.Padding = UDim.new(0, 8)
 TabsList.SortOrder = Enum.SortOrder.LayoutOrder
 TabsList.Parent = SidePad
 
--- Content
 local ContentPad = Instance.new("Frame")
 ContentPad.BackgroundTransparency = 1
 ContentPad.Size = UDim2.new(1, -160, 1, 0)
@@ -313,9 +305,8 @@ addPadding(ContentPad, 12)
 local Pages = Instance.new("Folder")
 Pages.Parent = ContentPad
 
--- linha separadora vertical sidebar/content
 local SideDiv = Instance.new("Frame")
-SideDiv.Size = UDim2.new(0, 1, 1, -56) -- para antes do painel do usuário (56px)
+SideDiv.Size = UDim2.new(0, 1, 1, -56)
 SideDiv.Position = UDim2.new(0, 160, 0, 0)
 SideDiv.BackgroundColor3 = Theme.Line
 SideDiv.BackgroundTransparency = 0.5
@@ -403,7 +394,8 @@ function Library:CreateTab(name)
 		Page.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 12)
 	end)
 
-	local function setActive()
+	local setActive
+	setActive = function()
 		if Active.TabBtn then
 			tween(Active.TabBtn, {BackgroundColor3 = Theme.Panel2}, 0.12)
 			Active.TabBtn.TextColor3 = Theme.Sub
@@ -872,12 +864,8 @@ do
 	local jumpConn = nil
 
 	local function applyJump()
-		local char = player.Character
-		if not char then return end
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if not hum then return end
-
 		if jumpEnabled then
+			if jumpConn then jumpConn:Disconnect() end
 			jumpConn = UserInputService.JumpRequest:Connect(function()
 				local c = player.Character
 				local h = c and c:FindFirstChildOfClass("Humanoid")
@@ -903,21 +891,35 @@ do
 
 	sec:Divider("fly")
 
-	-- Fly via CFrame direto no HRP — método mais universal, funciona com joystick
+	-- ================================================================
+	-- FLY — método BodyVelocity + BodyGyro (estilo InfiniteYield)
+	-- Funciona corretamente: voa na direção da câmera, sobe/desce,
+	-- mantém orientação ereta e para suavemente ao largar as teclas.
+	-- ================================================================
 	local flyEnabled = false
 	local flySpeed   = 50
-	local flyConn    = nil
+
+	local flyBodyVel  = nil
+	local flyBodyGyro = nil
+	local flyConn     = nil
+
+	local function cleanFlyObjects()
+		if flyBodyVel  and flyBodyVel.Parent  then flyBodyVel:Destroy()  end
+		if flyBodyGyro and flyBodyGyro.Parent then flyBodyGyro:Destroy() end
+		flyBodyVel  = nil
+		flyBodyGyro = nil
+	end
 
 	local function stopFly()
 		flyEnabled = false
 		if flyConn then flyConn:Disconnect() flyConn = nil end
+		cleanFlyObjects()
+
 		local char = player.Character
 		if not char then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if hum then
 			hum.PlatformStand = false
-			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end
 	end
 
@@ -933,58 +935,89 @@ do
 
 		hum.PlatformStand = true
 
+		-- BodyVelocity: controla a velocidade linear
+		flyBodyVel = Instance.new("BodyVelocity")
+		flyBodyVel.Velocity    = Vector3.zero
+		flyBodyVel.MaxForce    = Vector3.new(1e5, 1e5, 1e5)
+		flyBodyVel.P           = 1e4
+		flyBodyVel.Parent      = hrp
+
+		-- BodyGyro: mantém o personagem sempre ereto (sem tombar)
+		flyBodyGyro = Instance.new("BodyGyro")
+		flyBodyGyro.MaxTorque  = Vector3.new(1e5, 1e5, 1e5)
+		flyBodyGyro.P          = 1e4
+		flyBodyGyro.D          = 400
+		flyBodyGyro.CFrame     = hrp.CFrame
+		flyBodyGyro.Parent     = hrp
+
 		flyConn = RunService.RenderStepped:Connect(function()
 			if not flyEnabled then return end
-			char = player.Character
-			if not char then return end
-			hrp = char:FindFirstChild("HumanoidRootPart")
-			hum = char:FindFirstChildOfClass("Humanoid")
-			if not hrp or not hum then return end
 
-			hum.PlatformStand = true
+			local c = player.Character
+			if not c then return end
+			local h   = c:FindFirstChild("HumanoidRootPart")
+			local hm  = c:FindFirstChildOfClass("Humanoid")
+			if not h or not hm then return end
+
+			-- Garante PlatformStand ativo (pode resetar em alguns jogos)
+			hm.PlatformStand = true
 
 			local cam = workspace.CurrentCamera
-			local mv  = Vector3.zero
+			local cf  = cam.CFrame
 
-			-- WASD ou joystick virtual (MoveVector da humanoid)
-			local moveVec = hum.MoveDirection
-			if moveVec.Magnitude > 0.1 then
-				-- usa direção do joystick relativa à câmera
-				mv = mv + Vector3.new(moveVec.X, 0, moveVec.Z)
-			end
+			-- Direção horizontal baseada na câmera
+			local forward = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z).Unit
+			local right   = Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z).Unit
 
-			-- teclado sobrescreve se ativo
+			local mv = Vector3.zero
+
+			-- WASD
 			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-				mv = mv + Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+				mv = mv + forward
 			end
 			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-				mv = mv - Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+				mv = mv - forward
 			end
 			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-				mv = mv - Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+				mv = mv - right
 			end
 			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-				mv = mv + Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+				mv = mv + right
 			end
 
-			-- vertical
+			-- Joystick (mobile)
+			local moveDir = hm.MoveDirection
+			if moveDir.Magnitude > 0.1 then
+				mv = mv + Vector3.new(moveDir.X, 0, moveDir.Z)
+			end
+
+			-- Vertical
 			local vy = 0
 			if UserInputService:IsKeyDown(Enum.KeyCode.Space)
 				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonA) then
 				vy = 1
 			elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+				or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+				or UserInputService:IsKeyDown(Enum.KeyCode.ButtonB) then
 				vy = -1
 			end
 
-			local vel = Vector3.zero
-			if mv.Magnitude > 0 then
-				vel = mv.Unit * flySpeed
+			-- Normaliza direção horizontal se há input
+			local horizVel = Vector3.zero
+			if mv.Magnitude > 0.01 then
+				horizVel = mv.Unit * flySpeed
 			end
-			vel = vel + Vector3.new(0, vy * flySpeed * 0.6, 0)
 
-			-- move por CFrame direto — funciona em qualquer jogo
-			hrp.CFrame = hrp.CFrame + vel * (1/60)
+			local targetVel = Vector3.new(horizVel.X, vy * flySpeed, horizVel.Z)
+
+			-- Aplica velocidade via BodyVelocity (suave, sem trepidação)
+			flyBodyVel.Velocity = targetVel
+
+			-- Mantém o personagem ereto e virado para a câmera (só horizontal)
+			local lookAt = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+			if lookAt.Magnitude > 0.01 then
+				flyBodyGyro.CFrame = CFrame.new(Vector3.zero, lookAt)
+			end
 		end)
 	end
 
@@ -1010,13 +1043,10 @@ do
 
 	sec:Divider("hitbox")
 
-	-- Hitbox Expander
 	local hitboxEnabled  = false
 	local hitboxSize     = 10
 	local visualizeRange = false
-	local hitboxParts    = {} -- [Player] = part visual
-
-	-- armazena tamanhos originais: [BasePart] = Vector3
+	local hitboxParts    = {}
 	local originalSizes  = {}
 
 	local function removeVisual(target)
@@ -1035,13 +1065,11 @@ do
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hrp then return end
 
-		-- expande HumanoidRootPart (hitbox principal no Roblox)
 		if not originalSizes[hrp] then
 			originalSizes[hrp] = hrp.Size
 		end
 		hrp.Size = Vector3.new(size, size, size)
 
-		-- visualização: esfera transparente ao redor do HRP
 		if visualizeRange then
 			if not hitboxParts[target] then
 				local vis = Instance.new("Part")
@@ -1098,7 +1126,6 @@ do
 		end
 	end
 
-	-- reaplica quando personagem de outro player spawna
 	Players.PlayerAdded:Connect(function(t)
 		t.CharacterAdded:Connect(function()
 			task.wait(1)
@@ -1139,9 +1166,7 @@ local target_tab = Library:CreateTab("target")
 do
 	local targetPlayer = nil
 
-	-- ── Section 1: busca + card ──
 	local searchSec = target_tab:Section("search")
-
 	local card = searchSec:AvatarCard()
 
 	local function findPlayer(name)
@@ -1171,7 +1196,6 @@ do
 		setTarget(findPlayer(nickInput.Get()))
 	end)
 
-	-- atualiza hp do card em tempo real
 	RunService.Heartbeat:Connect(function()
 		if targetPlayer then card.UpdateHp(targetPlayer) end
 	end)
@@ -1188,14 +1212,18 @@ do
 		if not targetPlayer then return end
 		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-		if hrp and thrp then hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, -3) end
+		if hrp and thrp then
+			hrp.CFrame = thrp.CFrame * CFrame.new(0, 0, -3)
+		end
 	end)
 
 	actionSec:Button("←  bring target to me", function()
 		if not targetPlayer then return end
 		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-		if hrp and thrp then thrp.CFrame = hrp.CFrame * CFrame.new(3, 0, 0) end
+		if hrp and thrp then
+			thrp.CFrame = hrp.CFrame * CFrame.new(3, 0, 0)
+		end
 	end)
 
 	actionSec:Divider("movement")
@@ -1204,22 +1232,122 @@ do
 		if not targetPlayer then return end
 		local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-		if hrp and thrp then hrp.CFrame = CFrame.new(hrp.Position, thrp.Position) end
+		if hrp and thrp then
+			hrp.CFrame = CFrame.new(hrp.Position, thrp.Position)
+		end
 	end)
 
-	local followConn = nil
-	actionSec:Toggle("follow target", false, function(v)
+	-- ================================================================
+	-- FOLLOW TARGET — usa BodyVelocity para mover o personagem de forma
+	-- fluida e real em direção ao target (não só visual/local).
+	-- Mantém uma distância mínima de 4 studs e acompanha movimentos.
+	-- ================================================================
+	local followEnabled   = false
+	local followBodyVel   = nil
+	local followBodyGyro  = nil
+	local followConn      = nil
+
+	local FOLLOW_SPEED    = 28   -- velocidade de perseguição
+	local FOLLOW_DISTANCE = 4    -- distância mínima para parar
+	local FOLLOW_STOP_DST = 3.5  -- distância para zerar velocidade
+
+	local function stopFollow()
+		followEnabled = false
 		if followConn then followConn:Disconnect() followConn = nil end
-		if not v then return end
+		if followBodyVel  and followBodyVel.Parent  then followBodyVel:Destroy()  end
+		if followBodyGyro and followBodyGyro.Parent then followBodyGyro:Destroy() end
+		followBodyVel  = nil
+		followBodyGyro = nil
+
+		local char = player.Character
+		if char then
+			local hm = char:FindFirstChildOfClass("Humanoid")
+			if hm then hm.PlatformStand = false end
+		end
+	end
+
+	local function startFollow()
+		stopFollow()
+		followEnabled = true
+
+		local char = player.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hrp or not hum then return end
+
+		hum.PlatformStand = true
+
+		followBodyVel = Instance.new("BodyVelocity")
+		followBodyVel.Velocity  = Vector3.zero
+		followBodyVel.MaxForce  = Vector3.new(1e5, 1e5, 1e5)
+		followBodyVel.P         = 2e4
+		followBodyVel.Parent    = hrp
+
+		followBodyGyro = Instance.new("BodyGyro")
+		followBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+		followBodyGyro.P         = 1e4
+		followBodyGyro.D         = 400
+		followBodyGyro.CFrame    = hrp.CFrame
+		followBodyGyro.Parent    = hrp
+
 		followConn = RunService.RenderStepped:Connect(function()
-			if not targetPlayer then return end
-			local hrp  = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-			local thrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-			if not hrp or not thrp then return end
-			if (hrp.Position - thrp.Position).Magnitude > 4 then
-				hrp.CFrame = hrp.CFrame:Lerp(thrp.CFrame * CFrame.new(0, 0, -3), 0.15)
+			if not followEnabled then return end
+
+			local c = player.Character
+			if not c then return end
+			local h = c:FindFirstChild("HumanoidRootPart")
+			local hm = c:FindFirstChildOfClass("Humanoid")
+			if not h or not hm then return end
+
+			if not targetPlayer or not targetPlayer.Character then
+				followBodyVel.Velocity = Vector3.zero
+				return
+			end
+
+			local thrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if not thrp then
+				followBodyVel.Velocity = Vector3.zero
+				return
+			end
+
+			hm.PlatformStand = true
+
+			local myPos  = h.Position
+			local tgtPos = thrp.Position
+			local diff   = tgtPos - myPos
+			local dist   = diff.Magnitude
+
+			if dist <= FOLLOW_STOP_DST then
+				-- Chegou perto o suficiente: para
+				followBodyVel.Velocity = Vector3.zero
+			else
+				-- Move em direção ao target com velocidade proporcional à distância
+				local speed = math.min(FOLLOW_SPEED, (dist - FOLLOW_STOP_DST) * 8)
+				local dir   = diff.Unit
+				followBodyVel.Velocity = dir * speed
+
+				-- Vira o personagem para o target
+				local lookDir = Vector3.new(diff.X, 0, diff.Z)
+				if lookDir.Magnitude > 0.01 then
+					followBodyGyro.CFrame = CFrame.new(Vector3.zero, lookDir)
+				end
 			end
 		end)
+	end
+
+	-- Reaplica follow ao respawnar
+	player.CharacterAdded:Connect(function()
+		task.wait(0.5)
+		if followEnabled then startFollow() end
+	end)
+
+	actionSec:Toggle("follow target", false, function(v)
+		if v then
+			startFollow()
+		else
+			stopFollow()
+		end
 	end)
 end
 
@@ -1236,9 +1364,8 @@ do
 	local espColor   = Color3.fromRGB(120, 80, 255)
 
 	local camera    = workspace.CurrentCamera
-	local espData   = {} -- [Player] = { highlight, billboard }
+	local espData   = {}
 
-	-- cor dinâmica baseada na vida
 	local function hpColor(hp, maxHp)
 		local pct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
 		if pct > 0.6 then
@@ -1269,7 +1396,6 @@ do
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hrp then return end
 
-		-- Highlight no corpo — DepthMode AlwaysOnTop = vê através das paredes
 		local hl = Instance.new("Highlight")
 		hl.Name = "ref_esp_hl"
 		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -1278,9 +1404,8 @@ do
 		hl.FillTransparency = 0.45
 		hl.OutlineTransparency = 0.0
 		hl.Adornee = char
-		hl.Parent = char -- parent no próprio char, não na UI
+		hl.Parent = char
 
-		-- BillboardGui acima da cabeça
 		local bb = Instance.new("BillboardGui")
 		bb.Name = "ref_esp_bb"
 		bb.Size = UDim2.new(0, 140, 0, 60)
@@ -1288,9 +1413,8 @@ do
 		bb.AlwaysOnTop = true
 		bb.ResetOnSpawn = false
 		bb.Adornee = hrp
-		bb.Parent = hrp -- parent no HRP, não na UI
+		bb.Parent = hrp
 
-		-- nome
 		local nameLbl = Instance.new("TextLabel")
 		nameLbl.BackgroundTransparency = 1
 		nameLbl.Size = UDim2.new(1, 0, 0, 20)
@@ -1304,7 +1428,6 @@ do
 		nameLbl.Text = target.DisplayName
 		nameLbl.Parent = bb
 
-		-- barra hp fundo
 		local hpBg = Instance.new("Frame")
 		hpBg.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 		hpBg.BackgroundTransparency = 0.3
@@ -1313,14 +1436,12 @@ do
 		hpBg.Parent = bb
 		addCorner(hpBg, 999)
 
-		-- barra hp fill
 		local hpFill = Instance.new("Frame")
 		hpFill.BackgroundColor3 = Color3.fromRGB(80, 220, 80)
 		hpFill.Size = UDim2.new(1, 0, 1, 0)
 		hpFill.Parent = hpBg
 		addCorner(hpFill, 999)
 
-		-- distância
 		local distLbl = Instance.new("TextLabel")
 		distLbl.BackgroundTransparency = 1
 		distLbl.Size = UDim2.new(1, 0, 0, 14)
@@ -1344,7 +1465,6 @@ do
 		}
 	end
 
-	-- update a cada frame
 	RunService.RenderStepped:Connect(function()
 		if not espEnabled then return end
 
@@ -1370,24 +1490,19 @@ do
 			local d = espData[target]
 			if not d then continue end
 
-			-- reancora se necessário
 			if d.highlight.Adornee ~= char then d.highlight.Adornee = char end
 			if d.billboard.Adornee ~= hrp  then d.billboard.Adornee = hrp  end
 
-			-- cor do highlight
 			d.highlight.FillColor = espColor
 
-			-- nome
 			d.nameLbl.Visible = showName
 			d.nameLbl.Text = target.DisplayName
 
-			-- hp bar
 			local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
 			d.hpBg.Visible   = showHealth
 			d.hpFill.Size    = UDim2.new(pct, 0, 1, 0)
 			d.hpFill.BackgroundColor3 = hpColor(hum.Health, hum.MaxHealth)
 
-			-- distância
 			d.distLbl.Visible = showDist
 			d.distLbl.Text    = dist .. "m"
 		end
@@ -1395,7 +1510,6 @@ do
 
 	Players.PlayerRemoving:Connect(removeESP)
 
-	-- recria ao respawnar
 	local function watchCharacter(target)
 		target.CharacterAdded:Connect(function()
 			removeESP(target)
@@ -1408,7 +1522,6 @@ do
 	end
 	Players.PlayerAdded:Connect(watchCharacter)
 
-	-- toggles na UI
 	sec:Toggle("player esp", false, function(v)
 		espEnabled = v
 		if not v then clearAll() end

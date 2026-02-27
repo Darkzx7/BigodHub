@@ -1970,17 +1970,23 @@ do
 		end
 	end
 
+	-- ── UI da aba config ──
 	local cfgSec = config_tab:Section("config")
-	cfgSec:Divider("slot")
+	cfgSec:Divider("new config")
 
-	local cfgNameInput = cfgSec:TextInput("name", "config name (max 16 chars)", nil)
+	-- Input para digitar novo nome
+	local cfgNameInput = cfgSec:TextInput("name", "new config name (max 16 chars)", nil)
 
+	-- Botão save: bloqueia nome duplicado
 	cfgSec:Button("save", function()
 		local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
 		if name == "" then notify("type a config name first") return end
+		if UserConfigs[name] then
+			notify("name already exists — pick another or delete it first")
+			return
+		end
 		local names = getConfigNames()
-		local exists = UserConfigs[name] ~= nil
-		if not exists and #names >= MAX_CONFIGS then
+		if #names >= MAX_CONFIGS then
 			notify("max 5 configs reached — delete one first")
 			return
 		end
@@ -1989,33 +1995,354 @@ do
 		notify("saved: " .. name)
 	end)
 
-	cfgSec:Button("load", function()
-		local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
-		if name == "" then notify("type the config name to load") return end
-		local json = UserConfigs[name]
-		if not json then notify("config not found: " .. name) return end
-		applyState(deserialize(json))
-		notify("loaded: " .. name)
-	end)
-
-	cfgSec:Button("delete", function()
-		local name = cfgNameInput.Get():gsub("%s+", "_"):sub(1, 16)
-		if name == "" then notify("type the config name to delete") return end
-		if not UserConfigs[name] then notify("not found: " .. name) return end
-		UserConfigs[name] = nil
-		_G.ref_configs[userId] = UserConfigs
-		notify("deleted: " .. name)
-	end)
-
 	cfgSec:Divider("saved configs")
 
-	cfgSec:Button("list configs", function()
-		local names = getConfigNames()
-		if #names == 0 then
-			notify("no configs saved yet")
-		else
-			notify(#names .. "/5  —  " .. table.concat(names, ", "))
+	-- ── DROPDOWN de configs salvas ──
+	-- Estrutura: Row com label + arrow | DropList abaixo (ClipsDescendants=false)
+	-- Cada item no DropList tem o nome + botões load/delete inline
+
+	-- Container externo (não usa secObj pois precisamos de controle total do layout)
+	local DropContainer = Instance.new("Frame")
+	DropContainer.BackgroundTransparency = 1
+	DropContainer.Size = UDim2.new(1, 0, 0, 36)
+	DropContainer.ClipsDescendants = false
+
+	-- A section adiciona os items em Items (frame interno). Vamos usar um Button dummy
+	-- só para reservar espaço e então injetar o DropContainer no lugar.
+	-- Mais simples: criar diretamente dentro da Page via acesso ao parent.
+	-- Como não temos acesso direto ao Items, usamos um wrapper de botão customizado.
+
+	-- Abrimos mão do secObj aqui e construímos direto no Page da aba config.
+	-- Para isso precisamos da Page — acessamos via config_tab._page (não existe).
+	-- Solução: criar uma segunda Section e injetar o dropdown nela via InstanceTree.
+
+	-- ── Abordagem limpa: segunda section só para o dropdown ──
+	local dropSec = config_tab:Section("slots")
+
+	-- Vamos construir o dropdown injetando diretamente nos Items da Section.
+	-- Para isso precisamos de acesso a Items. Usamos um Frame dummy para descobrir o parent.
+	local _probe = Instance.new("Frame")
+	_probe.BackgroundTransparency = 1
+	_probe.Size = UDim2.new(1, 0, 0, 0)
+
+	-- dropSec é secObj; seus items ficam em Section > Pad > Items
+	-- Adicionamos o probe via secObj:Button para achar o parent correto
+	-- Mais limpo: adicionar um elemento e pegar seu .Parent
+	local proxyBtn = Instance.new("Frame")
+	proxyBtn.BackgroundTransparency = 1
+	proxyBtn.Size = UDim2.new(1, 0, 0, 0)
+
+	-- Usamos Divider pra achar o parent (Items)
+	local probeDivider = dropSec:Divider("")
+	local ItemsParent = probeDivider.Parent  -- este é o Items Frame da section
+
+	-- Remove o divider de probe (opcional, mas deixa limpo)
+	probeDivider:Destroy()
+
+	-- Estado do dropdown
+	local dropOpen     = false
+	local selectedName = nil  -- config atualmente selecionada
+
+	-- ── Header Row (label + arrow) ──
+	local HeaderRow = Instance.new("Frame")
+	HeaderRow.Size = UDim2.new(1, 0, 0, 34)
+	HeaderRow.BackgroundColor3 = Theme.Panel
+	HeaderRow.ClipsDescendants = false
+	HeaderRow.Parent = ItemsParent
+	addCorner(HeaderRow, 10)
+	addStroke(HeaderRow, 1, 0.86, Theme.Stroke)
+
+	local HeaderLbl = Instance.new("TextLabel")
+	HeaderLbl.BackgroundTransparency = 1
+	HeaderLbl.Size = UDim2.new(1, -46, 1, 0)
+	HeaderLbl.Position = UDim2.new(0, 12, 0, 0)
+	HeaderLbl.Font = Enum.Font.GothamSemibold
+	HeaderLbl.Text = "select config..."
+	HeaderLbl.TextSize = 12
+	HeaderLbl.TextColor3 = Theme.Sub
+	HeaderLbl.TextXAlignment = Enum.TextXAlignment.Left
+	HeaderLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	HeaderLbl.Parent = HeaderRow
+
+	local ArrowBtn = Instance.new("TextButton")
+	ArrowBtn.Size = UDim2.new(0, 34, 0, 34)
+	ArrowBtn.Position = UDim2.new(1, -34, 0, 0)
+	ArrowBtn.BackgroundColor3 = Theme.Panel2
+	ArrowBtn.Text = "▾"
+	ArrowBtn.Font = Enum.Font.GothamSemibold
+	ArrowBtn.TextSize = 14
+	ArrowBtn.TextColor3 = Theme.Sub
+	ArrowBtn.AutoButtonColor = false
+	ArrowBtn.ZIndex = 6
+	ArrowBtn.Parent = HeaderRow
+	addCorner(ArrowBtn, 10)
+	addStroke(ArrowBtn, 1, 0.88, Theme.Stroke)
+
+	-- Clique no header abre/fecha
+	local HeaderClick = Instance.new("TextButton")
+	HeaderClick.BackgroundTransparency = 1
+	HeaderClick.Size = UDim2.new(1, -38, 1, 0)
+	HeaderClick.Text = ""
+	HeaderClick.ZIndex = 6
+	HeaderClick.Parent = HeaderRow
+
+	-- ── DropList (aparece abaixo do header) ──
+	local DropList = Instance.new("Frame")
+	DropList.BackgroundColor3 = Theme.Panel2
+	DropList.Size = UDim2.new(1, 0, 0, 0)  -- altura controlada por layout
+	DropList.Position = UDim2.new(0, 0, 1, 4)
+	DropList.ClipsDescendants = true
+	DropList.ZIndex = 20
+	DropList.Visible = false
+	DropList.Parent = HeaderRow
+	addCorner(DropList, 10)
+	addStroke(DropList, 1, 0.75, Theme.Stroke)
+
+	local DropLayout = Instance.new("UIListLayout")
+	DropLayout.Padding = UDim.new(0, 0)
+	DropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	DropLayout.Parent = DropList
+
+	-- Padding interno da lista
+	local DropPad = Instance.new("UIPadding")
+	DropPad.PaddingTop    = UDim.new(0, 4)
+	DropPad.PaddingBottom = UDim.new(0, 4)
+	DropPad.Parent = DropList
+
+	-- ── Funções do dropdown ──
+	local itemFrames = {}  -- guarda frames dos itens para rebuild
+
+	local function closeDropdown()
+		dropOpen = false
+		tween(DropList, {Size = UDim2.new(1, 0, 0, 0)}, 0.14)
+		tween(ArrowBtn, {TextColor3 = Theme.Sub}, 0.12)
+		task.delay(0.14, function() DropList.Visible = false end)
+		tween(ArrowBtn, {Rotation = 0}, 0.14)
+	end
+
+	local function openDropdown()
+		dropOpen = true
+		DropList.Visible = true
+		local h = DropLayout.AbsoluteContentSize.Y + 8
+		tween(DropList, {Size = UDim2.new(1, 0, 0, h)}, 0.14)
+		tween(ArrowBtn, {TextColor3 = Theme.Accent}, 0.12)
+		tween(ArrowBtn, {Rotation = 180}, 0.14)
+	end
+
+	local function rebuildDropList()
+		-- Limpa itens antigos
+		for _, f in ipairs(itemFrames) do
+			if f and f.Parent then f:Destroy() end
 		end
+		itemFrames = {}
+
+		local names = getConfigNames()
+
+		if #names == 0 then
+			-- Placeholder vazio
+			local empty = Instance.new("TextLabel")
+			empty.BackgroundTransparency = 1
+			empty.Size = UDim2.new(1, 0, 0, 30)
+			empty.Font = Enum.Font.Gotham
+			empty.Text = "no configs saved"
+			empty.TextSize = 11
+			empty.TextColor3 = Theme.Sub
+			empty.ZIndex = 21
+			empty.Parent = DropList
+			table.insert(itemFrames, empty)
+		else
+			for _, name in ipairs(names) do
+				local Item = Instance.new("Frame")
+				Item.Size = UDim2.new(1, 0, 0, 34)
+				Item.BackgroundColor3 = Theme.Panel
+				Item.BackgroundTransparency = 0
+				Item.ZIndex = 21
+				Item.Parent = DropList
+				table.insert(itemFrames, Item)
+
+				-- Highlight se selecionado
+				if selectedName == name then
+					Item.BackgroundColor3 = Color3.fromRGB(30, 24, 48)
+				end
+
+				-- Nome do config
+				local NameLbl = Instance.new("TextLabel")
+				NameLbl.BackgroundTransparency = 1
+				NameLbl.Size = UDim2.new(1, -76, 1, 0)
+				NameLbl.Position = UDim2.new(0, 10, 0, 0)
+				NameLbl.Font = Enum.Font.GothamSemibold
+				NameLbl.Text = name
+				NameLbl.TextSize = 12
+				NameLbl.TextColor3 = selectedName == name and Theme.Accent or Theme.Text
+				NameLbl.TextXAlignment = Enum.TextXAlignment.Left
+				NameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+				NameLbl.ZIndex = 22
+				NameLbl.Parent = Item
+
+				-- Botão Load (ícone ▶)
+				local LoadBtn = Instance.new("TextButton")
+				LoadBtn.Size = UDim2.new(0, 28, 0, 24)
+				LoadBtn.Position = UDim2.new(1, -66, 0.5, -12)
+				LoadBtn.BackgroundColor3 = Theme.Panel2
+				LoadBtn.Text = "▶"
+				LoadBtn.Font = Enum.Font.GothamSemibold
+				LoadBtn.TextSize = 11
+				LoadBtn.TextColor3 = Color3.fromRGB(80, 200, 120)
+				LoadBtn.AutoButtonColor = false
+				LoadBtn.ZIndex = 22
+				LoadBtn.Parent = Item
+				addCorner(LoadBtn, 6)
+				addStroke(LoadBtn, 1, 0.80, Theme.Stroke)
+
+				-- Botão Delete (ícone ✕)
+				local DelBtn = Instance.new("TextButton")
+				DelBtn.Size = UDim2.new(0, 28, 0, 24)
+				DelBtn.Position = UDim2.new(1, -34, 0.5, -12)
+				DelBtn.BackgroundColor3 = Theme.Panel2
+				DelBtn.Text = "✕"
+				DelBtn.Font = Enum.Font.GothamSemibold
+				DelBtn.TextSize = 11
+				DelBtn.TextColor3 = Color3.fromRGB(210, 60, 60)
+				DelBtn.AutoButtonColor = false
+				DelBtn.ZIndex = 22
+				DelBtn.Parent = Item
+				addCorner(DelBtn, 6)
+				addStroke(DelBtn, 1, 0.80, Theme.Stroke)
+
+				-- Clique no item = seleciona
+				local ItemClick = Instance.new("TextButton")
+				ItemClick.BackgroundTransparency = 1
+				ItemClick.Size = UDim2.new(1, -76, 1, 0)
+				ItemClick.Text = ""
+				ItemClick.ZIndex = 23
+				ItemClick.Parent = Item
+
+				local capturedName = name  -- captura para closures
+
+				ItemClick.MouseButton1Click:Connect(function()
+					selectedName = capturedName
+					HeaderLbl.Text = capturedName
+					HeaderLbl.TextColor3 = Theme.Text
+					cfgNameInput.Set(capturedName)
+					rebuildDropList()
+					-- Atualiza tamanho do dropdown
+					task.wait()
+					if dropOpen then
+						local h2 = DropLayout.AbsoluteContentSize.Y + 8
+						tween(DropList, {Size = UDim2.new(1, 0, 0, h2)}, 0.08)
+					end
+				end)
+
+				ItemClick.MouseEnter:Connect(function()
+					if selectedName ~= capturedName then
+						tween(Item, {BackgroundColor3 = Color3.fromRGB(26, 26, 36)}, 0.10)
+					end
+				end)
+				ItemClick.MouseLeave:Connect(function()
+					if selectedName ~= capturedName then
+						tween(Item, {BackgroundColor3 = Theme.Panel}, 0.10)
+					end
+				end)
+
+				-- Load
+				LoadBtn.MouseEnter:Connect(function()
+					tween(LoadBtn, {BackgroundColor3 = Color3.fromRGB(24, 40, 30)}, 0.10)
+				end)
+				LoadBtn.MouseLeave:Connect(function()
+					tween(LoadBtn, {BackgroundColor3 = Theme.Panel2}, 0.10)
+				end)
+				LoadBtn.MouseButton1Click:Connect(function()
+					local json = UserConfigs[capturedName]
+					if json then
+						applyState(deserialize(json))
+						notify("loaded: " .. capturedName)
+					end
+				end)
+
+				-- Delete
+				DelBtn.MouseEnter:Connect(function()
+					tween(DelBtn, {BackgroundColor3 = Color3.fromRGB(40, 20, 20)}, 0.10)
+				end)
+				DelBtn.MouseLeave:Connect(function()
+					tween(DelBtn, {BackgroundColor3 = Theme.Panel2}, 0.10)
+				end)
+				DelBtn.MouseButton1Click:Connect(function()
+					UserConfigs[capturedName] = nil
+					_G.ref_configs[userId] = UserConfigs
+					if selectedName == capturedName then
+						selectedName = nil
+						HeaderLbl.Text = "select config..."
+						HeaderLbl.TextColor3 = Theme.Sub
+						cfgNameInput.Set("")
+					end
+					notify("deleted: " .. capturedName)
+					rebuildDropList()
+					task.wait()
+					if dropOpen then
+						local h2 = DropLayout.AbsoluteContentSize.Y + 8
+						tween(DropList, {Size = UDim2.new(1, 0, 0, h2)}, 0.08)
+					end
+				end)
+			end
+		end
+	end
+
+	-- Toggle open/close
+	local function toggleDropdown()
+		rebuildDropList()
+		if dropOpen then
+			closeDropdown()
+		else
+			openDropdown()
+		end
+	end
+
+	HeaderClick.MouseButton1Click:Connect(toggleDropdown)
+	ArrowBtn.MouseButton1Click:Connect(toggleDropdown)
+
+	HeaderRow.MouseEnter:Connect(function()
+		tween(HeaderRow, {BackgroundColor3 = Color3.fromRGB(26, 26, 34)}, 0.12)
+	end)
+	HeaderRow.MouseLeave:Connect(function()
+		tween(HeaderRow, {BackgroundColor3 = Theme.Panel}, 0.12)
+	end)
+
+	-- Após salvar, atualiza o dropdown se estiver aberto
+	-- (reaproveitamos o save button da cfgSec, mas precisamos de acesso)
+	-- Solução: overwrite via segundo Section "actions"
+	local actSec = config_tab:Section("actions")
+	actSec:Divider("selected config")
+
+	actSec:Button("load selected", function()
+		if not selectedName then notify("select a config from the list first") return end
+		local json = UserConfigs[selectedName]
+		if not json then notify("config not found: " .. selectedName) return end
+		applyState(deserialize(json))
+		notify("loaded: " .. selectedName)
+	end)
+
+	actSec:Button("delete selected", function()
+		if not selectedName then notify("select a config from the list first") return end
+		UserConfigs[selectedName] = nil
+		_G.ref_configs[userId] = UserConfigs
+		notify("deleted: " .. selectedName)
+		selectedName = nil
+		HeaderLbl.Text = "select config..."
+		HeaderLbl.TextColor3 = Theme.Sub
+		cfgNameInput.Set("")
+		if dropOpen then
+			rebuildDropList()
+			task.wait()
+			local h2 = DropLayout.AbsoluteContentSize.Y + 8
+			tween(DropList, {Size = UDim2.new(1, 0, 0, h2)}, 0.08)
+		end
+	end)
+
+	actSec:Button("overwrite selected", function()
+		if not selectedName then notify("select a config from the list first") return end
+		UserConfigs[selectedName] = serialize(captureState())
+		_G.ref_configs[userId] = UserConfigs
+		notify("overwritten: " .. selectedName)
 	end)
 end
 

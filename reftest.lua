@@ -691,6 +691,40 @@ do
 		currentSpeed = v
 		if speedEnabled then applySpeed() end
 	end)
+
+	-- Infinite Jump
+	local jumpEnabled = false
+	local jumpConn = nil
+
+	local function applyJump()
+		local char = player.Character
+		if not char then return end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum then return end
+
+		if jumpEnabled then
+			jumpConn = UserInputService.JumpRequest:Connect(function()
+				local c = player.Character
+				local h = c and c:FindFirstChildOfClass("Humanoid")
+				if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+			end)
+		else
+			if jumpConn then
+				jumpConn:Disconnect()
+				jumpConn = nil
+			end
+		end
+	end
+
+	player.CharacterAdded:Connect(function()
+		task.wait()
+		applyJump()
+	end)
+
+	sec:Toggle("infinite jump", false, function(v)
+		jumpEnabled = v
+		applyJump()
+	end)
 end
 
 -- ===== COMBAT =====
@@ -785,7 +819,7 @@ do
 		local hpBg = Instance.new("Frame")
 		hpBg.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 		hpBg.BackgroundTransparency = 0.3
-		hpBg.Size = UDim2.new(1, 0, 0, 6)
+		hpBg.Size = UDim2.new(1, 0, 0, 4)
 		hpBg.Position = UDim2.new(0, 0, 0, 24)
 		hpBg.Parent = bb
 		addCorner(hpBg, 999)

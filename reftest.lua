@@ -1163,38 +1163,36 @@ do
 
 	-- ================================================================
 	-- LOCK-ON — estilo Rocket League
-	-- A câmera mantém sua posição normal (você controla onde ela fica),
-	-- mas a rotação é sempre travada para olhar para o target.
+	-- Câmera livre mas rotação sempre apontando para o target.
 	-- Desativar: toggle ou Q
 	-- ================================================================
 	sec:Divider("lock-on")
 
-	local lockEnabled   = false
-	local lockConn      = nil
-	local lockToggleRef = nil
+	local lockEnabled    = false
+	local lockConn       = nil
+	local lockToggleRef  = nil
+	local lockSilentStop = false  -- evita loop ao chamar Set(false) internamente
 
 	local function getLockTarget()
 		return _G.ref_lockTarget
 	end
 
 	local function stopLock()
+		if lockSilentStop then return end
 		lockEnabled = false
 		if lockConn then lockConn:Disconnect() lockConn = nil end
 		local cam = workspace.CurrentCamera
 		if cam then cam.CameraType = Enum.CameraType.Custom end
 		if lockToggleRef then
-			task.delay(0.05, function() lockToggleRef.Set(false) end)
+			lockSilentStop = true
+			lockToggleRef.Set(false)
+			lockSilentStop = false
 		end
 	end
 
 	local function startLock()
-		local target = getLockTarget()
-		if not target then return end
 		lockEnabled = true
-
 		local cam = workspace.CurrentCamera
-		-- Scriptable: a câmera fica totalmente sob controle do script
-		-- mas preservamos a posição que o Roblox calcularia normalmente
 		cam.CameraType = Enum.CameraType.Custom
 
 		lockConn = RunService.RenderStepped:Connect(function()
@@ -1204,32 +1202,28 @@ do
 			local thrp = t.Character:FindFirstChild("HumanoidRootPart")
 			if not thrp then return end
 
-			-- Pega a CFrame atual da câmera (posição calculada pelo Roblox normalmente)
-			-- e apenas SUBSTITUI a rotação para apontar para o target
-			local camPos   = cam.CFrame.Position
-			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0) -- mira no torso/cabeça
+			local camPos    = cam.CFrame.Position
+			local targetPos = thrp.Position + Vector3.new(0, 1.5, 0)
+			if (camPos - targetPos).Magnitude < 0.5 then return end
 
-			local dist = (camPos - targetPos).Magnitude
-			if dist < 0.5 then return end  -- muito perto, evita NaN
-
-			-- Cria novo CFrame: mesma posição, rotação apontando para o target
-			local newCF = CFrame.new(camPos, targetPos)
-
-			-- Lerp suave para não tremer (0.35 = responsivo mas fluido)
-			cam.CFrame = cam.CFrame:Lerp(newCF, 0.35)
+			cam.CFrame = cam.CFrame:Lerp(CFrame.new(camPos, targetPos), 0.35)
 		end)
 	end
 
 	lockToggleRef = sec:Toggle("lock-on (target tab)", false, function(v)
+		if lockSilentStop then return end  -- ignora callbacks disparados internamente
 		if v then
 			if not getLockTarget() then
-				task.delay(0.05, function() lockToggleRef.Set(false) end)
+				-- sem target: desliga silenciosamente sem loop
+				lockSilentStop = true
+				lockToggleRef.Set(false)
+				lockSilentStop = false
 				return
 			end
 			startLock()
 		else
-			stopLock()
 			lockEnabled = false
+			if lockConn then lockConn:Disconnect() lockConn = nil end
 			local cam = workspace.CurrentCamera
 			if cam then cam.CameraType = Enum.CameraType.Custom end
 		end

@@ -613,6 +613,48 @@ function Library:CreateTab(name)
 				if callback then callback() end
 			end)
 		end
+		-- SplitButton: lista de {text, textColor, callback} lado a lado
+		function secObj:SplitButton(btns)
+			local Row = Instance.new("Frame")
+			Row.Size = UDim2.new(1, 0, 0, 34)
+			Row.BackgroundTransparency = 1
+			Row.Parent = Items
+			local n   = #btns
+			local gap = 4
+			local handles = {}
+			for i, info in ipairs(btns) do
+				local bg = Theme.Panel
+				local tc = info.textColor or Theme.Text
+				local b  = Instance.new("TextButton")
+				local xOff = (i - 1) * gap / 2
+				local wOff = -gap / 2
+				b.Position = UDim2.new((i-1)/n, i > 1 and gap/2 or 0, 0, 0)
+				b.Size     = UDim2.new(1/n,     i < n and -gap/2 or (i > 1 and -gap/2 or 0), 1, 0)
+				b.BackgroundColor3 = bg
+				b.Text     = info.text or ""
+				b.Font     = Enum.Font.GothamSemibold
+				b.TextSize = 12
+				b.TextColor3 = tc
+				b.AutoButtonColor = false
+				b.Parent   = Row
+				addCorner(b, 10)
+				addStroke(b, 1, 0.86, Theme.Stroke)
+				b.MouseEnter:Connect(function()
+					tween(b, {BackgroundColor3 = Color3.fromRGB(30,26,48)}, 0.12)
+				end)
+				b.MouseLeave:Connect(function()
+					tween(b, {BackgroundColor3 = bg}, 0.12)
+				end)
+				local cb = info.callback
+				b.MouseButton1Click:Connect(function()
+					tween(b, {BackgroundColor3 = Theme.Accent}, 0.08)
+					task.delay(0.12, function() tween(b, {BackgroundColor3 = bg}, 0.12) end)
+					if cb then cb(b) end
+				end)
+				handles[i] = b
+			end
+			return handles
+		end
 		function secObj:AvatarCard()
 			local Card = Instance.new("Frame")
 			Card.Size = UDim2.new(1, 0, 0, 64)
@@ -1107,208 +1149,58 @@ do
 		if enter then setTarget(findPlayer(text)) end
 	end)
 
-	-- Linha com search (menor) + click tool ao lado
-	-- Injeta a row customizada no Items frame do section de search
-	-- Para isso, encontramos o Items frame varrendo a página do target_tab
-	do
-		local targetPage = nil
-		for _, page in ipairs(Pages:GetChildren()) do
-			if page:IsA("ScrollingFrame") then targetPage = page end
-		end
-		local _itemsFrame = nil
-		if targetPage then
-			for _, desc in ipairs(targetPage:GetDescendants()) do
-				if desc:IsA("TextBox") and desc.PlaceholderText == "username ou displayname" then
-					_itemsFrame = desc.Parent.Parent  -- Box → Row → Items
-					break
-				end
-			end
-		end
-		if _itemsFrame then
-			local SplitRow = Instance.new("Frame")
-			SplitRow.Size = UDim2.new(1, 0, 0, 34)
-			SplitRow.BackgroundTransparency = 1
-			SplitRow.Parent = _itemsFrame
+	-- Search + Click Tool lado a lado via SplitButton da library
+	local clickToolActive = false
+	local clickToolInst   = nil
+	local _splitBtns      = nil
 
-			local function makeBtn(text, xScale, wScale, bg, tc, cb)
-				local b = Instance.new("TextButton")
-				b.Position = UDim2.new(xScale, xScale > 0 and 4 or 0, 0, 0)
-				b.Size = UDim2.new(wScale, xScale > 0 and -4 or -2, 1, 0)
-				b.BackgroundColor3 = bg
-				b.Text = text
-				b.Font = Enum.Font.GothamSemibold
-				b.TextSize = 12
-				b.TextColor3 = tc
-				b.AutoButtonColor = false
-				b.Parent = SplitRow
-				addCorner(b, 10)
-				addStroke(b, 1, 0.86, Theme.Stroke)
-				b.MouseEnter:Connect(function() tween(b,{BackgroundColor3=Color3.fromRGB(30,26,48)},0.12) end)
-				b.MouseLeave:Connect(function() tween(b,{BackgroundColor3=bg},0.12) end)
-				b.MouseButton1Click:Connect(function()
-					tween(b,{BackgroundColor3=Theme.Accent},0.08)
-					task.delay(0.12,function() tween(b,{BackgroundColor3=bg},0.12) end)
-					if cb then cb() end
-				end)
-				return b
-			end
-
-			makeBtn("search", 0, 0.48, Theme.Panel, Theme.Text, function()
-				setTarget(findPlayer(nickInput.Get()))
-			end)
-
-			-- Click Tool
-			local clickToolActive = false
-			local clickToolInst   = nil
-			local clickBtn        = nil
-
-			local function removeClickTool()
-				clickToolActive = false
-				if clickToolInst and clickToolInst.Parent then clickToolInst:Destroy() end
-				clickToolInst = nil
-				if clickBtn then tween(clickBtn,{TextColor3=Theme.Sub},0.12) end
-			end
-
-			local function equipClickTool()
-				removeClickTool()
-				clickToolActive = true
-				if clickBtn then tween(clickBtn,{TextColor3=Theme.Accent},0.12) end
-
-				local tool = Instance.new("Tool")
-				tool.Name           = "ref_selector"
-				tool.ToolTip        = "click a player to select target"
-				tool.CanBeDropped   = false
-				tool.RequiresHandle = false
-				tool.Parent         = player.Backpack
-				clickToolInst       = tool
-
-				tool.Activated:Connect(function()
-					if not clickToolActive then return end
-					local mouse = player:GetMouse()
-					local hit = mouse.Target
-					if not hit then return end
-					for _, p in ipairs(Players:GetPlayers()) do
-						if p ~= player and p.Character and hit:IsDescendantOf(p.Character) then
-							setTarget(p)
-							nickInput.Set(p.Name)
-							removeClickTool()
-							return
-						end
-					end
-				end)
-
-				tool.Unequipped:Connect(removeClickTool)
-			end
-
-			clickBtn = makeBtn("click tool", 0.52, 0.48, Theme.Panel, Theme.Sub, function()
-				if clickToolActive then removeClickTool() else equipClickTool() end
-			end)
+	local function removeClickTool()
+		clickToolActive = false
+		if clickToolInst and clickToolInst.Parent then clickToolInst:Destroy() end
+		clickToolInst = nil
+		if _splitBtns and _splitBtns[2] then
+			tween(_splitBtns[2], {TextColor3 = Theme.Sub}, 0.12)
 		end
 	end
 
-	if _nickRow then
-		local Items = _nickRow.Parent  -- UIListLayout + Rows moram aqui
-
-		-- Row customizada: search + click tool
-		local SplitRow = Instance.new("Frame")
-		SplitRow.Size = UDim2.new(1, 0, 0, 34)
-		SplitRow.BackgroundTransparency = 1
-		SplitRow.Parent = Items
-
-		local function makeBtn(text, xScale, xOff, wScale, wOff, bg, tc, cb)
-			local b = Instance.new("TextButton")
-			b.Position = UDim2.new(xScale, xOff, 0, 0)
-			b.Size = UDim2.new(wScale, wOff, 1, 0)
-			b.BackgroundColor3 = bg
-			b.Text = text
-			b.Font = Enum.Font.GothamSemibold
-			b.TextSize = 12
-			b.TextColor3 = tc
-			b.AutoButtonColor = false
-			b.Parent = SplitRow
-			addCorner(b, 10)
-			addStroke(b, 1, 0.86, Theme.Stroke)
-			b.MouseEnter:Connect(function() tween(b, {BackgroundColor3 = Color3.fromRGB(30,26,48)}, 0.12) end)
-			b.MouseLeave:Connect(function() tween(b, {BackgroundColor3 = bg}, 0.12) end)
-			b.MouseButton1Click:Connect(function()
-				tween(b, {BackgroundColor3 = Theme.Accent}, 0.08)
-				task.delay(0.12, function() tween(b, {BackgroundColor3 = bg}, 0.12) end)
-				if cb then cb() end
-			end)
-			return b
+	local function equipClickTool()
+		removeClickTool()
+		clickToolActive = true
+		if _splitBtns and _splitBtns[2] then
+			tween(_splitBtns[2], {TextColor3 = Theme.Accent}, 0.12)
 		end
+		local tool = Instance.new("Tool")
+		tool.Name           = "ref_selector"
+		tool.ToolTip        = "click a player to select target"
+		tool.CanBeDropped   = false
+		tool.RequiresHandle = false
+		tool.Parent         = player.Backpack
+		clickToolInst       = tool
+		tool.Activated:Connect(function()
+			if not clickToolActive then return end
+			local mouse = player:GetMouse()
+			local hit = mouse.Target
+			if not hit then return end
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player and p.Character and hit:IsDescendantOf(p.Character) then
+					setTarget(p)
+					nickInput.Set(p.Name)
+					removeClickTool()
+					return
+				end
+			end
+		end)
+		tool.Unequipped:Connect(removeClickTool)
+	end
 
-		makeBtn("search", 0, 0, 0.48, 0, Theme.Panel, Theme.Text, function()
+	_splitBtns = searchSec:SplitButton({
+		{text = "search",     color = Theme.Panel, textColor = Theme.Text, callback = function()
 			setTarget(findPlayer(nickInput.Get()))
-		end)
-
-		-- Click Tool: equipa uma tool que ao clicar num player o seleciona
-		local clickToolActive = false
-		local clickToolInst   = nil
-
-		local function removeClickTool()
-			clickToolActive = false
-			if clickToolInst and clickToolInst.Parent then
-				clickToolInst:Destroy()
-			end
-			clickToolInst = nil
-		end
-
-		local function equipClickTool()
-			removeClickTool()
-			clickToolActive = true
-
-			-- Cria a Tool no Backpack
-			local tool = Instance.new("Tool")
-			tool.Name          = "ref_selector"
-			tool.ToolTip       = "click a player to select as target"
-			tool.CanBeDropped  = false
-			tool.RequiresHandle = false
-			tool.Parent        = player.Backpack
-			clickToolInst      = tool
-
-			-- Ativa ao equipar
-			tool.Activated:Connect(function()
-				if not clickToolActive then return end
-				-- Raycast da câmera ao mouse
-				local unitRay = workspace.CurrentCamera:ScreenPointToRay(
-					UserInputService:GetMouseLocation().X,
-					UserInputService:GetMouseLocation().Y
-				)
-				local params = RaycastParams.new()
-				params.FilterType = Enum.RaycastFilterType.Exclude
-				local myChar = player.Character
-				if myChar then params.FilterDescendantsInstances = {myChar} end
-				local result = workspace:Raycast(unitRay.Origin, unitRay.Direction * 2000, params)
-				if result and result.Instance then
-					-- Tenta achar o player dono dessa part
-					local hit = result.Instance
-					for _, p in ipairs(Players:GetPlayers()) do
-						if p ~= player and p.Character and hit:IsDescendantOf(p.Character) then
-							setTarget(p)
-							-- Atualiza o nick input com o nome do player
-							nickInput.Set(p.Name)
-							removeClickTool()
-							return
-						end
-					end
-				end
-			end)
-
-			-- Remove a tool se o player desequipar manualmente
-			tool.Unequipped:Connect(function()
-				removeClickTool()
-			end)
-		end
-
-		makeBtn("click tool", 0.52, 0, 0.48, 0, Theme.Panel, Theme.Accent, function()
-			if clickToolActive then
-				removeClickTool()
-			else
-				equipClickTool()
-			end
-		end)
-	end
+		end},
+		{text = "click tool", color = Theme.Panel, textColor = Theme.Sub,  callback = function()
+			if clickToolActive then removeClickTool() else equipClickTool() end
+		end},
+	})
 	RunService.Heartbeat:Connect(function()
 		if targetPlayer then card.UpdateHp(targetPlayer) end
 	end)
@@ -1338,91 +1230,54 @@ do
 		if hrp and thrp then hrp.CFrame = CFrame.new(hrp.Position, thrp.Position) end
 	end)
 
-	-- Follow: BodyVelocity rápido, levita, persegue agressivamente
+	-- ── FOLLOW TARGET ──────────────────────────────────────────────────
+	-- Usa CFrame direto no RenderStepped + PlatformStand
+	-- Sem BodyVelocity/BodyGyro depreciados
 	local followEnabled   = false
 	local followConn      = nil
-	local followBV        = nil
-	local followBG        = nil
-	local FOLLOW_SPEED    = 80
-	local FOLLOW_STOP_DST = 3
+	local FOLLOW_SPEED    = 80   -- studs/s
+	local FOLLOW_STOP_DST = 3    -- para quando chegar aqui
 
 	local function stopFollow()
 		followEnabled = false
 		if followConn then followConn:Disconnect() followConn = nil end
-		if followBV and followBV.Parent then
-			followBV.MaxForce = Vector3.zero
-			followBV.Velocity = Vector3.zero
-		end
-		if followBG and followBG.Parent then
-			followBG.MaxTorque = Vector3.zero
-		end
-		followBV = nil
-		followBG = nil
 		local char = player.Character
-		if char then
-			local hm = char:FindFirstChildOfClass("Humanoid")
-			if hm then hm.PlatformStand = false end
-		end
+		if not char then return end
+		local hm = char:FindFirstChildOfClass("Humanoid")
+		if hm then hm.PlatformStand = false end
 	end
 
 	local function startFollow()
 		stopFollow()
 		if not targetPlayer then return end
 		followEnabled = true
-		local char = player.Character
-		if not char then return end
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if not hrp or not hum then return end
-
-		hum.PlatformStand = true
-
-		followBV = Instance.new("BodyVelocity")
-		followBV.Velocity  = Vector3.zero
-		followBV.MaxForce  = Vector3.new(9e9, 9e9, 9e9)
-		followBV.P         = 9e9
-		followBV.Parent    = hrp
-
-		followBG = Instance.new("BodyGyro")
-		followBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-		followBG.P         = 3e4
-		followBG.D         = 500
-		followBG.CFrame    = hrp.CFrame
-		followBG.Parent    = hrp
-
-		followConn = RunService.Heartbeat:Connect(function()
+		followConn = RunService.RenderStepped:Connect(function(dt)
 			if not followEnabled then return end
 			local c = player.Character
 			if not c then return end
-			local h  = c:FindFirstChild("HumanoidRootPart")
-			local hm = c:FindFirstChildOfClass("Humanoid")
-			if not h or not hm then return end
-			if not followBV or not followBV.Parent then return end
+			local hrp = c:FindFirstChild("HumanoidRootPart")
+			local hm  = c:FindFirstChildOfClass("Humanoid")
+			if not hrp or not hm then return end
+			local tc = targetPlayer.Character
+			if not tc then return end
+			local thrp = tc:FindFirstChild("HumanoidRootPart")
+			if not thrp then return end
 
 			hm.PlatformStand = true
-			followBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-			followBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
 
-			if not targetPlayer or not targetPlayer.Character then
-				followBV.Velocity = Vector3.zero
-				return
-			end
-			local thrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-			if not thrp then followBV.Velocity = Vector3.zero return end
-
-			local diff = thrp.Position - h.Position
+			local diff = thrp.Position - hrp.Position
 			local dist = diff.Magnitude
+			if dist <= FOLLOW_STOP_DST then return end
 
-			if dist <= FOLLOW_STOP_DST then
-				followBV.Velocity = Vector3.zero
+			-- Move na direção do target com velocidade proporcional (suaviza perto)
+			local spd    = math.min(FOLLOW_SPEED, dist * 6) * dt
+			local newPos = hrp.Position + diff.Unit * spd
+			-- Olha para o target (Y zerado para não inclinar)
+			local lookDir = Vector3.new(diff.X, 0, diff.Z)
+			if lookDir.Magnitude > 0.01 then
+				hrp.CFrame = CFrame.new(newPos, newPos + lookDir)
 			else
-				-- Velocidade proporcional: rápido quando longe, freia perto
-				local spd = math.min(FOLLOW_SPEED, dist * 4)
-				followBV.Velocity = diff.Unit * spd
-				local look = Vector3.new(diff.X, 0, diff.Z)
-				if look.Magnitude > 0.01 then
-					followBG.CFrame = CFrame.new(Vector3.zero, look)
-				end
+				hrp.CFrame = CFrame.new(newPos)
 			end
 		end)
 	end
@@ -1436,121 +1291,82 @@ do
 	end)
 	actionSec:Slider("follow speed", 30, 200, 80, function(v) FOLLOW_SPEED = v end)
 
-	-- Headsit: senta na cabeça do target e fica seguindo
+	-- ── HEADSIT ──────────────────────────────────────────────────────
+	-- Teletransporta o HRP para cima da cabeça do target a cada frame
+	-- + animação sit em loop
 	local headsitActive = false
 	local headsitConn   = nil
-	local headsitWeld   = nil
 	local headsitAnim   = nil
 
 	local function stopHeadsit()
 		headsitActive = false
 		if headsitConn then headsitConn:Disconnect() headsitConn = nil end
-		if headsitAnim then pcall(function() headsitAnim:Stop() end) headsitAnim = nil end
-		if headsitWeld and headsitWeld.Parent then headsitWeld:Destroy() end
-		headsitWeld = nil
-		local char = player.Character
-		if char then
-			local hm = char:FindFirstChildOfClass("Humanoid")
-			if hm then hm.PlatformStand = false end
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				local bv = hrp:FindFirstChild("ref_headsit_bv")
-				if bv then bv:Destroy() end
-				local bg = hrp:FindFirstChild("ref_headsit_bg")
-				if bg then bg:Destroy() end
-			end
+		if headsitAnim then
+			pcall(function() headsitAnim:Stop() end)
+			headsitAnim = nil
 		end
+		local char = player.Character
+		if not char then return end
+		local hm = char:FindFirstChildOfClass("Humanoid")
+		if hm then hm.PlatformStand = false end
 	end
 
 	local function startHeadsit()
 		stopHeadsit()
 		if not targetPlayer or not targetPlayer.Character then return end
-		local tChar = targetPlayer.Character
-		local tHead = tChar:FindFirstChild("Head")
-		if not tHead then return end
-
 		local myChar = player.Character
 		if not myChar then return end
-		local myHRP  = myChar:FindFirstChild("HumanoidRootPart")
-		local myHum  = myChar:FindFirstChildOfClass("Humanoid")
+		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+		local myHum = myChar:FindFirstChildOfClass("Humanoid")
 		if not myHRP or not myHum then return end
 
 		headsitActive = true
 		myHum.PlatformStand = true
 
-		-- Posiciona em cima da cabeça imediatamente
-		myHRP.CFrame = tHead.CFrame * CFrame.new(0, 3, 0)
-
-		-- BodyVelocity + BodyGyro para se manter colado à cabeça
-		local bv = Instance.new("BodyVelocity")
-		bv.Name      = "ref_headsit_bv"
-		bv.Velocity  = Vector3.zero
-		bv.MaxForce  = Vector3.new(9e9, 9e9, 9e9)
-		bv.P         = 9e9
-		bv.Parent    = myHRP
-
-		local bg = Instance.new("BodyGyro")
-		bg.Name      = "ref_headsit_bg"
-		bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-		bg.P         = 3e4
-		bg.D         = 500
-		bg.CFrame    = myHRP.CFrame
-		bg.Parent    = myHRP
-
-		-- Emote de sit em loop para manter a pose sentada
+		-- Carrega animação sit (R15 padrão Roblox)
 		task.spawn(function()
 			local hum = myChar:FindFirstChildOfClass("Humanoid")
 			if not hum then return end
-			local ok, animObj = pcall(function()
+			local ok, anim = pcall(function()
 				local a = Instance.new("Animation")
-				a.AnimationId = "rbxassetid://2506281703"  -- sit animation (R15 padrão)
+				a.AnimationId = "rbxassetid://2506281703"
 				return hum:LoadAnimation(a)
 			end)
-			if ok and animObj then
-				headsitAnim = animObj
-				animObj.Priority = Enum.AnimationPriority.Action
-				animObj.Looped   = true
-				animObj:Play()
+			if ok and anim then
+				headsitAnim = anim
+				anim.Priority = Enum.AnimationPriority.Action
+				anim.Looped   = true
+				anim:Play()
 			end
 		end)
 
-		-- Loop: mantém posição em cima da cabeça do target
-		headsitConn = RunService.Heartbeat:Connect(function()
+		headsitConn = RunService.RenderStepped:Connect(function()
 			if not headsitActive then return end
 			local mc = player.Character
 			if not mc then return end
 			local mh  = mc:FindFirstChild("HumanoidRootPart")
 			local mhm = mc:FindFirstChildOfClass("Humanoid")
 			if not mh or not mhm then return end
-			if not bv.Parent or not bg.Parent then return end
 
-			-- Verifica se o target ainda existe
 			if not targetPlayer or not targetPlayer.Character then
-				stopHeadsit()
-				return
+				stopHeadsit() return
 			end
-			local th = targetPlayer.Character:FindFirstChild("Head")
-			if not th then stopHeadsit() return end
+			local tHead = targetPlayer.Character:FindFirstChild("Head")
+			if not tHead then stopHeadsit() return end
 
 			mhm.PlatformStand = true
 
-			-- Posição alvo: em cima da cabeça do target
-			local targetPos = th.Position + Vector3.new(0, 3.2, 0)
-			local diff = targetPos - mh.Position
-			local dist = diff.Magnitude
+			-- Cola direto em cima da cabeça: CFrame = Head.CFrame deslocado +3 em Y
+			-- Mantém a orientação do target (fica virado pra mesma direção)
+			local headCF   = tHead.CFrame
+			local seatCF   = headCF * CFrame.new(0, 3.2, 0)
+			-- Aplica só posição + rotação Y do target (sem inclinar)
+			local flatAngle = math.atan2(-headCF.LookVector.Z, headCF.LookVector.X)
+			mh.CFrame = CFrame.new(seatCF.Position) * CFrame.Angles(0, flatAngle, 0)
 
-			-- Move suavemente para cima da cabeça
-			if dist > 0.3 then
-				bv.Velocity = diff * 12  -- proporcional, suave mas responsivo
-			else
-				bv.Velocity = Vector3.zero
-			end
-
-			-- Gira para a mesma direção do target
-			local tLook = th.CFrame.LookVector
-			local flatLook = Vector3.new(tLook.X, 0, tLook.Z)
-			if flatLook.Magnitude > 0.01 then
-				bg.CFrame = CFrame.new(Vector3.zero, flatLook)
+			-- Mantém animação rodando se parou
+			if headsitAnim and not headsitAnim.IsPlaying then
+				headsitAnim:Play()
 			end
 		end)
 	end
@@ -1559,7 +1375,6 @@ do
 		task.wait(0.5)
 		if headsitActive then startHeadsit() end
 	end)
-
 	actionSec:Toggle("headsit", false, function(v)
 		if v then startHeadsit() else stopHeadsit() end
 	end)

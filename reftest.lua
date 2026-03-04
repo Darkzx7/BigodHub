@@ -82,6 +82,125 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.DisplayOrder = 999
 ScreenGui.Parent = pg
+
+-- ===== TOAST NOTIFICATIONS =====
+local toastQueue   = {}
+local toastRunning = false
+local TOAST_W, TOAST_H = 260, 54
+
+local function showToast(icon, title, sub, accentColor)
+	accentColor = accentColor or Theme.Accent
+
+	-- Container do toast
+	local toast = Instance.new("Frame")
+	toast.Name              = "ref_toast"
+	toast.Size              = UDim2.new(0, TOAST_W, 0, TOAST_H)
+	toast.Position          = UDim2.new(1, 20, 1, -80)  -- começa fora da tela (direita)
+	toast.BackgroundColor3  = Theme.Panel2
+	toast.BorderSizePixel   = 0
+	toast.ZIndex            = 200
+	toast.ClipsDescendants  = true
+	toast.Parent            = ScreenGui
+	addCorner(toast, 10)
+	addStroke(toast, 1, 0.6, Theme.Stroke)
+
+	-- Barra accent à esquerda
+	local bar = Instance.new("Frame")
+	bar.Size             = UDim2.new(0, 3, 1, 0)
+	bar.BackgroundColor3 = accentColor
+	bar.BorderSizePixel  = 0
+	bar.ZIndex           = 201
+	bar.Parent           = toast
+	addCorner(bar, 2)
+
+	-- Ícone (avatar ou símbolo)
+	local img = Instance.new("ImageLabel")
+	img.Size                 = UDim2.new(0, 34, 0, 34)
+	img.Position             = UDim2.new(0, 12, 0.5, -17)
+	img.BackgroundColor3     = Theme.Panel
+	img.BorderSizePixel      = 0
+	img.Image                = icon or "rbxassetid://131165537896572"
+	img.ImageColor3          = Color3.fromRGB(255,255,255)
+	img.ScaleType            = Enum.ScaleType.Fit
+	img.ZIndex               = 201
+	img.Parent               = toast
+	addCorner(img, 6)
+
+	-- Título
+	local lbl = Instance.new("TextLabel")
+	lbl.Size                  = UDim2.new(1, -60, 0, 18)
+	lbl.Position              = UDim2.new(0, 54, 0, 9)
+	lbl.BackgroundTransparency= 1
+	lbl.Text                  = title or ""
+	lbl.TextColor3            = Theme.Text
+	lbl.TextSize              = 13
+	lbl.Font                  = Enum.Font.GothamBold
+	lbl.TextXAlignment        = Enum.TextXAlignment.Left
+	lbl.TextTruncate          = Enum.TextTruncate.AtEnd
+	lbl.ZIndex                = 201
+	lbl.Parent                = toast
+
+	-- Subtítulo
+	local sub2 = Instance.new("TextLabel")
+	sub2.Size                  = UDim2.new(1, -60, 0, 16)
+	sub2.Position              = UDim2.new(0, 54, 0, 28)
+	sub2.BackgroundTransparency= 1
+	sub2.Text                  = sub or ""
+	sub2.TextColor3            = Theme.Sub
+	sub2.TextSize              = 11
+	sub2.Font                  = Enum.Font.Gotham
+	sub2.TextXAlignment        = Enum.TextXAlignment.Left
+	sub2.TextTruncate          = Enum.TextTruncate.AtEnd
+	sub2.ZIndex                = 201
+	sub2.Parent                = toast
+
+	-- Barra de progresso no fundo (timer visual)
+	local progBg = Instance.new("Frame")
+	progBg.Size             = UDim2.new(1, 0, 0, 2)
+	progBg.Position         = UDim2.new(0, 0, 1, -2)
+	progBg.BackgroundColor3 = Theme.Panel
+	progBg.BorderSizePixel  = 0
+	progBg.ZIndex           = 202
+	progBg.Parent           = toast
+
+	local prog = Instance.new("Frame")
+	prog.Size             = UDim2.new(1, 0, 1, 0)
+	prog.BackgroundColor3 = accentColor
+	prog.BorderSizePixel  = 0
+	prog.ZIndex           = 203
+	prog.Parent           = progBg
+
+	-- Sombra
+	local sh = Instance.new("ImageLabel")
+	sh.BackgroundTransparency = 1
+	sh.Image         = "rbxassetid://1316045217"
+	sh.ImageTransparency = 0.82
+	sh.ImageColor3   = Color3.fromRGB(0,0,0)
+	sh.ScaleType     = Enum.ScaleType.Slice
+	sh.SliceCenter   = Rect.new(10,10,118,118)
+	sh.Size          = UDim2.new(1,20,1,20)
+	sh.Position      = UDim2.new(0,-10,0,-10)
+	sh.ZIndex        = 199
+	sh.Parent        = toast
+
+	-- Animação entrada: desliza da direita
+	local inPos  = UDim2.new(1, -(TOAST_W + 16), 1, -80)
+	tween(toast, {Position = inPos}, 0.3)
+
+	-- Progress bar encolhe em 3s
+	task.delay(0.3, function()
+		tween(prog, {Size = UDim2.new(0, 0, 1, 0)}, 3.0)
+	end)
+
+	-- Saída: desliza pra direita e destroi
+	task.delay(3.3, function()
+		tween(toast, {Position = UDim2.new(1, 20, 1, -80)}, 0.25)
+		task.delay(0.26, function()
+			if toast and toast.Parent then toast:Destroy() end
+		end)
+	end)
+end
+
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "IconBtn"
 IconBtn.Size = UDim2.new(0, 52, 0, 52)
@@ -1289,6 +1408,13 @@ do
 		targetPlayer = t
 		_G.ref_lockTarget = t
 		card.Set(t)
+		-- Toast de notificação
+		if t then
+			local avatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. t.UserId .. "&width=150&height=150&format=png"
+			showToast(avatar, "target selecionado", t.DisplayName .. " (@" .. t.Name .. ")", Theme.Accent)
+		else
+			showToast("rbxassetid://131165537896572", "target removido", "nenhum target ativo", Color3.fromRGB(120, 120, 140))
+		end
 	end
 	local nickInput = searchSec:TextInput("nick", "username ou displayname", function(text, enter)
 		if enter then setTarget(findPlayer(text)) end

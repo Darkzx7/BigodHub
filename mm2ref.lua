@@ -701,11 +701,21 @@ ui:CfgRegister("mm2_shot_cd", function() return SHOT_COOLDOWN * 10 end, function
 secSheriff:Divider("shoot button flutuante")
 
 -- ── Floating Shoot Button ─────────────────────────────────────────────────────
--- Cria um botão arrastável na tela que, ao clicar, atira no murderer
+-- Cores do tema da UI (roxo escuro → roxo médio, igual ao RefLib)
+local THEME_BG       = Color3.fromRGB(30,  22,  46)   -- fundo escuro roxo
+local THEME_ACCENT   = Color3.fromRGB(138,  43, 226)  -- roxo vivo
+local THEME_ACCENT2  = Color3.fromRGB(100,  20, 180)  -- roxo mais escuro
+local THEME_TEXT     = Color3.fromRGB(235, 225, 255)  -- branco-lilás
+local THEME_SUBTEXT  = Color3.fromRGB(160, 140, 200)  -- lilás apagado
+local THEME_SUCCESS  = Color3.fromRGB(100, 220, 130)  -- verde menta
+local THEME_DANGER   = Color3.fromRGB(220,  60,  80)  -- vermelho
+local THEME_WARN     = Color3.fromRGB(200, 170,  40)  -- amarelo
+
 local floatBtn      = nil
 local floatBtnOn    = false
 local floatDragging = false
 local floatDragOff  = Vector2.new(0, 0)
+local floatMoved    = false   -- distingue drag de click
 local shootCooldown = false
 
 local function destroyFloatBtn()
@@ -716,90 +726,128 @@ end
 local function createFloatBtn()
 	destroyFloatBtn()
 
+	-- ScreenGui
 	local sg = Instance.new("ScreenGui")
 	sg.Name = "MM2ShootBtn"; sg.ResetOnSpawn = false
 	sg.IgnoreGuiInset = true; sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	sg.Parent = player.PlayerGui
 
-	-- Frame externo (sombra / borda)
-	local shadow = Instance.new("Frame")
-	shadow.Size = UDim2.new(0, 108, 0, 108)
-	shadow.Position = UDim2.new(0, 60, 0.5, -54)
-	shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	shadow.BackgroundTransparency = 0.4
-	shadow.BorderSizePixel = 0
-	shadow.Parent = sg
-	Instance.new("UICorner", shadow).CornerRadius = UDim.new(1, 0)
+	-- Container arrastável (igual a um card da UI)
+	local card = Instance.new("Frame")
+	card.Size            = UDim2.new(0, 120, 0, 64)
+	card.Position        = UDim2.new(1, -140, 0.5, -32)
+	card.BackgroundColor3 = THEME_BG
+	card.BackgroundTransparency = 0.08
+	card.BorderSizePixel = 0
+	card.Parent          = sg
+	Instance.new("UICorner",  card).CornerRadius = UDim.new(0, 10)
 
-	-- Botão principal
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, 100, 0, 100)
-	btn.Position = UDim2.new(0, 4, 0, 4)
-	btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
-	btn.BorderSizePixel = 0
-	btn.Text = ""
-	btn.AutoButtonColor = false
-	btn.Parent = shadow
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
-
-	-- Gradiente
-	local grad = Instance.new("UIGradient")
-	grad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 180, 255)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(20,  80, 200)),
+	-- Borda superior colorida (accent line, igual aos cards do RefLib)
+	local accentLine = Instance.new("Frame")
+	accentLine.Size              = UDim2.new(1, 0, 0, 3)
+	accentLine.Position          = UDim2.new(0, 0, 0, 0)
+	accentLine.BackgroundColor3  = THEME_ACCENT
+	accentLine.BorderSizePixel   = 0
+	accentLine.ZIndex            = 3
+	accentLine.Parent            = card
+	local accentGrad = Instance.new("UIGradient")
+	accentGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0,   THEME_ACCENT),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
+		ColorSequenceKeypoint.new(1,   THEME_ACCENT2),
 	})
-	grad.Rotation = 120; grad.Parent = btn
+	accentGrad.Parent = accentLine
+	local accentCorner = Instance.new("UICorner")
+	accentCorner.CornerRadius = UDim.new(0, 3); accentCorner.Parent = accentLine
 
-	-- Ícone de mira (🎯) + label
-	local icon = Instance.new("TextLabel")
-	icon.Size = UDim2.new(1, 0, 0.55, 0)
-	icon.Position = UDim2.new(0, 0, 0.05, 0)
-	icon.BackgroundTransparency = 1
-	icon.Text = "🔫"; icon.TextScaled = true
-	icon.Font = Enum.Font.GothamBold
-	icon.TextColor3 = Color3.fromRGB(255, 255, 255)
-	icon.Parent = btn
+	-- Label de título "SHOOT"
+	local title = Instance.new("TextLabel")
+	title.Size               = UDim2.new(1, -12, 0, 16)
+	title.Position           = UDim2.new(0, 6, 0, 7)
+	title.BackgroundTransparency = 1
+	title.Font               = Enum.Font.GothamBold
+	title.TextSize           = 11
+	title.TextColor3         = THEME_SUBTEXT
+	title.TextXAlignment     = Enum.TextXAlignment.Left
+	title.Text               = "SHERIFF"
+	title.ZIndex             = 3
+	title.Parent             = card
 
+	-- Botão principal (ocupa a faixa inferior do card)
+	local btn = Instance.new("TextButton")
+	btn.Size             = UDim2.new(1, -12, 0, 32)
+	btn.Position         = UDim2.new(0, 6, 0, 25)
+	btn.BackgroundColor3 = THEME_ACCENT
+	btn.BorderSizePixel  = 0
+	btn.Text             = ""
+	btn.AutoButtonColor  = false
+	btn.ZIndex           = 3
+	btn.Parent           = card
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
+
+	-- Gradiente do botão
+	local btnGrad = Instance.new("UIGradient")
+	btnGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(160, 60, 255)),
+		ColorSequenceKeypoint.new(1, THEME_ACCENT2),
+	})
+	btnGrad.Rotation = 90; btnGrad.Parent = btn
+
+	-- Texto do botão
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 0.35, 0)
-	lbl.Position = UDim2.new(0, 0, 0.63, 0)
+	lbl.Size             = UDim2.new(1, 0, 1, 0)
 	lbl.BackgroundTransparency = 1
-	lbl.Text = "SHOOT"; lbl.TextScaled = true
-	lbl.Font = Enum.Font.GothamBold
-	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-	lbl.TextStrokeTransparency = 0.3
-	lbl.Parent = btn
+	lbl.Font             = Enum.Font.GothamBold
+	lbl.TextSize         = 13
+	lbl.TextColor3       = THEME_TEXT
+	lbl.TextXAlignment   = Enum.TextXAlignment.Center
+	lbl.Text             = "ATIRAR"
+	lbl.ZIndex           = 4
+	lbl.Parent           = btn
 
-	-- Cooldown overlay (escurece o botão durante recarga)
+	-- Overlay de cooldown (escurece o btn)
 	local cdOverlay = Instance.new("Frame")
-	cdOverlay.Size = UDim2.new(1, 0, 1, 0)
-	cdOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	cdOverlay.Size                = UDim2.new(1, 0, 1, 0)
+	cdOverlay.BackgroundColor3    = Color3.fromRGB(0, 0, 0)
 	cdOverlay.BackgroundTransparency = 1
-	cdOverlay.BorderSizePixel = 0
-	cdOverlay.ZIndex = 5
-	cdOverlay.Visible = false
-	cdOverlay.Parent = btn
-	Instance.new("UICorner", cdOverlay).CornerRadius = UDim.new(1, 0)
+	cdOverlay.BorderSizePixel     = 0
+	cdOverlay.ZIndex              = 5
+	cdOverlay.Visible             = false
+	cdOverlay.Parent              = btn
+	Instance.new("UICorner", cdOverlay).CornerRadius = UDim.new(0, 7)
 
 	local cdLbl = Instance.new("TextLabel")
-	cdLbl.Size = UDim2.new(1, 0, 1, 0)
+	cdLbl.Size               = UDim2.new(1, 0, 1, 0)
 	cdLbl.BackgroundTransparency = 1
-	cdLbl.Font = Enum.Font.GothamBold; cdLbl.TextScaled = true
-	cdLbl.TextColor3 = Color3.fromRGB(255, 255, 100)
-	cdLbl.ZIndex = 6; cdLbl.Parent = cdOverlay
+	cdLbl.Font               = Enum.Font.GothamBold
+	cdLbl.TextSize           = 13
+	cdLbl.TextColor3         = THEME_TEXT
+	cdLbl.ZIndex             = 6
+	cdLbl.Parent             = cdOverlay
 
 	floatBtn = sg
 
+	-- ── helpers visuais ────────────────────────────────────────────────────────
+	local function flash(color, text, duration)
+		btn.BackgroundColor3 = color
+		btnGrad.Enabled = false
+		lbl.Text = text
+		task.delay(duration or 0.7, function()
+			if not btn.Parent then return end
+			btn.BackgroundColor3 = THEME_ACCENT
+			btnGrad.Enabled = true
+			lbl.Text = "ATIRAR"
+		end)
+	end
+
 	-- ── Drag ──────────────────────────────────────────────────────────────────
-	btn.InputBegan:Connect(function(inp)
+	card.InputBegan:Connect(function(inp)
 		if inp.UserInputType == Enum.UserInputType.MouseButton1
 		or inp.UserInputType == Enum.UserInputType.Touch then
 			floatDragging = true
-			local absPos = shadow.AbsolutePosition
-			floatDragOff = Vector2.new(
-				inp.Position.X - absPos.X,
-				inp.Position.Y - absPos.Y
-			)
+			floatMoved    = false
+			local absPos  = card.AbsolutePosition
+			floatDragOff  = Vector2.new(inp.Position.X - absPos.X, inp.Position.Y - absPos.Y)
 		end
 	end)
 
@@ -807,10 +855,11 @@ local function createFloatBtn()
 		if not floatDragging then return end
 		if inp.UserInputType == Enum.UserInputType.MouseMovement
 		or inp.UserInputType == Enum.UserInputType.Touch then
+			floatMoved = true
 			local vp = workspace.CurrentCamera.ViewportSize
-			local nx = math.clamp(inp.Position.X - floatDragOff.X, 0, vp.X - shadow.AbsoluteSize.X)
-			local ny = math.clamp(inp.Position.Y - floatDragOff.Y, 0, vp.Y - shadow.AbsoluteSize.Y)
-			shadow.Position = UDim2.new(0, nx, 0, ny)
+			local nx  = math.clamp(inp.Position.X - floatDragOff.X, 0, vp.X - card.AbsoluteSize.X)
+			local ny  = math.clamp(inp.Position.Y - floatDragOff.Y, 0, vp.Y - card.AbsoluteSize.Y)
+			card.Position = UDim2.new(0, nx, 0, ny)
 		end
 	end)
 
@@ -823,68 +872,70 @@ local function createFloatBtn()
 
 	-- ── Click: dispara ─────────────────────────────────────────────────────────
 	btn.MouseButton1Click:Connect(function()
-		if floatDragging then return end  -- ignora clique ao soltar drag
+		if floatMoved    then floatMoved = false; return end
 		if shootCooldown then return end
 
 		local myRole = getPlayerRole()
 		if myRole ~= "sheriff" then
-			-- Pisca vermelho: não é xerife
-			btn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
-			lbl.Text = "NO GUN"
-			task.delay(0.8, function()
-				btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
-				lbl.Text = "SHOOT"
-			end)
+			flash(THEME_DANGER, "SEM GUN")
 			return
 		end
 
 		local murderer = findMurderer()
 		if not murderer then
-			btn.BackgroundColor3 = Color3.fromRGB(150, 150, 40)
-			lbl.Text = "??"
-			task.delay(0.8, function()
-				btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
-				lbl.Text = "SHOOT"
-			end)
+			flash(THEME_WARN, "NENHUM")
 			return
 		end
 
-		-- Dispara!
+		-- Dispara
 		shootCooldown = true
 		tryShoot(murderer.Character)
 
-		-- Feedback visual: pisca verde → cooldown overlay
-		btn.BackgroundColor3 = Color3.fromRGB(40, 200, 80)
-		lbl.Text = "💥"
-		task.wait(0.15)
+		-- Feedback: pisca accent2 claro
+		flash(THEME_SUCCESS, "FIRED!", 0.2)
+		task.wait(0.25)
 
-		-- Cooldown visual (1s)
-		btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
-		lbl.Text = "SHOOT"
-		cdOverlay.Visible = true
-		cdOverlay.BackgroundTransparency = 0.45
+		-- Cooldown visual
+		if btn.Parent then
+			btn.BackgroundColor3 = THEME_ACCENT2
+			btnGrad.Enabled      = false
+			lbl.Text             = "ATIRAR"
+		end
+		cdOverlay.Visible             = true
+		cdOverlay.BackgroundTransparency = 0.55
 		local cdTime = 1.0
 		local elapsed = 0
-		local step = 0.05
 		while elapsed < cdTime do
-			task.wait(step)
-			elapsed = elapsed + step
-			local remaining = math.ceil(cdTime - elapsed)
-			cdLbl.Text = tostring(remaining)
+			task.wait(0.05)
+			elapsed = elapsed + 0.05
+			if cdLbl.Parent then
+				cdLbl.Text = string.format("%.1f", cdTime - elapsed)
+			end
 		end
-		cdOverlay.Visible = false
+		if cdOverlay.Parent then
+			cdOverlay.Visible = false
+		end
 		shootCooldown = false
-		lbl.Text = "SHOOT"
+		if btn.Parent then
+			btn.BackgroundColor3 = THEME_ACCENT
+			btnGrad.Enabled      = true
+		end
 	end)
 
-	-- Tooltip ao hover
+	-- Hover sutil
 	btn.MouseEnter:Connect(function()
 		if not shootCooldown then
-			TweenService:Create(btn, TweenInfo.new(0.12), {Size = UDim2.new(0,106,0,106), Position = UDim2.new(0,-3,0,-3)}):Play()
+			TweenService:Create(btn, TweenInfo.new(0.1), {
+				BackgroundColor3 = Color3.fromRGB(165, 70, 255)
+			}):Play()
 		end
 	end)
 	btn.MouseLeave:Connect(function()
-		TweenService:Create(btn, TweenInfo.new(0.12), {Size = UDim2.new(0,100,0,100), Position = UDim2.new(0,4,0,4)}):Play()
+		if not shootCooldown then
+			TweenService:Create(btn, TweenInfo.new(0.1), {
+				BackgroundColor3 = THEME_ACCENT
+			}):Play()
+		end
 	end)
 end
 
@@ -893,7 +944,7 @@ local t_floatBtn = secSheriff:Toggle("shoot button flutuante", false, function(v
 	if v then
 		createFloatBtn()
 		ui:Toast("rbxassetid://131165537896572", "[Shoot Btn] criado",
-			"arraste o botão pela tela e clique pra atirar", ROLE_COLOR.sheriff)
+			"arraste o card e clique em ATIRAR", ROLE_COLOR.sheriff)
 	else
 		destroyFloatBtn()
 		ui:Toast("rbxassetid://131165537896572", "[Shoot Btn] removido", "", ROLE_COLOR.unknown)
@@ -901,7 +952,7 @@ local t_floatBtn = secSheriff:Toggle("shoot button flutuante", false, function(v
 end)
 ui:CfgRegister("mm2_floatbtn", function() return floatBtnOn end, function(v) t_floatBtn.Set(v) end)
 
--- Garante que o botão é destruído ao respawnar
+-- Recriar ao respawnar
 player.CharacterAdded:Connect(function()
 	if floatBtnOn then task.wait(1); createFloatBtn() end
 end)
@@ -1111,12 +1162,40 @@ do
 local secAutoFarm = tabFarm:Section("auto farm")
 secAutoFarm:Divider("coin farm automático")
 
-local farmOn      = false
-local farmLoop    = nil
-local farmDelay   = 0.08
+local farmOn             = false
+local farmDelay          = 0.2    -- delay seguro padrão (segundos)
 local farmCoinsCollected = 0
 
--- Auto farm: TP para cada coin continuamente
+-- Verifica se uma posição está dentro dos limites do mapa e não é NaN
+local function isValidPos(pos)
+	if pos ~= pos then return false end  -- NaN check
+	if pos.Magnitude > 8000 then return false end  -- fora do mapa
+	return true
+end
+
+-- Retorna a posição segura para teleportar em cima de uma coin:
+-- garante pelo menos +3 studs em Y e valida a posição
+local function safeCoinPos(part)
+	if not part or not part.Parent then return nil end
+	local pos = part.Position
+	if not isValidPos(pos) then return nil end
+	-- Usa Raycast para encontrar o chão abaixo da coin
+	-- e pousa em cima, evitando teleportar dentro de geometria
+	local origin = pos + Vector3.new(0, 10, 0)
+	local dir    = Vector3.new(0, -15, 0)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { player.Character }
+	local result = workspace:Raycast(origin, dir, params)
+	if result then
+		-- Pousa 3.5 studs acima do hit
+		return result.Position + Vector3.new(0, 3.5, 0)
+	end
+	-- Fallback: acima da coin
+	return pos + Vector3.new(0, 3.5, 0)
+end
+
+-- Coleta coins em batch: teleporta para cada uma com delay seguro
 local function startFarm()
 	farmCoinsCollected = 0
 	while farmOn do
@@ -1124,37 +1203,43 @@ local function startFarm()
 		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum or hum.Health <= 0 then task.wait(1); continue end
 
+		-- Recolhe todas as coins do mapa
 		local coins = {}
 		for _, obj in ipairs(workspace:GetDescendants()) do
 			local n = obj.Name:lower()
-			if n == "coin" or n == "goldcoin" or (n:find("coin") and not n:find("bb")) then
+			-- Nome "coin" exato ou "goldcoin"; ignora BillboardGuis com "bb" no nome
+			if (n == "coin" or n == "goldcoin") then
 				local part = obj:IsA("BasePart") and obj
 					or (obj:IsA("Model") and obj:FindFirstChildOfClass("BasePart"))
-				if part and part.Parent then table.insert(coins, part) end
+				if part and part.Parent then
+					table.insert(coins, part)
+				end
 			end
 		end
 
-		if #coins == 0 then
-			task.wait(1)
-			continue
-		end
+		if #coins == 0 then task.wait(2); continue end
 
-		-- Ordena por distância (pega os mais próximos primeiro)
+		-- Ordena por distância crescente (mais próximas primeiro)
 		local myPos = hrp.Position
 		table.sort(coins, function(a, b)
+			if not a.Parent then return false end
+			if not b.Parent then return true end
 			return (a.Position - myPos).Magnitude < (b.Position - myPos).Magnitude
 		end)
 
 		for _, part in ipairs(coins) do
 			if not farmOn then break end
-			if part and part.Parent then
-				hrp.CFrame = CFrame.new(part.Position)
-				farmCoinsCollected = farmCoinsCollected + 1
-				task.wait(farmDelay)
-			end
+			if not part or not part.Parent then continue end
+			-- Só vai até coins dentro do mapa
+			local dest = safeCoinPos(part)
+			if not dest then continue end
+			hrp.CFrame = CFrame.new(dest)
+			farmCoinsCollected = farmCoinsCollected + 1
+			task.wait(farmDelay)
 		end
 
-		task.wait(0.5)
+		-- Pausa entre batchs para não sobrecarregar
+		task.wait(1.5)
 	end
 end
 
@@ -1162,24 +1247,25 @@ local t_farm = secAutoFarm:Toggle("auto farm coins", false, function(v)
 	farmOn = v
 	if v then
 		ui:Toast("rbxassetid://131165537896572", "[Farm] iniciado",
-			"coletando moedas automaticamente...", Color3.fromRGB(255,210,50))
+			"coletando moedas (delay: " .. string.format("%.2f", farmDelay) .. "s)", Color3.fromRGB(255,210,50))
 		task.spawn(startFarm)
 	else
 		ui:Toast("rbxassetid://131165537896572", "[Farm] parado",
-			"total coletado: " .. farmCoinsCollected .. " coins", Color3.fromRGB(255,210,50))
+			"total: " .. farmCoinsCollected .. " coins nessa sessao", Color3.fromRGB(255,210,50))
 	end
 end)
 ui:CfgRegister("mm2_farm_on", function() return farmOn end, function(v) t_farm.Set(v) end)
 
-local s_farmDelay = secAutoFarm:Slider("delay ms (menor = mais rápido)", 1, 30, 8, function(v)
-	farmDelay = v / 100
+-- Slider de delay: valores maiores = mais seguro, menores = mais rápido mas mais risco
+local s_farmDelay = secAutoFarm:Slider("delay entre tps (0.1 ~ 1.0s)", 1, 10, 2, function(v)
+	farmDelay = v / 10  -- 0.1 a 1.0
 end)
-ui:CfgRegister("mm2_farm_delay", function() return farmDelay * 100 end, function(v) s_farmDelay.Set(v) end)
+ui:CfgRegister("mm2_farm_delay", function() return farmDelay * 10 end, function(v) s_farmDelay.Set(v) end)
 
 secAutoFarm:Button("status do farm", function()
 	if farmOn then
 		ui:Toast("rbxassetid://131165537896572", "[Farm] rodando",
-			"coins coletadas nessa sessão: " .. farmCoinsCollected, Color3.fromRGB(255,210,50))
+			"coins coletadas: " .. farmCoinsCollected, Color3.fromRGB(255,210,50))
 	else
 		ui:Toast("rbxassetid://131165537896572", "[Farm] parado",
 			"ative o toggle acima para iniciar", ROLE_COLOR.unknown)

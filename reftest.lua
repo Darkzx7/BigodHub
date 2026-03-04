@@ -1601,40 +1601,46 @@ do
 
 		flingActive = true
 
-		local savedCF = myHRP.CFrame
+		local savedCF   = myHRP.CFrame
+		local savedSize = myHRP.Size
 
-		-- BodyThrust: força de colisão
-		local thrust     = Instance.new("BodyThrust")
-		thrust.Force     = Vector3.new(flingPower, flingPower, flingPower)
-		thrust.Location  = myHRP.Position
-		thrust.Parent    = myHRP
+		-- Aumenta hitbox do HRP pra garantir colisão mesmo em movimento
+		myHRP.Size = Vector3.new(8, 8, 8)
 
-		-- BodyAngularVelocity: spin maluco que potencializa o fling
-		local bav            = Instance.new("BodyAngularVelocity")
-		bav.MaxTorque        = Vector3.new(math.huge, math.huge, math.huge)
-		bav.AngularVelocity  = Vector3.new(math.huge, math.huge, math.huge)
-		bav.P                = math.huge
-		bav.Parent           = myHRP
+		-- Spin absurdo em todos os eixos
+		local bav           = Instance.new("BodyAngularVelocity")
+		bav.MaxTorque       = Vector3.new(math.huge, math.huge, math.huge)
+		bav.AngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
+		bav.P               = math.huge
+		bav.Parent          = myHRP
 
-		-- Teleporta pro target
-		myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
+		-- Thrust: força de colisão proporcional ao power
+		local thrust    = Instance.new("BodyThrust")
+		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
+		thrust.Location = Vector3.zero
+		thrust.Parent   = myHRP
 
+		-- Fica colado no target por 5 frames rastreando posição dele
 		local frames = 0
 		local conn
 		conn = RunService.Heartbeat:Connect(function()
 			frames += 1
-			if frames <= 3 then
+			if frames <= 5 then
+				-- Rastreia o target (mesmo que ele se mova)
 				if tHRP and tHRP.Parent then
-					myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
+					myHRP.CFrame = tHRP.CFrame
 				end
 				return
 			end
 
 			conn:Disconnect()
+
+			-- Cleanup
+			if bav    and bav.Parent    then bav:Destroy()    end
 			if thrust and thrust.Parent then thrust:Destroy() end
-			if bav and bav.Parent then bav:Destroy() end
 
 			if myHRP and myHRP.Parent then
+				myHRP.Size                    = savedSize
 				myHRP.CFrame                  = savedCF
 				myHRP.AssemblyLinearVelocity  = Vector3.zero
 				myHRP.AssemblyAngularVelocity = Vector3.zero

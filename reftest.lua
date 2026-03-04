@@ -1597,36 +1597,51 @@ do
 		local myChar = player.Character
 		if not myChar then return end
 		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-		local myHum = myChar:FindFirstChildOfClass("Humanoid")
-		if not myHRP or not myHum then return end
+		if not myHRP then return end
 
 		flingActive = true
 
-		-- Salva posição original pra restaurar depois
-		local savedCF = myHRP.CFrame
+		local savedCF  = myHRP.CFrame
+		local targetCF = tHRP.CFrame
 
-		-- Cria BodyThrust no HRP: força aplicada no ponto de colisão
+		-- BodyPosition: ancora o nosso char no lugar enquanto o thrust age
+		local bp       = Instance.new("BodyPosition")
+		bp.Position    = savedCF.Position
+		bp.MaxForce    = Vector3.new(math.huge, math.huge, math.huge)
+		bp.P           = math.huge
+		bp.D           = 9999
+		bp.Parent      = myHRP
+
+		-- BodyThrust: força de colisão que vai empurrar o target
 		local thrust    = Instance.new("BodyThrust")
-		thrust.Force    = Vector3.new(flingPower, flingPower * 0.5, flingPower)
-		thrust.Location = Vector3.zero  -- relativo ao centro do HRP
+		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
+		thrust.Location = Vector3.zero
 		thrust.Parent   = myHRP
 
-		-- TP pra dentro do target por 1 frame só
-		myHRP.CFrame = tHRP.CFrame
+		-- Teleporta pra dentro do target (só 1 frame, bp vai segurar no lugar)
+		myHRP.CFrame = targetCF
 
-		-- Aguarda 1 heartbeat (colisão acontece), depois limpa tudo e volta
-		task.delay(0, function()
-			-- Remove thrust imediatamente
-			if thrust and thrust.Parent then thrust:Destroy() end
+		local frames = 0
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			frames = frames + 1
 
-			-- Volta pra posição original imediatamente
-			if myHRP and myHRP.Parent then
-				myHRP.CFrame = savedCF
-				myHRP.AssemblyLinearVelocity  = Vector3.zero
-				myHRP.AssemblyAngularVelocity = Vector3.zero
+			if frames <= 4 then
+				-- Atualiza BodyPosition pra posição original (ancora o char)
+				if bp and bp.Parent then
+					bp.Position = savedCF.Position
+				end
+			else
+				conn:Disconnect()
+				if thrust and thrust.Parent then thrust:Destroy() end
+				if bp and bp.Parent then bp:Destroy() end
+				if myHRP and myHRP.Parent then
+					myHRP.CFrame = savedCF
+					myHRP.AssemblyLinearVelocity  = Vector3.zero
+					myHRP.AssemblyAngularVelocity = Vector3.zero
+				end
+				flingActive = false
 			end
-
-			flingActive = false
 		end)
 	end
 

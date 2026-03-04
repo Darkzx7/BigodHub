@@ -908,33 +908,37 @@ do
 	-- Walk on Water
 	-- Detecta se o personagem está sobre água (Terrain water ou Part com Material Water)
 	-- e ajusta a posição Y para flutuar na superfície
-	local wowEnabled = false
-	local wowConn    = nil
-	local WATER_MAT  = Enum.Material.Water
+	local wowEnabled  = false
+	local wowConn     = nil
+	local wowPlatform = nil   -- plataforma ativa sob os pés
+	local WATER_MAT   = Enum.Material.Water
 
+	-- Detecta Y da superfície de água abaixo do player
 	local function getWaterY(pos, char)
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
-		if char then rp.FilterDescendantsInstances = {char} end
+		local exclude = {char}
+		if wowPlatform then table.insert(exclude, wowPlatform) end
+		rp.FilterDescendantsInstances = exclude
 		local res = workspace:Raycast(
-			Vector3.new(pos.X, pos.Y + 50, pos.Z),
-			Vector3.new(0, -100, 0), rp
+			Vector3.new(pos.X, pos.Y + 10, pos.Z),
+			Vector3.new(0, -80, 0), rp
 		)
 		if res and res.Material == WATER_MAT then return res.Position.Y end
 		return nil
 	end
 
+	local function removePlatform()
+		if wowPlatform and wowPlatform.Parent then
+			wowPlatform:Destroy()
+		end
+		wowPlatform = nil
+	end
+
 	local function stopWow()
 		wowEnabled = false
 		if wowConn then wowConn:Disconnect() wowConn = nil end
-		-- Garante que o Humanoid não ficou travado
-		local char = player.Character
-		if not char then return end
-		local hm = char:FindFirstChildOfClass("Humanoid")
-		if hm then
-			hm.PlatformStand = false
-			hm:ChangeState(Enum.HumanoidStateType.GettingUp)
-		end
+		removePlatform()
 	end
 
 	local function startWow()
@@ -946,25 +950,35 @@ do
 			local char = player.Character
 			if not char then return end
 			local hrp = char:FindFirstChild("HumanoidRootPart")
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			if not hrp or not hum then return end
+			if not hrp then return end
 
 			local waterY = getWaterY(hrp.Position, char)
-			if not waterY then return end  -- não está sobre água, não faz nada
 
-			-- Altura alvo dos pés na superfície da água
-			local targetY  = waterY + 2.7
-			local currentY = hrp.Position.Y
-
-			-- Se o player está abaixo da superfície: empurra pra cima zerando velocidade Y negativa
-			if currentY < targetY then
-				-- Não usa PlatformStand, não usa CFrame — só corrige a velocidade Y
-				-- Isso preserva animações, movimento, tudo do Roblox normal
-				local vel = hrp.AssemblyLinearVelocity
-				local neededY = (targetY - currentY) * 60  -- força proporcional pra subir
-				if vel.Y < neededY then
-					hrp.AssemblyLinearVelocity = Vector3.new(vel.X, neededY, vel.Z)
+			if waterY then
+				-- Cria a plataforma se não existir
+				if not wowPlatform or not wowPlatform.Parent then
+					local p = Instance.new("Part")
+					p.Name         = "ref_wow_platform"
+					p.Size         = Vector3.new(6, 0.2, 6)
+					p.Anchored     = true
+					p.CanCollide   = true
+					p.Transparency = 1        -- invisível
+					p.CanQuery     = false
+					p.CastShadow   = false
+					p.Material     = Enum.Material.SmoothPlastic
+					p.Parent       = workspace
+					wowPlatform    = p
 				end
+				-- Move a plataforma junto com o player, logo abaixo dos pés
+				-- Posição: Y da superfície da água, X/Z do player
+				wowPlatform.CFrame = CFrame.new(
+					hrp.Position.X,
+					waterY + 0.1,   -- levemente acima da água
+					hrp.Position.Z
+				)
+			else
+				-- Fora da água: remove a plataforma
+				removePlatform()
 			end
 		end)
 	end

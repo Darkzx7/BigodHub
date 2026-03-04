@@ -2458,66 +2458,49 @@ end
 local minimized  = false
 local animActive = false
 
--- Posições e tamanhos para a animação
-local OPEN_POS   = Main.Position
-local OPEN_SIZE  = Main.Size
--- Ponto de origem da animação: centro do IconBtn na tela
-local function getIconCenter()
-	return UDim2.new(
-		IconBtn.Position.X.Scale,
-		IconBtn.Position.X.Offset + IconBtn.AbsoluteSize.X / 2,
-		IconBtn.Position.Y.Scale,
-		IconBtn.Position.Y.Offset + IconBtn.AbsoluteSize.Y / 2
-	)
-end
+local OPEN_POS  = Main.Position
+local OPEN_SIZE = Main.Size
 
 local function setMinimized(state)
 	if animActive then return end
 	minimized  = state
 	animActive = true
 
-	-- Cor do ícone
 	tween(IconBtn, {
 		BackgroundColor3 = state and Color3.fromRGB(40, 34, 60) or Theme.Panel2
 	}, 0.15)
 
+	-- Posição alvo da animação: onde fica o IconBtn
+	local iconX = IconBtn.Position.X.Offset + IconBtn.AbsoluteSize.X * 0.5
+	local iconY = IconBtn.Position.Y.Offset  -- Y.Scale = 0.5, usa offset relativo
+
 	if state then
-		-- FECHAR: escala até sumir em direção ao ícone
-		Main.GroupTransparency = 0
-		Main.Visible = true
-		local iconPos = getIconCenter()
+		-- FECHAR: encolhe em direção ao ícone
+		Main.ClipsDescendants = true
 		tween(Main, {
-			Position = UDim2.new(
-				iconPos.X.Scale, iconPos.X.Offset - 26,
-				iconPos.Y.Scale, iconPos.Y.Offset - 26
-			),
-			Size = UDim2.new(0, 52, 0, 52),
-			GroupTransparency = 1,
-		}, 0.25)
-		task.delay(0.26, function()
-			Main.Visible = false
-			Main.Position = OPEN_POS
-			Main.Size     = OPEN_SIZE
-			Main.GroupTransparency = 0
-			animActive = false
+			Position = UDim2.new(0, iconX - 26, 0.5, -26),
+			Size     = UDim2.new(0, 52, 0, 52),
+		}, 0.22)
+		task.delay(0.23, function()
+			Main.Visible          = false
+			Main.ClipsDescendants = false
+			Main.Position         = OPEN_POS
+			Main.Size             = OPEN_SIZE
+			animActive            = false
 		end)
 	else
 		-- ABRIR: expande a partir do ícone
-		local iconPos = getIconCenter()
-		Main.Position = UDim2.new(
-			iconPos.X.Scale, iconPos.X.Offset - 26,
-			iconPos.Y.Scale, iconPos.Y.Offset - 26
-		)
+		Main.ClipsDescendants = true
+		Main.Position         = UDim2.new(0, iconX - 26, 0.5, -26)
 		Main.Size             = UDim2.new(0, 52, 0, 52)
-		Main.GroupTransparency = 1
 		Main.Visible          = true
 		tween(Main, {
-			Position          = OPEN_POS,
-			Size              = OPEN_SIZE,
-			GroupTransparency = 0,
-		}, 0.28)
-		task.delay(0.29, function()
-			animActive = false
+			Position = OPEN_POS,
+			Size     = OPEN_SIZE,
+		}, 0.25)
+		task.delay(0.26, function()
+			Main.ClipsDescendants = false
+			animActive            = false
 		end)
 	end
 end

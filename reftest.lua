@@ -912,56 +912,36 @@ do
 	local wowConn    = nil
 	local WATER_MAT  = Enum.Material.Water
 
-	-- Detecta a superfície da água via raycast (Terrain water + BasePart water)
 	local function getWaterY(pos, char)
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
 		if char then rp.FilterDescendantsInstances = {char} end
-		local result = workspace:Raycast(
+		local res = workspace:Raycast(
 			Vector3.new(pos.X, pos.Y + 50, pos.Z),
 			Vector3.new(0, -100, 0), rp
 		)
-		if result and result.Material == WATER_MAT then
-			return result.Position.Y
-		end
+		if res and res.Material == WATER_MAT then return res.Position.Y end
 		return nil
 	end
 
 	local function stopWow()
 		wowEnabled = false
 		if wowConn then wowConn:Disconnect() wowConn = nil end
+		-- Garante que o Humanoid não ficou travado
 		local char = player.Character
 		if not char then return end
 		local hm = char:FindFirstChildOfClass("Humanoid")
-		if hm then hm.PlatformStand = false end
+		if hm then
+			hm.PlatformStand = false
+			hm:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
 	end
 
 	local function startWow()
 		stopWow()
 		wowEnabled = true
 
-		-- Cache do ControlModule para ler o vetor de movimento do player
-		local CM, cmOk2 = nil, false
-		cmOk2 = pcall(function()
-			CM = require(player.PlayerScripts
-				:WaitForChild("PlayerModule")
-				:WaitForChild("ControlModule"))
-		end)
-
-		local function getMoveDir()
-			if cmOk2 and CM then
-				local ok, v = pcall(function() return CM:GetMoveVector() end)
-				if ok and v then return v end
-			end
-			local mv = Vector3.zero
-			if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + Vector3.new(0,0,-1) end
-			if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0,0, 1) end
-			if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv + Vector3.new(-1,0,0) end
-			if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new( 1,0,0) end
-			return mv
-		end
-
-		wowConn = RunService.RenderStepped:Connect(function(dt)
+		wowConn = RunService.Heartbeat:Connect(function()
 			if not wowEnabled then return end
 			local char = player.Character
 			if not char then return end
@@ -970,46 +950,22 @@ do
 			if not hrp or not hum then return end
 
 			local waterY = getWaterY(hrp.Position, char)
+			if not waterY then return end  -- não está sobre água, não faz nada
 
-			if not waterY then
-				-- Saiu da água: devolve física normal
-				hum.PlatformStand = false
-				return
-			end
+			-- Altura alvo dos pés na superfície da água
+			local targetY  = waterY + 2.7
+			local currentY = hrp.Position.Y
 
-			-- Sempre mantém PlatformStand=true na água
-			-- Isso desabilita a física de flutuação/afundamento do Roblox por completo
-			hum.PlatformStand = true
-
-			-- Y fixo: pés na superfície (HRP fica 3.1 studs acima da água)
-			local targetY = waterY + 3.1
-
-			-- Lê direção de movimento relativa à câmera
-			local camCF   = workspace.CurrentCamera.CFrame
-			local moveVec = getMoveDir()
-			local vel     = Vector3.zero
-
-			if moveVec.Magnitude > 0.01 then
-				-- Converte movimento local → mundo usando a direção da câmera (sem Y)
-				local camFlat = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
-				local camRight = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
-				local worldDir = (camFlat * -moveVec.Z + camRight * moveVec.X)
-				if worldDir.Magnitude > 0.01 then
-					worldDir = worldDir.Unit
-					vel = worldDir * hum.WalkSpeed
-					-- Vira o HRP na direção do movimento
-					hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + worldDir)
+			-- Se o player está abaixo da superfície: empurra pra cima zerando velocidade Y negativa
+			if currentY < targetY then
+				-- Não usa PlatformStand, não usa CFrame — só corrige a velocidade Y
+				-- Isso preserva animações, movimento, tudo do Roblox normal
+				local vel = hrp.AssemblyLinearVelocity
+				local neededY = (targetY - currentY) * 60  -- força proporcional pra subir
+				if vel.Y < neededY then
+					hrp.AssemblyLinearVelocity = Vector3.new(vel.X, neededY, vel.Z)
 				end
 			end
-
-			-- Aplica posição: X/Z com velocidade, Y travado na superfície
-			local newPos = Vector3.new(
-				hrp.Position.X + vel.X * dt,
-				targetY,
-				hrp.Position.Z + vel.Z * dt
-			)
-			hrp.CFrame = CFrame.new(newPos, newPos + hrp.CFrame.LookVector * Vector3.new(1,0,1))
-			hrp.AssemblyLinearVelocity = Vector3.zero
 		end)
 	end
 

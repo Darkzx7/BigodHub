@@ -908,43 +908,22 @@ do
 	-- Walk on Water
 	-- Detecta se o personagem está sobre água (Terrain water ou Part com Material Water)
 	-- e ajusta a posição Y para flutuar na superfície
-	local wowEnabled  = false
-	local wowConn     = nil
-	local WATER_MAT   = Enum.Material.Water
+	local wowEnabled = false
+	local wowConn    = nil
+	local WATER_MAT  = Enum.Material.Water
 
-	local function getWaterSurfaceY(pos)
-		-- Usa Terrain:GetMaterialAtPosition para verificar blocos de água no Terrain
-		-- e faz raycast para baixo para encontrar a superfície exata
-		local terrain = workspace:FindFirstChildOfClass("Terrain")
-		if not terrain then return nil end
-
-		-- Raycast de cima pra baixo a partir da posição do player
-		local rayOrigin = Vector3.new(pos.X, pos.Y + 20, pos.Z)
-		local rayDir    = Vector3.new(0, -60, 0)
-		local params    = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = {terrain}
-
-		local result = workspace:Raycast(rayOrigin, rayDir, params)
+	-- Detecta a superfície da água via raycast (Terrain water + BasePart water)
+	local function getWaterY(pos, char)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		if char then rp.FilterDescendantsInstances = {char} end
+		local result = workspace:Raycast(
+			Vector3.new(pos.X, pos.Y + 50, pos.Z),
+			Vector3.new(0, -100, 0), rp
+		)
 		if result and result.Material == WATER_MAT then
 			return result.Position.Y
 		end
-
-		-- Também verifica BaseParts com Material Water (alguns jogos usam parts)
-		local params2 = RaycastParams.new()
-		params2.FilterType = Enum.RaycastFilterType.Exclude
-		local myChar = player.Character
-		if myChar then params2.FilterDescendantsInstances = {myChar} end
-		local result2 = workspace:Raycast(rayOrigin, rayDir, params2)
-		if result2 and result2.Instance then
-			local inst = result2.Instance
-			if inst:IsA("BasePart") and inst.Material == WATER_MAT then
-				return result2.Position.Y
-			end
-			-- Se bateu em qualquer chão sólido antes de encontrar água, não é água
-			if result2.Material ~= WATER_MAT then return nil end
-		end
-
 		return nil
 	end
 
@@ -955,18 +934,34 @@ do
 		if not char then return end
 		local hm = char:FindFirstChildOfClass("Humanoid")
 		if hm then hm.PlatformStand = false end
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			local bv = hrp:FindFirstChild("ref_wow_bv")
-			if bv then bv:Destroy() end
-		end
 	end
 
 	local function startWow()
 		stopWow()
 		wowEnabled = true
 
-		wowConn = RunService.Heartbeat:Connect(function(dt)
+		-- Cache do ControlModule para ler o vetor de movimento do player
+		local CM, cmOk2 = nil, false
+		cmOk2 = pcall(function()
+			CM = require(player.PlayerScripts
+				:WaitForChild("PlayerModule")
+				:WaitForChild("ControlModule"))
+		end)
+
+		local function getMoveDir()
+			if cmOk2 and CM then
+				local ok, v = pcall(function() return CM:GetMoveVector() end)
+				if ok and v then return v end
+			end
+			local mv = Vector3.zero
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + Vector3.new(0,0,-1) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0,0, 1) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv + Vector3.new(-1,0,0) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new( 1,0,0) end
+			return mv
+		end
+
+		wowConn = RunService.RenderStepped:Connect(function(dt)
 			if not wowEnabled then return end
 			local char = player.Character
 			if not char then return end
@@ -974,71 +969,47 @@ do
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			if not hrp or not hum then return end
 
-			local pos = hrp.Position
+			local waterY = getWaterY(hrp.Position, char)
 
-			-- Detecta água logo abaixo do player (raio curto de 4 studs)
-			local terrain = workspace:FindFirstChildOfClass("Terrain")
-			local waterY  = nil
+			if not waterY then
+				-- Saiu da água: devolve física normal
+				hum.PlatformStand = false
+				return
+			end
 
-			if terrain then
-				-- Raycast curto de baixo pra cima: saímos da água subindo
-				local below = Vector3.new(pos.X, pos.Y - 2, pos.Z)
-				local rp = RaycastParams.new()
-				rp.FilterType = Enum.RaycastFilterType.Include
-				rp.FilterDescendantsInstances = {terrain}
+			-- Sempre mantém PlatformStand=true na água
+			-- Isso desabilita a física de flutuação/afundamento do Roblox por completo
+			hum.PlatformStand = true
 
-				-- Raycast de cima pra baixo para achar superfície da água
-				local from = Vector3.new(pos.X, pos.Y + 10, pos.Z)
-				local res  = workspace:Raycast(from, Vector3.new(0, -25, 0), rp)
-				if res and res.Material == WATER_MAT then
-					waterY = res.Position.Y
-				end
+			-- Y fixo: pés na superfície (HRP fica 3.1 studs acima da água)
+			local targetY = waterY + 3.1
 
-				-- Se não achou com terrain, tenta raycast geral excluindo o char
-				if not waterY then
-					local rp2 = RaycastParams.new()
-					rp2.FilterType = Enum.RaycastFilterType.Exclude
-					rp2.FilterDescendantsInstances = {char}
-					local res2 = workspace:Raycast(from, Vector3.new(0, -25, 0), rp2)
-					if res2 and (res2.Material == WATER_MAT
-						or (res2.Instance and res2.Instance:IsA("BasePart")
-							and res2.Instance.Material == WATER_MAT)) then
-						waterY = res2.Position.Y
-					end
+			-- Lê direção de movimento relativa à câmera
+			local camCF   = workspace.CurrentCamera.CFrame
+			local moveVec = getMoveDir()
+			local vel     = Vector3.zero
+
+			if moveVec.Magnitude > 0.01 then
+				-- Converte movimento local → mundo usando a direção da câmera (sem Y)
+				local camFlat = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+				local camRight = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
+				local worldDir = (camFlat * -moveVec.Z + camRight * moveVec.X)
+				if worldDir.Magnitude > 0.01 then
+					worldDir = worldDir.Unit
+					vel = worldDir * hum.WalkSpeed
+					-- Vira o HRP na direção do movimento
+					hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + worldDir)
 				end
 			end
 
-			-- Se está sobre água: cola na superfície
-			if waterY then
-				-- Altura do HRP em relação ao chão (~3 studs para R15)
-				local targetY = waterY + 3.1
-				local currentY = hrp.Position.Y
-
-				-- Só interfere se estiver afundando (dentro ou abaixo da superfície)
-				if currentY < targetY + 0.5 then
-					hum.PlatformStand = false  -- mantém física normal de movimento
-					-- Usa BodyVelocity só no eixo Y para flutuar
-					local bv = hrp:FindFirstChild("ref_wow_bv")
-					if not bv then
-						bv = Instance.new("BodyVelocity")
-						bv.Name     = "ref_wow_bv"
-						bv.MaxForce = Vector3.new(0, math.huge, 0)  -- só eixo Y
-						bv.P        = 1e4
-						bv.Parent   = hrp
-					end
-					-- Velocidade Y proporcional ao quão fundo está
-					local diff = targetY - currentY
-					bv.Velocity = Vector3.new(0, math.clamp(diff * 18, -30, 80), 0)
-				else
-					-- Saiu da água, remove o BodyVelocity
-					local bv = hrp:FindFirstChild("ref_wow_bv")
-					if bv then bv:Destroy() end
-				end
-			else
-				-- Não está sobre água, remove o BodyVelocity se tiver
-				local bv = hrp:FindFirstChild("ref_wow_bv")
-				if bv then bv:Destroy() end
-			end
+			-- Aplica posição: X/Z com velocidade, Y travado na superfície
+			local newPos = Vector3.new(
+				hrp.Position.X + vel.X * dt,
+				targetY,
+				hrp.Position.Z + vel.Z * dt
+			)
+			hrp.CFrame = CFrame.new(newPos, newPos + hrp.CFrame.LookVector * Vector3.new(1,0,1))
+			hrp.AssemblyLinearVelocity = Vector3.zero
 		end)
 	end
 

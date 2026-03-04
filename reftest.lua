@@ -1576,25 +1576,17 @@ do
 	local flingSec = target_tab:Section("fling")
 	flingSec:Divider("settings")
 
-	local flingPower  = 9e4   -- força do BodyThrust
+	local flingPower  = 9e4
 	local flingRadius = 30
 
 	flingSec:Slider("power", 1e4, 5e5, 9e4, function(v) flingPower = v end)
-	flingSec:Slider("radius (fling all)", 5, 150, 30, function(v) flingRadius = v end)
+	flingSec:Slider("radius (loop all)", 5, 150, 30, function(v) flingRadius = v end)
 
 	flingSec:Divider("actions")
 
-	--[[
-		Técnica comprovada (scripts que circulam):
-		- BodyThrust no HRP do LOCAL player com força enorme
-		- Teleporta o local HRP em cima do HRP do target
-		- O BodyThrust empurra o target junto (colisão física)
-		- Remove o thrust após alguns frames
-		
-		Não mexe no RootJoint, não precisa de PlatformStand,
-		não deixa estado residual no char.
-	]]
-	local flingActive = false
+	local flingActive     = false
+	local flingLoopActive = false
+	local flingLoopConn   = nil
 
 	local function doFling(target)
 		if flingActive then return end
@@ -1605,40 +1597,36 @@ do
 		local myChar = player.Character
 		if not myChar then return end
 		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-		if not myHRP then return end
+		local myHum = myChar:FindFirstChildOfClass("Humanoid")
+		if not myHRP or not myHum then return end
 
 		flingActive = true
 
-		-- Cria BodyThrust no HRP com força absurda em todas direções
+		-- Salva posição original pra restaurar depois
+		local savedCF = myHRP.CFrame
+
+		-- Cria BodyThrust no HRP: força aplicada no ponto de colisão
 		local thrust    = Instance.new("BodyThrust")
-		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
-		thrust.Location = myHRP.Position
+		thrust.Force    = Vector3.new(flingPower, flingPower * 0.5, flingPower)
+		thrust.Location = Vector3.zero  -- relativo ao centro do HRP
 		thrust.Parent   = myHRP
 
-		-- Teleporta nosso HRP para cima do target
-		myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
+		-- TP pra dentro do target por 1 frame só
+		myHRP.CFrame = tHRP.CFrame
 
-		-- Mantém colado por alguns frames pra garantir a colisão
-		local frames = 0
-		local conn
-		conn = RunService.Heartbeat:Connect(function()
-			frames = frames + 1
-			if frames <= 3 then
-				-- Cola em cima do target enquanto o thrust age
-				if tHRP and tHRP.Parent then
-					myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
-				end
-			else
-				conn:Disconnect()
-				-- Remove o thrust
-				if thrust and thrust.Parent then thrust:Destroy() end
-				-- Zera nossa velocidade pra não voar junto
-				if myHRP and myHRP.Parent then
-					myHRP.AssemblyLinearVelocity = Vector3.zero
-					myHRP.AssemblyAngularVelocity = Vector3.zero
-				end
-				flingActive = false
+		-- Aguarda 1 heartbeat (colisão acontece), depois limpa tudo e volta
+		task.delay(0, function()
+			-- Remove thrust imediatamente
+			if thrust and thrust.Parent then thrust:Destroy() end
+
+			-- Volta pra posição original imediatamente
+			if myHRP and myHRP.Parent then
+				myHRP.CFrame = savedCF
+				myHRP.AssemblyLinearVelocity  = Vector3.zero
+				myHRP.AssemblyAngularVelocity = Vector3.zero
 			end
+
+			flingActive = false
 		end)
 	end
 
@@ -1647,30 +1635,7 @@ do
 		doFling(targetPlayer)
 	end)
 
-	flingSec:Button("fling all (radius)", function()
-		local myChar = player.Character
-		local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
-		if not myHRP then return end
-		local targets = {}
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= player and p.Character then
-				local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
-				if pHRP and (pHRP.Position - myHRP.Position).Magnitude <= flingRadius then
-					table.insert(targets, p)
-				end
-			end
-		end
-		task.spawn(function()
-			for _, p in ipairs(targets) do
-				doFling(p)
-				repeat task.wait() until not flingActive
-				task.wait(0.1)
-			end
-		end)
-	end)
-
-	local flingLoopActive = false
-	local flingLoopConn   = nil
+	-- Loop target
 	flingSec:Toggle("fling loop (target)", false, function(v)
 		flingLoopActive = v
 		if not v then
@@ -1684,7 +1649,33 @@ do
 		end)
 	end)
 
-		local extraSec = target_tab:Section("extras")
+	-- Loop all no raio
+	flingSec:Toggle("fling loop (all in radius)", false, function(v)
+		flingLoopActive = v
+		if not v then
+			if flingLoopConn then flingLoopConn:Disconnect() flingLoopConn = nil end
+			return
+		end
+		if flingLoopConn then flingLoopConn:Disconnect() end
+		flingLoopConn = RunService.Heartbeat:Connect(function()
+			if not flingLoopActive then return end
+			if flingActive then return end
+			local myChar2 = player.Character
+			local myHRP2  = myChar2 and myChar2:FindFirstChild("HumanoidRootPart")
+			if not myHRP2 then return end
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player and p.Character then
+					local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
+					if pHRP and (pHRP.Position - myHRP2.Position).Magnitude <= flingRadius then
+						doFling(p)
+						break  -- um por heartbeat
+					end
+				end
+			end
+		end)
+	end)
+
+	local extraSec = target_tab:Section("extras")
 	extraSec:Divider("spectate / orbit")
 	local spectateConn   = nil
 	local spectateActive = false

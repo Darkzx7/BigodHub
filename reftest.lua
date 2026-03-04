@@ -1565,6 +1565,114 @@ do
 		if v then startHeadsit() else stopHeadsit() end
 	end)
 
+	-- ── FLING ────────────────────────────────────────────────────────
+	local flingSec = target_tab:Section("fling")
+	flingSec:Divider("settings")
+
+	local flingPower  = 500   -- força do fling
+	local flingRadius = 20    -- raio para fling all
+
+	flingSec:Slider("power", 100, 5000, 500, function(v) flingPower = v end)
+	flingSec:Slider("radius (fling all)", 5, 150, 20, function(v) flingRadius = v end)
+
+	flingSec:Divider("actions")
+
+	-- Função core: aplica o fling num player específico
+	local function doFling(target)
+		if not target or not target.Character then return end
+		local tChar = target.Character
+		local tHRP  = tChar:FindFirstChild("HumanoidRootPart")
+		local tHum  = tChar:FindFirstChildOfClass("Humanoid")
+		if not tHRP or not tHum then return end
+
+		-- Precisa do nosso HRP para criar o weld temporário
+		local myChar = player.Character
+		local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		if not myChar or not myHRP then return end
+
+		-- Técnica: weld temporário entre nosso HRP e o do target,
+		-- depois aplicamos velocidade absurda no nosso HRP — arrasta o target junto
+		local oldPlatformStand = tHum.PlatformStand
+		local oldJumpPower     = tHum.JumpPower
+		local oldWalkSpeed     = tHum.WalkSpeed
+
+		tHum.PlatformStand = true
+		tHum.JumpPower     = 0
+		tHum.WalkSpeed     = 0
+
+		-- Weld temporário: trava o target no nosso HRP
+		local weld      = Instance.new("WeldConstraint")
+		weld.Part0      = myHRP
+		weld.Part1      = tHRP
+		weld.Parent     = myHRP
+
+		-- Direção aleatória pra cima com componente lateral
+		local angle  = math.random() * math.pi * 2
+		local upBias = 0.6  -- quanto vai pra cima vs lateral
+		local dir    = Vector3.new(
+			math.cos(angle) * (1 - upBias),
+			upBias,
+			math.sin(angle) * (1 - upBias)
+		).Unit
+
+		myHRP.AssemblyLinearVelocity = dir * flingPower
+
+		-- Remove o weld logo depois (2 frames)
+		task.delay(0.05, function()
+			if weld and weld.Parent then weld:Destroy() end
+			-- Restaura o target
+			if tHum and tHum.Parent then
+				tHum.PlatformStand = oldPlatformStand
+				tHum.JumpPower     = oldJumpPower
+				tHum.WalkSpeed     = oldWalkSpeed
+			end
+			-- Reseta nossa velocidade
+			if myHRP and myHRP.Parent then
+				myHRP.AssemblyLinearVelocity = Vector3.zero
+			end
+		end)
+	end
+
+	flingSec:Button("fling target", function()
+		if not targetPlayer then return end
+		doFling(targetPlayer)
+	end)
+
+	flingSec:Button("fling all (radius)", function()
+		local myChar = player.Character
+		local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		if not myHRP then return end
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character then
+				local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
+				if pHRP then
+					local dist = (pHRP.Position - myHRP.Position).Magnitude
+					if dist <= flingRadius then
+						task.spawn(doFling, p)
+						task.wait(0.08)  -- pequeno delay entre cada fling
+					end
+				end
+			end
+		end
+	end)
+
+	-- Fling loop: fica flinguando o target em loop
+	local flingLoopActive = false
+	local flingLoopConn   = nil
+	flingSec:Toggle("fling loop (target)", false, function(v)
+		flingLoopActive = v
+		if not v then
+			if flingLoopConn then flingLoopConn:Disconnect() flingLoopConn = nil end
+			return
+		end
+		if flingLoopConn then flingLoopConn:Disconnect() end
+		flingLoopConn = RunService.Heartbeat:Connect(function()
+			if not flingLoopActive then return end
+			if not targetPlayer then return end
+			doFling(targetPlayer)
+		end)
+	end)
+
 	local extraSec = target_tab:Section("extras")
 	extraSec:Divider("spectate / orbit")
 	local spectateConn   = nil

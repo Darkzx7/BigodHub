@@ -910,16 +910,22 @@ do
 	-- e ajusta a posição Y para flutuar na superfície
 	local wowEnabled  = false
 	local wowConn     = nil
-	local wowPlatform = nil   -- plataforma ativa sob os pés
+	local wowTiles    = {}   -- pool de tiles ativos {part, expireTime}
 	local WATER_MAT   = Enum.Material.Water
+	local TILE_SIZE   = 4    -- tamanho de cada tile
+	local TILE_TTL    = 1.2  -- segundos até sumir após ser criado
+	local TILE_FADE   = 0.35 -- segundos da animação de fade ao sumir
 
-	-- Detecta Y da superfície de água abaixo do player
-	local function getWaterY(pos, char)
+	local function getWaterY(pos)
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
-		local exclude = {char}
-		if wowPlatform then table.insert(exclude, wowPlatform) end
-		rp.FilterDescendantsInstances = exclude
+		local excludeList = {}
+		local char = player.Character
+		if char then table.insert(excludeList, char) end
+		for _, t in ipairs(wowTiles) do
+			if t.part and t.part.Parent then table.insert(excludeList, t.part) end
+		end
+		rp.FilterDescendantsInstances = excludeList
 		local res = workspace:Raycast(
 			Vector3.new(pos.X, pos.Y + 10, pos.Z),
 			Vector3.new(0, -80, 0), rp
@@ -928,17 +934,68 @@ do
 		return nil
 	end
 
-	local function removePlatform()
-		if wowPlatform and wowPlatform.Parent then
-			wowPlatform:Destroy()
+	-- Cria um tile na posição de grid dada (snap ao grid TILE_SIZE)
+	local tileIndex = {}  -- chave "x,z" → tile, evita duplicatas
+	local function spawnTile(gridX, gridZ, waterY)
+		local key = gridX .. "," .. gridZ
+		if tileIndex[key] then
+			-- Já existe: renova o tempo de vida
+			tileIndex[key].expireTime = tick() + TILE_TTL
+			return
 		end
-		wowPlatform = nil
+		local p = Instance.new("Part")
+		p.Name         = "ref_wow_tile"
+		p.Size         = Vector3.new(TILE_SIZE, 0.2, TILE_SIZE)
+		p.Anchored     = true
+		p.CanCollide   = true
+		p.CanQuery     = false
+		p.CastShadow   = false
+		p.Transparency = 1
+		p.Material     = Enum.Material.SmoothPlastic
+		p.CFrame       = CFrame.new(
+			gridX * TILE_SIZE + TILE_SIZE/2,
+			waterY + 0.1,
+			gridZ * TILE_SIZE + TILE_SIZE/2
+		)
+		p.Parent = workspace
+		local entry = {part = p, expireTime = tick() + TILE_TTL, key = key}
+		table.insert(wowTiles, entry)
+		tileIndex[key] = entry
+	end
+
+	local function cleanTiles()
+		local now = tick()
+		local i = 1
+		while i <= #wowTiles do
+			local t = wowTiles[i]
+			if now >= t.expireTime then
+				-- Fade out e destroi
+				if t.part and t.part.Parent then
+					local p = t.part
+					task.delay(TILE_FADE, function()
+						if p and p.Parent then p:Destroy() end
+					end)
+				end
+				tileIndex[t.key] = nil
+				table.remove(wowTiles, i)
+			else
+				i = i + 1
+			end
+		end
+	end
+
+	local function clearAllTiles()
+		for _, t in ipairs(wowTiles) do
+			if t.part and t.part.Parent then t.part:Destroy() end
+		end
+		wowTiles  = {}
+		tileIndex = {}
 	end
 
 	local function stopWow()
 		wowEnabled = false
 		if wowConn then wowConn:Disconnect() wowConn = nil end
-		removePlatform()
+		clearAllTiles()
 	end
 
 	local function startWow()
@@ -952,34 +1009,35 @@ do
 			local hrp = char:FindFirstChild("HumanoidRootPart")
 			if not hrp then return end
 
-			local waterY = getWaterY(hrp.Position, char)
+			local pos    = hrp.Position
+			local waterY = getWaterY(pos)
 
 			if waterY then
-				-- Cria a plataforma se não existir
-				if not wowPlatform or not wowPlatform.Parent then
-					local p = Instance.new("Part")
-					p.Name         = "ref_wow_platform"
-					p.Size         = Vector3.new(6, 0.2, 6)
-					p.Anchored     = true
-					p.CanCollide   = true
-					p.Transparency = 1        -- invisível
-					p.CanQuery     = false
-					p.CastShadow   = false
-					p.Material     = Enum.Material.SmoothPlastic
-					p.Parent       = workspace
-					wowPlatform    = p
+				-- Grid snap: descobre em qual célula o player está
+				local gx = math.floor(pos.X / TILE_SIZE)
+				local gz = math.floor(pos.Z / TILE_SIZE)
+
+				-- Cria tile na célula atual + predict 1 célula à frente na direção de movimento
+				spawnTile(gx, gz, waterY)
+
+				-- Predict: usa a velocidade do HRP pra saber pra onde vai
+				local vel = hrp.AssemblyLinearVelocity
+				if vel.Magnitude > 1 then
+					local flatVel = Vector3.new(vel.X, 0, vel.Z)
+					if flatVel.Magnitude > 0.5 then
+						local dir    = flatVel.Unit
+						-- 1 tile à frente
+						local ahead1 = pos + dir * TILE_SIZE
+						spawnTile(math.floor(ahead1.X/TILE_SIZE), math.floor(ahead1.Z/TILE_SIZE), waterY)
+						-- 2 tiles à frente (pra velocidades altas)
+						local ahead2 = pos + dir * TILE_SIZE * 2
+						spawnTile(math.floor(ahead2.X/TILE_SIZE), math.floor(ahead2.Z/TILE_SIZE), waterY)
+					end
 				end
-				-- Move a plataforma junto com o player, logo abaixo dos pés
-				-- Posição: Y da superfície da água, X/Z do player
-				wowPlatform.CFrame = CFrame.new(
-					hrp.Position.X,
-					waterY + 0.1,   -- levemente acima da água
-					hrp.Position.Z
-				)
-			else
-				-- Fora da água: remove a plataforma
-				removePlatform()
 			end
+
+			-- Limpa tiles velhos a cada frame
+			cleanTiles()
 		end)
 	end
 
@@ -1474,13 +1532,21 @@ do
 
 			mhm.PlatformStand = true
 
-			-- Cola direto em cima da cabeça: CFrame = Head.CFrame deslocado +3 em Y
-			-- Mantém a orientação do target (fica virado pra mesma direção)
-			local headCF   = tHead.CFrame
-			local seatCF   = headCF * CFrame.new(0, 3.2, 0)
-			-- Aplica só posição + rotação Y do target (sem inclinar)
-			local flatAngle = math.atan2(-headCF.LookVector.Z, headCF.LookVector.X)
-			mh.CFrame = CFrame.new(seatCF.Position) * CFrame.Angles(0, flatAngle, 0)
+			-- Posição: em cima da cabeça no espaço mundo (+3.2 Y)
+			local seatPos  = tHead.Position + Vector3.new(0, 3.2, 0)
+
+			-- Rotação: só yaw do target, sem pitch/roll (projeção no plano XZ)
+			local look     = tHead.CFrame.LookVector
+			local flatLook = Vector3.new(look.X, 0, look.Z)
+			local newCF
+			if flatLook.Magnitude > 0.01 then
+				newCF = CFrame.lookAt(seatPos, seatPos + flatLook)
+			else
+				newCF = CFrame.new(seatPos)
+			end
+
+			-- Lerp suave: segue rápido mas sem tremer a câmera
+			mh.CFrame = mh.CFrame:Lerp(newCF, 0.5)
 
 			-- Mantém animação rodando se parou
 			if headsitAnim and not headsitAnim.IsPlaying then

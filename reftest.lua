@@ -1569,66 +1569,127 @@ do
 	local flingSec = target_tab:Section("fling")
 	flingSec:Divider("settings")
 
-	local flingPower  = 500   -- força do fling
-	local flingRadius = 20    -- raio para fling all
+	local flingPower  = 200
+	local flingRadius = 30
 
-	flingSec:Slider("power", 100, 5000, 500, function(v) flingPower = v end)
-	flingSec:Slider("radius (fling all)", 5, 150, 20, function(v) flingRadius = v end)
+	flingSec:Slider("power", 50, 500, 200, function(v) flingPower = v end)
+	flingSec:Slider("radius (fling all)", 5, 150, 30, function(v) flingRadius = v end)
 
 	flingSec:Divider("actions")
 
-	-- Função core: aplica o fling num player específico
+	--[[
+		Técnica FE Fling clássica e comprovada:
+		1. Deletamos o RootJoint do NOSSO character (Motor6D entre LowerTorso e HRP)
+		   Isso separa o HRP do corpo — ele vira um bloco físico livre
+		2. Adicionamos BodyAngularVelocity com rotação absurda no nosso HRP
+		3. Teleportamos nosso HRP para cima do HRP do target
+		4. A colisão entre nossos HRPs spinning + target = fling
+		5. Restauramos tudo (RootJoint, CanCollide, etc)
+		Funciona em FE porque controlamos a física do nosso próprio character
+		e isso se propaga para outros clients via network ownership.
+	]]
+
+	local flingActive = false
+
 	local function doFling(target)
+		if flingActive then return end
 		if not target or not target.Character then return end
 		local tChar = target.Character
 		local tHRP  = tChar:FindFirstChild("HumanoidRootPart")
-		local tHum  = tChar:FindFirstChildOfClass("Humanoid")
-		if not tHRP or not tHum then return end
+		if not tHRP then return end
 
-		-- Precisa do nosso HRP para criar o weld temporário
 		local myChar = player.Character
-		local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
-		if not myChar or not myHRP then return end
+		if not myChar then return end
+		local myHRP  = myChar:FindFirstChild("HumanoidRootPart")
+		local myHum  = myChar:FindFirstChildOfClass("Humanoid")
+		local myRoot = myChar:FindFirstChild("LowerTorso") -- R15
+		            or myChar:FindFirstChild("Torso")      -- R6
+		if not myHRP or not myHum or not myRoot then return end
 
-		-- Técnica: weld temporário entre nosso HRP e o do target,
-		-- depois aplicamos velocidade absurda no nosso HRP — arrasta o target junto
-		local oldPlatformStand = tHum.PlatformStand
-		local oldJumpPower     = tHum.JumpPower
-		local oldWalkSpeed     = tHum.WalkSpeed
-
-		tHum.PlatformStand = true
-		tHum.JumpPower     = 0
-		tHum.WalkSpeed     = 0
-
-		-- Weld temporário: trava o target no nosso HRP
-		local weld      = Instance.new("WeldConstraint")
-		weld.Part0      = myHRP
-		weld.Part1      = tHRP
-		weld.Parent     = myHRP
-
-		-- Direção aleatória pra cima com componente lateral
-		local angle  = math.random() * math.pi * 2
-		local upBias = 0.6  -- quanto vai pra cima vs lateral
-		local dir    = Vector3.new(
-			math.cos(angle) * (1 - upBias),
-			upBias,
-			math.sin(angle) * (1 - upBias)
-		).Unit
-
-		myHRP.AssemblyLinearVelocity = dir * flingPower
-
-		-- Remove o weld logo depois (2 frames)
-		task.delay(0.05, function()
-			if weld and weld.Parent then weld:Destroy() end
-			-- Restaura o target
-			if tHum and tHum.Parent then
-				tHum.PlatformStand = oldPlatformStand
-				tHum.JumpPower     = oldJumpPower
-				tHum.WalkSpeed     = oldWalkSpeed
+		-- Acha o Motor6D que conecta HRP ao corpo (RootJoint)
+		local rootJoint = myHRP:FindFirstChild("RootJoint")
+		                or myRoot:FindFirstChild("Root")
+		                or myRoot:FindFirstChildOfClass("Motor6D")
+		if not rootJoint then
+			-- Tenta achar em qualquer lugar no char
+			for _, d in ipairs(myChar:GetDescendants()) do
+				if d:IsA("Motor6D") and (d.Name == "RootJoint" or d.Name == "Root") then
+					rootJoint = d; break
+				end
 			end
-			-- Reseta nossa velocidade
-			if myHRP and myHRP.Parent then
-				myHRP.AssemblyLinearVelocity = Vector3.zero
+		end
+		if not rootJoint then return end
+
+		flingActive = true
+
+		-- Salva estado original
+		local origC0    = rootJoint.C0
+		local origC1    = rootJoint.C1
+		local origPart0 = rootJoint.Part0
+		local origPart1 = rootJoint.Part1
+
+		-- 1. Desativa colisão do char todo pra atravessar o target
+		local collideMap = {}
+		for _, p in ipairs(myChar:GetDescendants()) do
+			if p:IsA("BasePart") then
+				collideMap[p] = p.CanCollide
+				p.CanCollide  = false
+			end
+		end
+		-- Nosso HRP precisa colidir com o target
+		myHRP.CanCollide = true
+
+		-- 2. Deleta o RootJoint — libera o HRP como peça solta
+		rootJoint.Part0 = nil
+		rootJoint.Part1 = nil
+
+		-- 3. Adiciona spin absurdo no nosso HRP
+		local bav      = Instance.new("BodyAngularVelocity")
+		bav.MaxTorque  = Vector3.new(math.huge, math.huge, math.huge)
+		bav.AngularVelocity = Vector3.new(0, flingPower * 10, 0)
+		bav.P          = math.huge
+		bav.Parent     = myHRP
+
+		local bv       = Instance.new("BodyVelocity")
+		bv.MaxForce    = Vector3.new(math.huge, math.huge, math.huge)
+		bv.P           = math.huge
+		bv.Velocity    = Vector3.zero
+		bv.Parent      = myHRP
+
+		-- 4. Teleporta nosso HRP para dentro do target e fica lá por alguns frames
+		local startT = tick()
+		local spinConn
+		spinConn = RunService.Heartbeat:Connect(function()
+			local elapsed = tick() - startT
+			-- Fica colado no target por (0.12 * power/200) segundos
+			local duration = math.clamp(flingPower / 200 * 0.12, 0.08, 0.35)
+			if elapsed < duration then
+				-- Cola nosso HRP no HRP do target
+				if tHRP and tHRP.Parent then
+					myHRP.CFrame = tHRP.CFrame
+				end
+			else
+				-- 5. Terminou: restaura tudo
+				spinConn:Disconnect()
+				if bav and bav.Parent then bav:Destroy() end
+				if bv  and bv.Parent  then bv:Destroy()  end
+
+				-- Restaura RootJoint
+				rootJoint.Part0 = origPart0
+				rootJoint.Part1 = origPart1
+				rootJoint.C0    = origC0
+				rootJoint.C1    = origC1
+
+				-- Restaura colisões
+				for p, v in pairs(collideMap) do
+					if p and p.Parent then p.CanCollide = v end
+				end
+
+				-- Reseta velocidade do HRP
+				myHRP.AssemblyLinearVelocity  = Vector3.zero
+				myHRP.AssemblyAngularVelocity = Vector3.zero
+
+				flingActive = false
 			end
 		end)
 	end
@@ -1642,34 +1703,40 @@ do
 		local myChar = player.Character
 		local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
 		if not myHRP then return end
+		local targets = {}
 		for _, p in ipairs(Players:GetPlayers()) do
 			if p ~= player and p.Character then
 				local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
-				if pHRP then
-					local dist = (pHRP.Position - myHRP.Position).Magnitude
-					if dist <= flingRadius then
-						task.spawn(doFling, p)
-						task.wait(0.08)  -- pequeno delay entre cada fling
-					end
+				if pHRP and (pHRP.Position - myHRP.Position).Magnitude <= flingRadius then
+					table.insert(targets, p)
 				end
 			end
 		end
+		-- Flinga um de cada vez com delay
+		task.spawn(function()
+			for _, p in ipairs(targets) do
+				doFling(p)
+				task.wait(0.5)  -- espera o fling terminar antes do próximo
+			end
+		end)
 	end)
 
-	-- Fling loop: fica flinguando o target em loop
+	-- Fling loop: teleporta no target e fica spinando
 	local flingLoopActive = false
 	local flingLoopConn   = nil
 	flingSec:Toggle("fling loop (target)", false, function(v)
 		flingLoopActive = v
 		if not v then
 			if flingLoopConn then flingLoopConn:Disconnect() flingLoopConn = nil end
+			flingActive = false
 			return
 		end
 		if flingLoopConn then flingLoopConn:Disconnect() end
 		flingLoopConn = RunService.Heartbeat:Connect(function()
-			if not flingLoopActive then return end
-			if not targetPlayer then return end
-			doFling(targetPlayer)
+			if not flingLoopActive or not targetPlayer then return end
+			if not flingActive then
+				doFling(targetPlayer)
+			end
 		end)
 	end)
 

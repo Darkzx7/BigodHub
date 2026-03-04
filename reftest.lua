@@ -1603,16 +1603,22 @@ do
 
 		local savedCF = myHRP.CFrame
 
-		-- BodyThrust: força enorme aplicada no nosso HRP que empurra o target por colisão
-		local thrust    = Instance.new("BodyThrust")
-		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
-		thrust.Location = myHRP.Position
-		thrust.Parent   = myHRP
+		-- BodyThrust: força de colisão
+		local thrust     = Instance.new("BodyThrust")
+		thrust.Force     = Vector3.new(flingPower, flingPower, flingPower)
+		thrust.Location  = myHRP.Position
+		thrust.Parent    = myHRP
 
-		-- Teleporta pro target (igual versão que funcionou)
+		-- BodyAngularVelocity: spin maluco que potencializa o fling
+		local bav            = Instance.new("BodyAngularVelocity")
+		bav.MaxTorque        = Vector3.new(math.huge, math.huge, math.huge)
+		bav.AngularVelocity  = Vector3.new(math.huge, math.huge, math.huge)
+		bav.P                = math.huge
+		bav.Parent           = myHRP
+
+		-- Teleporta pro target
 		myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
 
-		-- Mantém colado por 3 frames enquanto o thrust age
 		local frames = 0
 		local conn
 		conn = RunService.Heartbeat:Connect(function()
@@ -1624,11 +1630,10 @@ do
 				return
 			end
 
-			-- Frame 4+: cleanup
 			conn:Disconnect()
 			if thrust and thrust.Parent then thrust:Destroy() end
+			if bav and bav.Parent then bav:Destroy() end
 
-			-- Volta pro lugar e zera velocidade
 			if myHRP and myHRP.Parent then
 				myHRP.CFrame                  = savedCF
 				myHRP.AssemblyLinearVelocity  = Vector3.zero
@@ -1644,31 +1649,34 @@ do
 		doFling(targetPlayer)
 	end)
 
-	-- Loop target
+	-- Loop target — conn separado
+	local flingLoopTargetActive = false
+	local flingLoopTargetConn   = nil
 	flingSec:Toggle("fling loop (target)", false, function(v)
-		flingLoopActive = v
+		flingLoopTargetActive = v
 		if not v then
-			if flingLoopConn then flingLoopConn:Disconnect() flingLoopConn = nil end
+			if flingLoopTargetConn then flingLoopTargetConn:Disconnect() flingLoopTargetConn = nil end
 			return
 		end
-		if flingLoopConn then flingLoopConn:Disconnect() end
-		flingLoopConn = RunService.Heartbeat:Connect(function()
-			if not flingLoopActive or not targetPlayer then return end
+		if flingLoopTargetConn then flingLoopTargetConn:Disconnect() end
+		flingLoopTargetConn = RunService.Heartbeat:Connect(function()
+			if not flingLoopTargetActive or not targetPlayer then return end
 			if not flingActive then doFling(targetPlayer) end
 		end)
 	end)
 
-	-- Loop all no raio
+	-- Loop all — conn separado, não interfere com loop target
+	local flingLoopAllActive = false
+	local flingLoopAllConn   = nil
 	flingSec:Toggle("fling loop (all in radius)", false, function(v)
-		flingLoopActive = v
+		flingLoopAllActive = v
 		if not v then
-			if flingLoopConn then flingLoopConn:Disconnect() flingLoopConn = nil end
+			if flingLoopAllConn then flingLoopAllConn:Disconnect() flingLoopAllConn = nil end
 			return
 		end
-		if flingLoopConn then flingLoopConn:Disconnect() end
-		flingLoopConn = RunService.Heartbeat:Connect(function()
-			if not flingLoopActive then return end
-			if flingActive then return end
+		if flingLoopAllConn then flingLoopAllConn:Disconnect() end
+		flingLoopAllConn = RunService.Heartbeat:Connect(function()
+			if not flingLoopAllActive or flingActive then return end
 			local myChar2 = player.Character
 			local myHRP2  = myChar2 and myChar2:FindFirstChild("HumanoidRootPart")
 			if not myHRP2 then return end
@@ -1677,7 +1685,7 @@ do
 					local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
 					if pHRP and (pHRP.Position - myHRP2.Position).Magnitude <= flingRadius then
 						doFling(p)
-						break  -- um por heartbeat
+						break
 					end
 				end
 			end

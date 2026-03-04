@@ -1584,9 +1584,20 @@ do
 
 	flingSec:Divider("actions")
 
-	local flingActive     = false
-	local flingLoopActive = false
-	local flingLoopConn   = nil
+	local flingActive = false
+
+	-- Reseta flingActive se ficou preso (segurança)
+	local function resetFling()
+		flingActive = false
+		local myChar = player.Character
+		if not myChar then return end
+		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+		if not myHRP then return end
+		for _, n in ipairs({"BodyThrust","BodyAngularVelocity"}) do
+			local o = myHRP:FindFirstChildOfClass(n)
+			if o then o:Destroy() end
+		end
+	end
 
 	local function doFling(target)
 		if flingActive then return end
@@ -1603,20 +1614,11 @@ do
 
 		local savedCF = myHRP.CFrame
 
-		-- BodyAngularVelocity: spin forte (valor fixo alto, não math.huge que quebra)
-		local bav           = Instance.new("BodyAngularVelocity")
-		bav.MaxTorque       = Vector3.new(4e8, 4e8, 4e8)
-		bav.AngularVelocity = Vector3.new(400, 400, 400)
-		bav.P               = 3e8
-		bav.Parent          = myHRP
-
-		-- BodyThrust: força de colisão
 		local thrust    = Instance.new("BodyThrust")
 		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
 		thrust.Location = myHRP.Position
 		thrust.Parent   = myHRP
 
-		-- Teleporta pro target e rastreia por 3 frames
 		myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
 
 		local frames = 0
@@ -1629,18 +1631,19 @@ do
 				end
 				return
 			end
-
 			conn:Disconnect()
-			if bav    and bav.Parent    then bav:Destroy()    end
 			if thrust and thrust.Parent then thrust:Destroy() end
-
 			if myHRP and myHRP.Parent then
 				myHRP.CFrame                  = savedCF
 				myHRP.AssemblyLinearVelocity  = Vector3.zero
 				myHRP.AssemblyAngularVelocity = Vector3.zero
 			end
-
 			flingActive = false
+		end)
+
+		-- Timeout: se em 1s ainda tiver ativo, reseta forçado
+		task.delay(1, function()
+			if flingActive then resetFling() end
 		end)
 	end
 

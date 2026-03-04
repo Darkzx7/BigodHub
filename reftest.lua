@@ -1588,14 +1588,6 @@ do
 	local flingLoopActive = false
 	local flingLoopConn   = nil
 
-	-- Limpa qualquer lixo de fling anterior do HRP
-	local function cleanFlingDebris(hrp)
-		for _, n in ipairs({"ref_fling_thrust", "ref_fling_bv", "ref_fling_bg"}) do
-			local obj = hrp:FindFirstChild(n)
-			if obj then obj:Destroy() end
-		end
-	end
-
 	local function doFling(target)
 		if flingActive then return end
 		if not target or not target.Character then return end
@@ -1608,49 +1600,35 @@ do
 		if not myHRP then return end
 
 		flingActive = true
-		cleanFlingDebris(myHRP)
 
 		local savedCF = myHRP.CFrame
 
-		-- BodyGyro: trava a rotação do nosso HRP no lugar
-		local bg        = Instance.new("BodyGyro")
-		bg.Name         = "ref_fling_bg"
-		bg.MaxTorque    = Vector3.new(math.huge, math.huge, math.huge)
-		bg.CFrame       = savedCF
-		bg.P            = math.huge
-		bg.D            = 999
-		bg.Parent       = myHRP
-
-		-- BodyVelocity: zera a velocidade do nosso char durante o fling
-		local bv        = Instance.new("BodyVelocity")
-		bv.Name         = "ref_fling_bv"
-		bv.MaxForce     = Vector3.new(math.huge, math.huge, math.huge)
-		bv.Velocity     = Vector3.zero
-		bv.P            = math.huge
-		bv.Parent       = myHRP
-
-		-- BodyThrust no nosso HRP: força enorme que colide com o target
+		-- BodyThrust: força enorme aplicada no nosso HRP que empurra o target por colisão
 		local thrust    = Instance.new("BodyThrust")
-		thrust.Name     = "ref_fling_thrust"
-		thrust.Force    = Vector3.new(flingPower, flingPower * 0.3, flingPower)
-		thrust.Location = Vector3.zero
+		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
+		thrust.Location = myHRP.Position
 		thrust.Parent   = myHRP
 
-		-- Teleporta pro target
-		myHRP.CFrame = tHRP.CFrame
+		-- Teleporta pro target (igual versão que funcionou)
+		myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
 
-		-- Após 5 frames: cleanup completo e volta pra posição original
+		-- Mantém colado por 3 frames enquanto o thrust age
 		local frames = 0
 		local conn
 		conn = RunService.Heartbeat:Connect(function()
 			frames += 1
-			if frames < 5 then return end
+			if frames <= 3 then
+				if tHRP and tHRP.Parent then
+					myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
+				end
+				return
+			end
+
+			-- Frame 4+: cleanup
 			conn:Disconnect()
+			if thrust and thrust.Parent then thrust:Destroy() end
 
-			-- Destroi tudo antes de mover
-			cleanFlingDebris(myHRP)
-
-			-- Volta pra posição salva e zera tudo
+			-- Volta pro lugar e zera velocidade
 			if myHRP and myHRP.Parent then
 				myHRP.CFrame                  = savedCF
 				myHRP.AssemblyLinearVelocity  = Vector3.zero

@@ -1601,46 +1601,40 @@ do
 
 		flingActive = true
 
-		local savedCF   = myHRP.CFrame
-		local savedSize = myHRP.Size
+		local savedCF = myHRP.CFrame
 
-		-- Aumenta hitbox do HRP pra garantir colisão mesmo em movimento
-		myHRP.Size = Vector3.new(8, 8, 8)
-
-		-- Spin absurdo em todos os eixos
+		-- BodyAngularVelocity: spin forte (valor fixo alto, não math.huge que quebra)
 		local bav           = Instance.new("BodyAngularVelocity")
-		bav.MaxTorque       = Vector3.new(math.huge, math.huge, math.huge)
-		bav.AngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
-		bav.P               = math.huge
+		bav.MaxTorque       = Vector3.new(4e8, 4e8, 4e8)
+		bav.AngularVelocity = Vector3.new(400, 400, 400)
+		bav.P               = 3e8
 		bav.Parent          = myHRP
 
-		-- Thrust: força de colisão proporcional ao power
+		-- BodyThrust: força de colisão
 		local thrust    = Instance.new("BodyThrust")
 		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
-		thrust.Location = Vector3.zero
+		thrust.Location = myHRP.Position
 		thrust.Parent   = myHRP
 
-		-- Fica colado no target por 5 frames rastreando posição dele
+		-- Teleporta pro target e rastreia por 3 frames
+		myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
+
 		local frames = 0
 		local conn
 		conn = RunService.Heartbeat:Connect(function()
 			frames += 1
-			if frames <= 5 then
-				-- Rastreia o target (mesmo que ele se mova)
+			if frames <= 3 then
 				if tHRP and tHRP.Parent then
-					myHRP.CFrame = tHRP.CFrame
+					myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0.5, 0)
 				end
 				return
 			end
 
 			conn:Disconnect()
-
-			-- Cleanup
 			if bav    and bav.Parent    then bav:Destroy()    end
 			if thrust and thrust.Parent then thrust:Destroy() end
 
 			if myHRP and myHRP.Parent then
-				myHRP.Size                    = savedSize
 				myHRP.CFrame                  = savedCF
 				myHRP.AssemblyLinearVelocity  = Vector3.zero
 				myHRP.AssemblyAngularVelocity = Vector3.zero

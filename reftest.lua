@@ -904,6 +904,151 @@ do
 	cfgRegister("fly_speed", function() return flySpeed end, function(v) s_fly.Set(v) end)
 
 	sec:Divider("misc")
+	-- Walk on Water
+	-- Detecta se o personagem está sobre água (Terrain water ou Part com Material Water)
+	-- e ajusta a posição Y para flutuar na superfície
+	local wowEnabled  = false
+	local wowConn     = nil
+	local WATER_MAT   = Enum.Material.Water
+
+	local function getWaterSurfaceY(pos)
+		-- Usa Terrain:GetMaterialAtPosition para verificar blocos de água no Terrain
+		-- e faz raycast para baixo para encontrar a superfície exata
+		local terrain = workspace:FindFirstChildOfClass("Terrain")
+		if not terrain then return nil end
+
+		-- Raycast de cima pra baixo a partir da posição do player
+		local rayOrigin = Vector3.new(pos.X, pos.Y + 20, pos.Z)
+		local rayDir    = Vector3.new(0, -60, 0)
+		local params    = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = {terrain}
+
+		local result = workspace:Raycast(rayOrigin, rayDir, params)
+		if result and result.Material == WATER_MAT then
+			return result.Position.Y
+		end
+
+		-- Também verifica BaseParts com Material Water (alguns jogos usam parts)
+		local params2 = RaycastParams.new()
+		params2.FilterType = Enum.RaycastFilterType.Exclude
+		local myChar = player.Character
+		if myChar then params2.FilterDescendantsInstances = {myChar} end
+		local result2 = workspace:Raycast(rayOrigin, rayDir, params2)
+		if result2 and result2.Instance then
+			local inst = result2.Instance
+			if inst:IsA("BasePart") and inst.Material == WATER_MAT then
+				return result2.Position.Y
+			end
+			-- Se bateu em qualquer chão sólido antes de encontrar água, não é água
+			if result2.Material ~= WATER_MAT then return nil end
+		end
+
+		return nil
+	end
+
+	local function stopWow()
+		wowEnabled = false
+		if wowConn then wowConn:Disconnect() wowConn = nil end
+		local char = player.Character
+		if not char then return end
+		local hm = char:FindFirstChildOfClass("Humanoid")
+		if hm then hm.PlatformStand = false end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local bv = hrp:FindFirstChild("ref_wow_bv")
+			if bv then bv:Destroy() end
+		end
+	end
+
+	local function startWow()
+		stopWow()
+		wowEnabled = true
+
+		wowConn = RunService.Heartbeat:Connect(function(dt)
+			if not wowEnabled then return end
+			local char = player.Character
+			if not char then return end
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if not hrp or not hum then return end
+
+			local pos = hrp.Position
+
+			-- Detecta água logo abaixo do player (raio curto de 4 studs)
+			local terrain = workspace:FindFirstChildOfClass("Terrain")
+			local waterY  = nil
+
+			if terrain then
+				-- Raycast curto de baixo pra cima: saímos da água subindo
+				local below = Vector3.new(pos.X, pos.Y - 2, pos.Z)
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Include
+				rp.FilterDescendantsInstances = {terrain}
+
+				-- Raycast de cima pra baixo para achar superfície da água
+				local from = Vector3.new(pos.X, pos.Y + 10, pos.Z)
+				local res  = workspace:Raycast(from, Vector3.new(0, -25, 0), rp)
+				if res and res.Material == WATER_MAT then
+					waterY = res.Position.Y
+				end
+
+				-- Se não achou com terrain, tenta raycast geral excluindo o char
+				if not waterY then
+					local rp2 = RaycastParams.new()
+					rp2.FilterType = Enum.RaycastFilterType.Exclude
+					rp2.FilterDescendantsInstances = {char}
+					local res2 = workspace:Raycast(from, Vector3.new(0, -25, 0), rp2)
+					if res2 and (res2.Material == WATER_MAT
+						or (res2.Instance and res2.Instance:IsA("BasePart")
+							and res2.Instance.Material == WATER_MAT)) then
+						waterY = res2.Position.Y
+					end
+				end
+			end
+
+			-- Se está sobre água: cola na superfície
+			if waterY then
+				-- Altura do HRP em relação ao chão (~3 studs para R15)
+				local targetY = waterY + 3.1
+				local currentY = hrp.Position.Y
+
+				-- Só interfere se estiver afundando (dentro ou abaixo da superfície)
+				if currentY < targetY + 0.5 then
+					hum.PlatformStand = false  -- mantém física normal de movimento
+					-- Usa BodyVelocity só no eixo Y para flutuar
+					local bv = hrp:FindFirstChild("ref_wow_bv")
+					if not bv then
+						bv = Instance.new("BodyVelocity")
+						bv.Name     = "ref_wow_bv"
+						bv.MaxForce = Vector3.new(0, math.huge, 0)  -- só eixo Y
+						bv.P        = 1e4
+						bv.Parent   = hrp
+					end
+					-- Velocidade Y proporcional ao quão fundo está
+					local diff = targetY - currentY
+					bv.Velocity = Vector3.new(0, math.clamp(diff * 18, -30, 80), 0)
+				else
+					-- Saiu da água, remove o BodyVelocity
+					local bv = hrp:FindFirstChild("ref_wow_bv")
+					if bv then bv:Destroy() end
+				end
+			else
+				-- Não está sobre água, remove o BodyVelocity se tiver
+				local bv = hrp:FindFirstChild("ref_wow_bv")
+				if bv then bv:Destroy() end
+			end
+		end)
+	end
+
+	player.CharacterAdded:Connect(function()
+		task.wait(0.5)
+		if wowEnabled then startWow() end
+	end)
+	sec:Toggle("walk on water", false, function(v)
+		if v then startWow() else stopWow() end
+	end)
+
 	-- Noclip
 	local noclipEnabled = false
 	RunService.Stepped:Connect(function()
@@ -1154,6 +1299,8 @@ do
 	local clickToolInst   = nil
 	local _splitBtns      = nil
 
+	local _justSelected = false
+
 	local function removeClickTool()
 		clickToolActive = false
 		if clickToolInst and clickToolInst.Parent then clickToolInst:Destroy() end
@@ -1166,31 +1313,56 @@ do
 	local function equipClickTool()
 		removeClickTool()
 		clickToolActive = true
+		_justSelected   = false
 		if _splitBtns and _splitBtns[2] then
 			tween(_splitBtns[2], {TextColor3 = Theme.Accent}, 0.12)
 		end
 		local tool = Instance.new("Tool")
 		tool.Name           = "ref_selector"
-		tool.ToolTip        = "click a player to select target"
+		tool.ToolTip        = "clique num player para selecionar"
 		tool.CanBeDropped   = false
 		tool.RequiresHandle = false
 		tool.Parent         = player.Backpack
 		clickToolInst       = tool
+
 		tool.Activated:Connect(function()
 			if not clickToolActive then return end
 			local mouse = player:GetMouse()
-			local hit = mouse.Target
+			local hit   = mouse.Target
 			if not hit then return end
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= player and p.Character and hit:IsDescendantOf(p.Character) then
+					_justSelected   = true
+					clickToolActive = false
 					setTarget(p)
 					nickInput.Set(p.Name)
-					removeClickTool()
+					if _splitBtns and _splitBtns[2] then
+						tween(_splitBtns[2], {TextColor3 = Theme.Sub}, 0.12)
+					end
+					-- Tool permanece no inventário após selecionar
 					return
 				end
 			end
 		end)
-		tool.Unequipped:Connect(removeClickTool)
+
+		-- Só destroi se o player tirou manualmente (não após seleção)
+		tool.Unequipped:Connect(function()
+			if _justSelected then
+				_justSelected = false
+				return
+			end
+			removeClickTool()
+		end)
+
+		tool.AncestryChanged:Connect(function()
+			if not tool.Parent then
+				clickToolActive = false
+				clickToolInst   = nil
+				if _splitBtns and _splitBtns[2] then
+					tween(_splitBtns[2], {TextColor3 = Theme.Sub}, 0.12)
+				end
+			end
+		end)
 	end
 
 	_splitBtns = searchSec:SplitButton({

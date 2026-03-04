@@ -80,6 +80,7 @@ ScreenGui.Name = "ref_ui"
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999
 ScreenGui.Parent = pg
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "IconBtn"
@@ -1299,8 +1300,6 @@ do
 	local clickToolInst   = nil
 	local _splitBtns      = nil
 
-	local _justSelected = false
-
 	local function removeClickTool()
 		clickToolActive = false
 		if clickToolInst and clickToolInst.Parent then clickToolInst:Destroy() end
@@ -1313,45 +1312,51 @@ do
 	local function equipClickTool()
 		removeClickTool()
 		clickToolActive = true
-		_justSelected   = false
 		if _splitBtns and _splitBtns[2] then
 			tween(_splitBtns[2], {TextColor3 = Theme.Accent}, 0.12)
 		end
+
 		local tool = Instance.new("Tool")
-		tool.Name           = "ref_selector"
-		tool.ToolTip        = "clique num player para selecionar"
-		tool.CanBeDropped   = false
-		tool.RequiresHandle = false
-		tool.Parent         = player.Backpack
-		clickToolInst       = tool
+		tool.Name            = "Target Selector"
+		tool.ToolTip         = "clique num player para selecionar target"
+		tool.CanBeDropped    = false
+		tool.RequiresHandle  = false
+		tool.TextureId       = "rbxassetid://131165537896572"  -- ícone ref ui
+		tool.Parent          = player.Backpack
+		clickToolInst        = tool
 
 		tool.Activated:Connect(function()
-			if not clickToolActive then return end
+			-- Sempre tenta selecionar, independente de quantas vezes já usou
 			local mouse = player:GetMouse()
 			local hit   = mouse.Target
 			if not hit then return end
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= player and p.Character and hit:IsDescendantOf(p.Character) then
-					_justSelected   = true
-					clickToolActive = false
 					setTarget(p)
 					nickInput.Set(p.Name)
+					-- Flash no botão para feedback visual mas mantém ativa
 					if _splitBtns and _splitBtns[2] then
-						tween(_splitBtns[2], {TextColor3 = Theme.Sub}, 0.12)
+						tween(_splitBtns[2], {TextColor3 = Color3.fromRGB(80,255,120)}, 0.1)
+						task.delay(0.4, function()
+							if clickToolActive then
+								tween(_splitBtns[2], {TextColor3 = Theme.Accent}, 0.2)
+							end
+						end)
 					end
-					-- Tool permanece no inventário após selecionar
 					return
 				end
 			end
 		end)
 
-		-- Só destroi se o player tirou manualmente (não após seleção)
+		-- Remove a tool se desquipar manualmente do inventário
 		tool.Unequipped:Connect(function()
-			if _justSelected then
-				_justSelected = false
-				return
+			-- Pequeno delay para não conflitar com Activated
+			task.wait(0.05)
+			-- Se a tool ainda existe no backpack, não faz nada (só foi trocada de slot)
+			-- Se saiu do backpack/character, remove
+			if tool.Parent ~= player.Backpack and tool.Parent ~= player.Character then
+				removeClickTool()
 			end
-			removeClickTool()
 		end)
 
 		tool.AncestryChanged:Connect(function()
@@ -1885,6 +1890,7 @@ do
 	tracerGui.Name           = "ref_tracers"
 	tracerGui.IgnoreGuiInset = true
 	tracerGui.ResetOnSpawn   = false
+	tracerGui.DisplayOrder   = 999
 	tracerGui.Parent         = pg
 	local function removeTracer(t)
 		if tracerData[t] then tracerData[t]:Destroy() tracerData[t] = nil end

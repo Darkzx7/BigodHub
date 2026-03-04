@@ -1576,11 +1576,10 @@ do
 	local flingSec = target_tab:Section("fling")
 	flingSec:Divider("settings")
 
-	local flingPower  = 9e4
-	local flingRadius = 30
+	local flingPower  = 5e5   -- força fixa máxima
+	local flingRadius = 50
 
-	flingSec:Slider("power", 1e4, 5e5, 9e4, function(v) flingPower = v end)
-	flingSec:Slider("radius (loop all)", 5, 150, 30, function(v) flingRadius = v end)
+	flingSec:Slider("radius (loop all)", 5, 500, 50, function(v) flingRadius = v end)
 
 	flingSec:Divider("actions")
 
@@ -1593,7 +1592,7 @@ do
 		if not myChar then return end
 		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
 		if not myHRP then return end
-		for _, n in ipairs({"BodyThrust","BodyAngularVelocity"}) do
+		for _, n in ipairs({"BodyThrust", "BodyAngularVelocity"}) do
 			local o = myHRP:FindFirstChildOfClass(n)
 			if o then o:Destroy() end
 		end
@@ -1614,6 +1613,13 @@ do
 
 		local savedCF = myHRP.CFrame
 
+		-- Spin no eixo Y: força rotação que potencializa a colisão
+		local bav           = Instance.new("BodyAngularVelocity")
+		bav.MaxTorque       = Vector3.new(0, 4e8, 0)
+		bav.AngularVelocity = Vector3.new(0, 5e4, 0)
+		bav.P               = 4e8
+		bav.Parent          = myHRP
+
 		local thrust    = Instance.new("BodyThrust")
 		thrust.Force    = Vector3.new(flingPower, flingPower, flingPower)
 		thrust.Location = myHRP.Position
@@ -1632,6 +1638,7 @@ do
 				return
 			end
 			conn:Disconnect()
+			if bav    and bav.Parent    then bav:Destroy()    end
 			if thrust and thrust.Parent then thrust:Destroy() end
 			if myHRP and myHRP.Parent then
 				myHRP.CFrame                  = savedCF

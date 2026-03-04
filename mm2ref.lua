@@ -11,7 +11,7 @@
 --]]
 
 -- ── Carrega a lib do GitHub ────────────────────────────────────────────────────
-local LIB_URL = "https://raw.githubusercontent.com/SEU_USER/SEU_REPO/main/ref_lib.lua"
+local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 
 local RefLib
 local ok, err = pcall(function()

@@ -2454,15 +2454,74 @@ do
 	end)
 end
 
--- ===== MINIMIZE =====
-local minimized = false
+-- ===== MINIMIZE + ANIMAÇÃO =====
+local minimized  = false
+local animActive = false
+
+-- Posições e tamanhos para a animação
+local OPEN_POS   = Main.Position
+local OPEN_SIZE  = Main.Size
+-- Ponto de origem da animação: centro do IconBtn na tela
+local function getIconCenter()
+	return UDim2.new(
+		IconBtn.Position.X.Scale,
+		IconBtn.Position.X.Offset + IconBtn.AbsoluteSize.X / 2,
+		IconBtn.Position.Y.Scale,
+		IconBtn.Position.Y.Offset + IconBtn.AbsoluteSize.Y / 2
+	)
+end
+
 local function setMinimized(state)
-	minimized = state
-	Main.Visible = not state
+	if animActive then return end
+	minimized  = state
+	animActive = true
+
+	-- Cor do ícone
 	tween(IconBtn, {
 		BackgroundColor3 = state and Color3.fromRGB(40, 34, 60) or Theme.Panel2
 	}, 0.15)
+
+	if state then
+		-- FECHAR: escala até sumir em direção ao ícone
+		Main.GroupTransparency = 0
+		Main.Visible = true
+		local iconPos = getIconCenter()
+		tween(Main, {
+			Position = UDim2.new(
+				iconPos.X.Scale, iconPos.X.Offset - 26,
+				iconPos.Y.Scale, iconPos.Y.Offset - 26
+			),
+			Size = UDim2.new(0, 52, 0, 52),
+			GroupTransparency = 1,
+		}, 0.25)
+		task.delay(0.26, function()
+			Main.Visible = false
+			Main.Position = OPEN_POS
+			Main.Size     = OPEN_SIZE
+			Main.GroupTransparency = 0
+			animActive = false
+		end)
+	else
+		-- ABRIR: expande a partir do ícone
+		local iconPos = getIconCenter()
+		Main.Position = UDim2.new(
+			iconPos.X.Scale, iconPos.X.Offset - 26,
+			iconPos.Y.Scale, iconPos.Y.Offset - 26
+		)
+		Main.Size             = UDim2.new(0, 52, 0, 52)
+		Main.GroupTransparency = 1
+		Main.Visible          = true
+		tween(Main, {
+			Position          = OPEN_POS,
+			Size              = OPEN_SIZE,
+			GroupTransparency = 0,
+		}, 0.28)
+		task.delay(0.29, function()
+			animActive = false
+		end)
+	end
 end
+
 MinBtn.MouseButton1Click:Connect(function() setMinimized(true) end)
 IconBtn.MouseButton1Click:Connect(function() setMinimized(not minimized) end)
 UserInputService.InputBegan:Connect(function(input, gp)

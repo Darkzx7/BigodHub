@@ -4,7 +4,7 @@
 	Troque LIB_URL pela URL raw do seu repositório.
 --]]
 
-local LIB_URL = ""https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
+local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 
 local RefLib
 local ok, err = pcall(function()

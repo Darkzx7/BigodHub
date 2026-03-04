@@ -1532,11 +1532,13 @@ do
 
 			mhm.PlatformStand = true
 
-			-- Posição: em cima da cabeça no espaço mundo (+3.2 Y)
-			local seatPos  = tHead.Position + Vector3.new(0, 3.2, 0)
+			-- Posição exata no topo da cabeça: usa o CFrame da Head diretamente
+			-- offset +2.2 Y (ajustado pra encaixar bem na cabeça na visão dos outros)
+			local headCF  = tHead.CFrame
+			local seatPos = headCF.Position + Vector3.new(0, 2.2, 0)
 
-			-- Rotação: só yaw do target, sem pitch/roll (projeção no plano XZ)
-			local look     = tHead.CFrame.LookVector
+			-- Rotação: só yaw do target, sem pitch/roll
+			local look     = headCF.LookVector
 			local flatLook = Vector3.new(look.X, 0, look.Z)
 			local newCF
 			if flatLook.Magnitude > 0.01 then
@@ -1545,8 +1547,8 @@ do
 				newCF = CFrame.new(seatPos)
 			end
 
-			-- Lerp suave: segue rápido mas sem tremer a câmera
-			mh.CFrame = mh.CFrame:Lerp(newCF, 0.5)
+			-- Sem lerp: posição exata a cada frame (lerp causava delay visível pra outros)
+			mh.CFrame = newCF
 
 			-- Mantém animação rodando se parou
 			if headsitAnim and not headsitAnim.IsPlaying then

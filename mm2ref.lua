@@ -698,6 +698,214 @@ local s_shotCd = secSheriff:Slider("cooldown (s x10)", 1, 30, 6, function(v)
 end)
 ui:CfgRegister("mm2_shot_cd", function() return SHOT_COOLDOWN * 10 end, function(v) s_shotCd.Set(v) end)
 
+secSheriff:Divider("shoot button flutuante")
+
+-- ── Floating Shoot Button ─────────────────────────────────────────────────────
+-- Cria um botão arrastável na tela que, ao clicar, atira no murderer
+local floatBtn      = nil
+local floatBtnOn    = false
+local floatDragging = false
+local floatDragOff  = Vector2.new(0, 0)
+local shootCooldown = false
+
+local function destroyFloatBtn()
+	if floatBtn and floatBtn.Parent then floatBtn:Destroy() end
+	floatBtn = nil
+end
+
+local function createFloatBtn()
+	destroyFloatBtn()
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "MM2ShootBtn"; sg.ResetOnSpawn = false
+	sg.IgnoreGuiInset = true; sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	sg.Parent = player.PlayerGui
+
+	-- Frame externo (sombra / borda)
+	local shadow = Instance.new("Frame")
+	shadow.Size = UDim2.new(0, 108, 0, 108)
+	shadow.Position = UDim2.new(0, 60, 0.5, -54)
+	shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	shadow.BackgroundTransparency = 0.4
+	shadow.BorderSizePixel = 0
+	shadow.Parent = sg
+	Instance.new("UICorner", shadow).CornerRadius = UDim.new(1, 0)
+
+	-- Botão principal
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 100, 0, 100)
+	btn.Position = UDim2.new(0, 4, 0, 4)
+	btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
+	btn.BorderSizePixel = 0
+	btn.Text = ""
+	btn.AutoButtonColor = false
+	btn.Parent = shadow
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+
+	-- Gradiente
+	local grad = Instance.new("UIGradient")
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 180, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(20,  80, 200)),
+	})
+	grad.Rotation = 120; grad.Parent = btn
+
+	-- Ícone de mira (🎯) + label
+	local icon = Instance.new("TextLabel")
+	icon.Size = UDim2.new(1, 0, 0.55, 0)
+	icon.Position = UDim2.new(0, 0, 0.05, 0)
+	icon.BackgroundTransparency = 1
+	icon.Text = "🔫"; icon.TextScaled = true
+	icon.Font = Enum.Font.GothamBold
+	icon.TextColor3 = Color3.fromRGB(255, 255, 255)
+	icon.Parent = btn
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 0.35, 0)
+	lbl.Position = UDim2.new(0, 0, 0.63, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = "SHOOT"; lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextStrokeTransparency = 0.3
+	lbl.Parent = btn
+
+	-- Cooldown overlay (escurece o botão durante recarga)
+	local cdOverlay = Instance.new("Frame")
+	cdOverlay.Size = UDim2.new(1, 0, 1, 0)
+	cdOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	cdOverlay.BackgroundTransparency = 1
+	cdOverlay.BorderSizePixel = 0
+	cdOverlay.ZIndex = 5
+	cdOverlay.Visible = false
+	cdOverlay.Parent = btn
+	Instance.new("UICorner", cdOverlay).CornerRadius = UDim.new(1, 0)
+
+	local cdLbl = Instance.new("TextLabel")
+	cdLbl.Size = UDim2.new(1, 0, 1, 0)
+	cdLbl.BackgroundTransparency = 1
+	cdLbl.Font = Enum.Font.GothamBold; cdLbl.TextScaled = true
+	cdLbl.TextColor3 = Color3.fromRGB(255, 255, 100)
+	cdLbl.ZIndex = 6; cdLbl.Parent = cdOverlay
+
+	floatBtn = sg
+
+	-- ── Drag ──────────────────────────────────────────────────────────────────
+	btn.InputBegan:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1
+		or inp.UserInputType == Enum.UserInputType.Touch then
+			floatDragging = true
+			local absPos = shadow.AbsolutePosition
+			floatDragOff = Vector2.new(
+				inp.Position.X - absPos.X,
+				inp.Position.Y - absPos.Y
+			)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(inp)
+		if not floatDragging then return end
+		if inp.UserInputType == Enum.UserInputType.MouseMovement
+		or inp.UserInputType == Enum.UserInputType.Touch then
+			local vp = workspace.CurrentCamera.ViewportSize
+			local nx = math.clamp(inp.Position.X - floatDragOff.X, 0, vp.X - shadow.AbsoluteSize.X)
+			local ny = math.clamp(inp.Position.Y - floatDragOff.Y, 0, vp.Y - shadow.AbsoluteSize.Y)
+			shadow.Position = UDim2.new(0, nx, 0, ny)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1
+		or inp.UserInputType == Enum.UserInputType.Touch then
+			floatDragging = false
+		end
+	end)
+
+	-- ── Click: dispara ─────────────────────────────────────────────────────────
+	btn.MouseButton1Click:Connect(function()
+		if floatDragging then return end  -- ignora clique ao soltar drag
+		if shootCooldown then return end
+
+		local myRole = getPlayerRole()
+		if myRole ~= "sheriff" then
+			-- Pisca vermelho: não é xerife
+			btn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+			lbl.Text = "NO GUN"
+			task.delay(0.8, function()
+				btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
+				lbl.Text = "SHOOT"
+			end)
+			return
+		end
+
+		local murderer = findMurderer()
+		if not murderer then
+			btn.BackgroundColor3 = Color3.fromRGB(150, 150, 40)
+			lbl.Text = "??"
+			task.delay(0.8, function()
+				btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
+				lbl.Text = "SHOOT"
+			end)
+			return
+		end
+
+		-- Dispara!
+		shootCooldown = true
+		tryShoot(murderer.Character)
+
+		-- Feedback visual: pisca verde → cooldown overlay
+		btn.BackgroundColor3 = Color3.fromRGB(40, 200, 80)
+		lbl.Text = "💥"
+		task.wait(0.15)
+
+		-- Cooldown visual (1s)
+		btn.BackgroundColor3 = Color3.fromRGB(30, 120, 220)
+		lbl.Text = "SHOOT"
+		cdOverlay.Visible = true
+		cdOverlay.BackgroundTransparency = 0.45
+		local cdTime = 1.0
+		local elapsed = 0
+		local step = 0.05
+		while elapsed < cdTime do
+			task.wait(step)
+			elapsed = elapsed + step
+			local remaining = math.ceil(cdTime - elapsed)
+			cdLbl.Text = tostring(remaining)
+		end
+		cdOverlay.Visible = false
+		shootCooldown = false
+		lbl.Text = "SHOOT"
+	end)
+
+	-- Tooltip ao hover
+	btn.MouseEnter:Connect(function()
+		if not shootCooldown then
+			TweenService:Create(btn, TweenInfo.new(0.12), {Size = UDim2.new(0,106,0,106), Position = UDim2.new(0,-3,0,-3)}):Play()
+		end
+	end)
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.12), {Size = UDim2.new(0,100,0,100), Position = UDim2.new(0,4,0,4)}):Play()
+	end)
+end
+
+local t_floatBtn = secSheriff:Toggle("shoot button flutuante", false, function(v)
+	floatBtnOn = v
+	if v then
+		createFloatBtn()
+		ui:Toast("rbxassetid://131165537896572", "[Shoot Btn] criado",
+			"arraste o botão pela tela e clique pra atirar", ROLE_COLOR.sheriff)
+	else
+		destroyFloatBtn()
+		ui:Toast("rbxassetid://131165537896572", "[Shoot Btn] removido", "", ROLE_COLOR.unknown)
+	end
+end)
+ui:CfgRegister("mm2_floatbtn", function() return floatBtnOn end, function(v) t_floatBtn.Set(v) end)
+
+-- Garante que o botão é destruído ao respawnar
+player.CharacterAdded:Connect(function()
+	if floatBtnOn then task.wait(1); createFloatBtn() end
+end)
+
 secSheriff:Divider("tp & aim")
 
 secSheriff:Button("tp to murderer", function()

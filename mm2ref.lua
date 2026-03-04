@@ -18,16 +18,13 @@ end
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
 local player           = Players.LocalPlayer
 
 -- ── UI ────────────────────────────────────────────────────────────────────────
 local ui = RefLib.new("mm2", "rbxassetid://131165537896572", "ref_mm2_ui")
 
 -- ── Role detection ────────────────────────────────────────────────────────────
--- No MM2 o papel é detectado pelo item que o player carrega:
---   Murderer  = tem "Knife"  no Backpack ou no Character
---   Sheriff   = tem "Gun" / "Sheriff's Gun" / "Revolver"
---   Innocent  = nenhum dos dois
 local function getPlayerRole(p)
 	p = p or player
 	local bp  = p:FindFirstChild("Backpack")
@@ -40,6 +37,36 @@ local function getPlayerRole(p)
 	if has("Knife") then return "murderer" end
 	if has("Gun") or has("Sheriff's Gun") or has("Revolver") then return "sheriff" end
 	return "innocent"
+end
+
+-- Encontra o murderer (player com faca) excluindo o proprio jogador
+local function findMurderer()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			local role = getPlayerRole(p)
+			if role == "murderer" then
+				local chr = p.Character
+				local hum = chr and chr:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 then return p end
+			end
+		end
+	end
+	return nil
+end
+
+-- Encontra o xerife excluindo o proprio jogador
+local function findSheriff()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			local role = getPlayerRole(p)
+			if role == "sheriff" then
+				local chr = p.Character
+				local hum = chr and chr:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 then return p end
+			end
+		end
+	end
+	return nil
 end
 
 local ROLE_COLOR = {
@@ -56,9 +83,11 @@ local ROLE_ICON = {
 }
 
 -- ── Tabs ──────────────────────────────────────────────────────────────────────
-local tabMain = ui:Tab("main")
-local tabESP  = ui:Tab("esp")
-local tabCfg  = ui:Tab("config")
+local tabMain   = ui:Tab("main")
+local tabESP    = ui:Tab("esp")
+local tabCombat = ui:Tab("combat")
+local tabFarm   = ui:Tab("farm")
+local tabCfg    = ui:Tab("config")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- TAB: MAIN
@@ -234,7 +263,6 @@ local function makeItemBB(tool)
 
 	itemBBs[tool] = bb
 
-	-- Distância em tempo real
 	RunService.RenderStepped:Connect(function()
 		if not itemEspOn or not bb.Parent then return end
 		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -323,7 +351,7 @@ local coinBBs   = {}
 
 local function isCoin(obj)
 	local n = obj.Name:lower()
-	return n == "coin" or n == "goldcoin"
+	return n == "coin" or n == "goldcoin" or n == "value" or n:find("coin")
 end
 
 local function removeCoinBB(part)
@@ -543,6 +571,531 @@ local s_dist=sec:Slider("max distance", 50, 1000, 300, function(v) maxDist=v end
 ui:CfgRegister("mm2_esp_dist", function() return maxDist  end, function(v) s_dist.Set(v)  end)
 
 end -- TAB ESP
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- TAB: COMBAT
+-- ══════════════════════════════════════════════════════════════════════════════
+do
+
+-- ── Sheriff: Auto Shoot ───────────────────────────────────────────────────────
+local secSheriff = tabCombat:Section("sheriff")
+secSheriff:Divider("auto shoot")
+
+local autoShootOn   = false
+local autoShootConn = nil
+local lastShotTime  = 0
+local SHOT_COOLDOWN = 0.6  -- segundos entre tiros
+
+-- Tenta atirar no alvo usando a gun equipada
+local function tryShoot(targetChar)
+	local myChar = player.Character
+	if not myChar then return end
+	local hrp = myChar:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	-- Verifica se tem gun equipada
+	local gun = myChar:FindFirstChild("Gun")
+		or myChar:FindFirstChild("Sheriff's Gun")
+		or myChar:FindFirstChild("Revolver")
+	if not gun then
+		-- Tenta pegar do backpack
+		local bp = player.Backpack
+		gun = bp and (bp:FindFirstChild("Gun") or bp:FindFirstChild("Sheriff's Gun") or bp:FindFirstChild("Revolver"))
+		if gun then
+			-- Equipa a arma
+			player.Character.Humanoid:EquipTool(gun)
+			task.wait(0.15)
+			gun = myChar:FindFirstChild("Gun")
+				or myChar:FindFirstChild("Sheriff's Gun")
+				or myChar:FindFirstChild("Revolver")
+		end
+	end
+	if not gun then return end
+
+	local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+		or targetChar:FindFirstChild("Head")
+	if not targetHrp then return end
+
+	-- Aponta camera / character na direção do alvo e dispara
+	local dist = (hrp.Position - targetHrp.Position).Magnitude
+	if dist > 250 then return end  -- fora do alcance
+
+	-- Usa FireServer se disponível (método mais confiável)
+	local fired = false
+	pcall(function()
+		local rs = game:GetService("ReplicatedStorage")
+		-- Procura RemoteEvent de tiro no ReplicatedStorage
+		for _, v in ipairs(rs:GetDescendants()) do
+			if v:IsA("RemoteEvent") and (
+				v.Name:lower():find("shoot") or
+				v.Name:lower():find("fire") or
+				v.Name:lower():find("gun") or
+				v.Name:lower():find("bullet")
+			) then
+				v:FireServer(targetHrp.Position, targetHrp)
+				fired = true
+				break
+			end
+		end
+	end)
+
+	-- Fallback: ativa evento Activated da tool diretamente
+	if not fired then
+		pcall(function()
+			-- Posiciona o HRP olhando para o alvo antes de atirar
+			hrp.CFrame = CFrame.lookAt(hrp.Position, targetHrp.Position)
+			gun:Activate()
+		end)
+	end
+end
+
+local function autoShootLoop()
+	while autoShootOn do
+		task.wait(0.1)
+		local myRole = getPlayerRole()
+		if myRole ~= "sheriff" then continue end
+		if tick() - lastShotTime < SHOT_COOLDOWN then continue end
+
+		local murderer = findMurderer()
+		if not murderer then continue end
+
+		local mChar = murderer.Character
+		local mHum  = mChar and mChar:FindFirstChildOfClass("Humanoid")
+		if not mChar or not mHum or mHum.Health <= 0 then continue end
+
+		-- Verifica distancia
+		local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local mHrp  = mChar:FindFirstChild("HumanoidRootPart")
+		if not myHrp or not mHrp then continue end
+		local dist = (myHrp.Position - mHrp.Position).Magnitude
+		if dist > 200 then continue end
+
+		lastShotTime = tick()
+		tryShoot(mChar)
+	end
+end
+
+local t_autoShoot = secSheriff:Toggle("auto shoot murderer", false, function(v)
+	autoShootOn = v
+	if v then
+		local myRole = getPlayerRole()
+		if myRole ~= "sheriff" then
+			ui:Toast("rbxassetid://131165537896572", "[Auto Shoot]",
+				"voce nao e xerife!", ROLE_COLOR.unknown)
+		else
+			ui:Toast("rbxassetid://131165537896572", "[Auto Shoot] ativado",
+				"atirando no murderer automaticamente", ROLE_COLOR.sheriff)
+		end
+		task.spawn(autoShootLoop)
+	else
+		ui:Toast("rbxassetid://131165537896572", "[Auto Shoot] desativado", "", ROLE_COLOR.unknown)
+	end
+end)
+ui:CfgRegister("mm2_autoshoot", function() return autoShootOn end, function(v) t_autoShoot.Set(v) end)
+
+local s_shotCd = secSheriff:Slider("cooldown (s x10)", 1, 30, 6, function(v)
+	SHOT_COOLDOWN = v / 10
+end)
+ui:CfgRegister("mm2_shot_cd", function() return SHOT_COOLDOWN * 10 end, function(v) s_shotCd.Set(v) end)
+
+secSheriff:Divider("tp & aim")
+
+secSheriff:Button("tp to murderer", function()
+	local murderer = findMurderer()
+	if not murderer then
+		ui:Toast("rbxassetid://131165537896572", "tp murderer", "nenhum murderer detectado", ROLE_COLOR.unknown)
+		return
+	end
+	local mHrp = murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart")
+	local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if mHrp and myHrp then
+		myHrp.CFrame = mHrp.CFrame * CFrame.new(0, 0, -4)
+		ui:Toast("rbxassetid://131165537896572", "[TP] murderer",
+			"teleportado para " .. murderer.DisplayName, ROLE_COLOR.murderer)
+	end
+end)
+
+secSheriff:Button("shoot murderer (once)", function()
+	local myRole = getPlayerRole()
+	if myRole ~= "sheriff" then
+		ui:Toast("rbxassetid://131165537896572", "[Shoot]", "voce nao e xerife!", ROLE_COLOR.unknown)
+		return
+	end
+	local murderer = findMurderer()
+	if not murderer then
+		ui:Toast("rbxassetid://131165537896572", "[Shoot]", "murderer nao detectado", ROLE_COLOR.unknown)
+		return
+	end
+	tryShoot(murderer.Character)
+	ui:Toast("rbxassetid://131165537896572", "[Shoot] disparado!",
+		"alvo: " .. murderer.DisplayName, ROLE_COLOR.sheriff)
+end)
+
+-- ── Murderer: Knife Aura ──────────────────────────────────────────────────────
+local secMurd = tabCombat:Section("murderer")
+secMurd:Divider("knife aura")
+
+local knifeAuraOn    = false
+local knifeAuraRange = 12
+local knifeAuraCd    = 0.5
+local lastKnifeTime  = 0
+
+local function tryThrowKnife(targetChar)
+	local myChar = player.Character
+	if not myChar then return end
+	local hrp = myChar:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local knife = myChar:FindFirstChild("Knife")
+	if not knife then
+		local bp = player.Backpack
+		knife = bp and bp:FindFirstChild("Knife")
+		if knife then
+			player.Character.Humanoid:EquipTool(knife)
+			task.wait(0.1)
+			knife = myChar:FindFirstChild("Knife")
+		end
+	end
+	if not knife then return end
+
+	local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+		or targetChar:FindFirstChild("Head")
+	if not targetHrp then return end
+
+	-- Tenta FireServer do knife
+	local fired = false
+	pcall(function()
+		local rs = game:GetService("ReplicatedStorage")
+		for _, v in ipairs(rs:GetDescendants()) do
+			if v:IsA("RemoteEvent") and (
+				v.Name:lower():find("knife") or
+				v.Name:lower():find("throw") or
+				v.Name:lower():find("kill") or
+				v.Name:lower():find("stab")
+			) then
+				v:FireServer(targetHrp.Position, targetHrp)
+				fired = true
+				break
+			end
+		end
+	end)
+
+	if not fired then
+		pcall(function()
+			hrp.CFrame = CFrame.lookAt(hrp.Position, targetHrp.Position)
+			knife:Activate()
+		end)
+	end
+end
+
+local function knifeAuraLoop()
+	while knifeAuraOn do
+		task.wait(0.1)
+		local myRole = getPlayerRole()
+		if myRole ~= "murderer" then continue end
+		if tick() - lastKnifeTime < knifeAuraCd then continue end
+
+		local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if not myHrp then continue end
+
+		-- Encontra inocente mais próximo dentro do range
+		local closest, closestDist = nil, knifeAuraRange
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p == player then continue end
+			local chr = p.Character
+			local hum = chr and chr:FindFirstChildOfClass("Humanoid")
+			local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
+			if not chr or not hum or not hrp or hum.Health <= 0 then continue end
+			local dist = (myHrp.Position - hrp.Position).Magnitude
+			if dist < closestDist then
+				closest = p; closestDist = dist
+			end
+		end
+
+		if closest then
+			lastKnifeTime = tick()
+			tryThrowKnife(closest.Character)
+		end
+	end
+end
+
+local t_knifeAura = secMurd:Toggle("knife aura (auto kill nearby)", false, function(v)
+	knifeAuraOn = v
+	if v then
+		local myRole = getPlayerRole()
+		if myRole ~= "murderer" then
+			ui:Toast("rbxassetid://131165537896572", "[Knife Aura]",
+				"voce nao e murderer!", ROLE_COLOR.unknown)
+		else
+			ui:Toast("rbxassetid://131165537896572", "[Knife Aura] ativado",
+				"matando jogadores proximos", ROLE_COLOR.murderer)
+		end
+		task.spawn(knifeAuraLoop)
+	else
+		ui:Toast("rbxassetid://131165537896572", "[Knife Aura] desativado", "", ROLE_COLOR.unknown)
+	end
+end)
+ui:CfgRegister("mm2_knife_aura", function() return knifeAuraOn end, function(v) t_knifeAura.Set(v) end)
+
+local s_knifeRange = secMurd:Slider("range (studs)", 4, 50, 12, function(v)
+	knifeAuraRange = v
+end)
+ui:CfgRegister("mm2_knife_range", function() return knifeAuraRange end, function(v) s_knifeRange.Set(v) end)
+
+secMurd:Divider("tp & target")
+
+secMurd:Button("tp to sheriff", function()
+	local sheriff = findSheriff()
+	if not sheriff then
+		ui:Toast("rbxassetid://131165537896572", "tp sheriff", "nenhum sheriff detectado", ROLE_COLOR.unknown)
+		return
+	end
+	local sHrp  = sheriff.Character and sheriff.Character:FindFirstChild("HumanoidRootPart")
+	local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if sHrp and myHrp then
+		myHrp.CFrame = sHrp.CFrame * CFrame.new(0, 0, -4)
+		ui:Toast("rbxassetid://131165537896572", "[TP] sheriff",
+			"teleportado para " .. sheriff.DisplayName, ROLE_COLOR.sheriff)
+	end
+end)
+
+secMurd:Button("kill sheriff (once)", function()
+	local myRole = getPlayerRole()
+	if myRole ~= "murderer" then
+		ui:Toast("rbxassetid://131165537896572", "[Kill]", "voce nao e murderer!", ROLE_COLOR.unknown)
+		return
+	end
+	local sheriff = findSheriff()
+	if not sheriff then
+		ui:Toast("rbxassetid://131165537896572", "[Kill]", "sheriff nao detectado", ROLE_COLOR.unknown)
+		return
+	end
+	tryThrowKnife(sheriff.Character)
+	ui:Toast("rbxassetid://131165537896572", "[Kill] knife!",
+		"alvo: " .. sheriff.DisplayName, ROLE_COLOR.murderer)
+end)
+
+-- ── Geral combat ─────────────────────────────────────────────────────────────
+local secGen = tabCombat:Section("geral")
+secGen:Divider("utilidades")
+
+secGen:Button("listar alvos vivos", function()
+	local murderer = findMurderer()
+	local sheriff  = findSheriff()
+	local alive    = 0
+	for _, p in ipairs(Players:GetPlayers()) do
+		local c = p.Character; local h = c and c:FindFirstChildOfClass("Humanoid")
+		if h and h.Health > 0 then alive = alive + 1 end
+	end
+	local mName = murderer and murderer.DisplayName or "desconhecido"
+	local sName = sheriff and sheriff.DisplayName or "desconhecido"
+	ui:Toast("rbxassetid://131165537896572", "murderer: " .. mName,
+		"sheriff: " .. sName .. "  |  vivos: " .. alive, ROLE_COLOR.unknown)
+end)
+
+end -- TAB COMBAT
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- TAB: FARM
+-- ══════════════════════════════════════════════════════════════════════════════
+do
+
+local secAutoFarm = tabFarm:Section("auto farm")
+secAutoFarm:Divider("coin farm automático")
+
+local farmOn      = false
+local farmLoop    = nil
+local farmDelay   = 0.08
+local farmCoinsCollected = 0
+
+-- Auto farm: TP para cada coin continuamente
+local function startFarm()
+	farmCoinsCollected = 0
+	while farmOn do
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if not hrp or not hum or hum.Health <= 0 then task.wait(1); continue end
+
+		local coins = {}
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			local n = obj.Name:lower()
+			if n == "coin" or n == "goldcoin" or (n:find("coin") and not n:find("bb")) then
+				local part = obj:IsA("BasePart") and obj
+					or (obj:IsA("Model") and obj:FindFirstChildOfClass("BasePart"))
+				if part and part.Parent then table.insert(coins, part) end
+			end
+		end
+
+		if #coins == 0 then
+			task.wait(1)
+			continue
+		end
+
+		-- Ordena por distância (pega os mais próximos primeiro)
+		local myPos = hrp.Position
+		table.sort(coins, function(a, b)
+			return (a.Position - myPos).Magnitude < (b.Position - myPos).Magnitude
+		end)
+
+		for _, part in ipairs(coins) do
+			if not farmOn then break end
+			if part and part.Parent then
+				hrp.CFrame = CFrame.new(part.Position)
+				farmCoinsCollected = farmCoinsCollected + 1
+				task.wait(farmDelay)
+			end
+		end
+
+		task.wait(0.5)
+	end
+end
+
+local t_farm = secAutoFarm:Toggle("auto farm coins", false, function(v)
+	farmOn = v
+	if v then
+		ui:Toast("rbxassetid://131165537896572", "[Farm] iniciado",
+			"coletando moedas automaticamente...", Color3.fromRGB(255,210,50))
+		task.spawn(startFarm)
+	else
+		ui:Toast("rbxassetid://131165537896572", "[Farm] parado",
+			"total coletado: " .. farmCoinsCollected .. " coins", Color3.fromRGB(255,210,50))
+	end
+end)
+ui:CfgRegister("mm2_farm_on", function() return farmOn end, function(v) t_farm.Set(v) end)
+
+local s_farmDelay = secAutoFarm:Slider("delay ms (menor = mais rápido)", 1, 30, 8, function(v)
+	farmDelay = v / 100
+end)
+ui:CfgRegister("mm2_farm_delay", function() return farmDelay * 100 end, function(v) s_farmDelay.Set(v) end)
+
+secAutoFarm:Button("status do farm", function()
+	if farmOn then
+		ui:Toast("rbxassetid://131165537896572", "[Farm] rodando",
+			"coins coletadas nessa sessão: " .. farmCoinsCollected, Color3.fromRGB(255,210,50))
+	else
+		ui:Toast("rbxassetid://131165537896572", "[Farm] parado",
+			"ative o toggle acima para iniciar", ROLE_COLOR.unknown)
+	end
+end)
+
+-- ── Gun Grab Auto ────────────────────────────────────────────────────────────
+local secGunGrab = tabFarm:Section("gun grab")
+secGunGrab:Divider("auto pegar arma")
+
+local gunGrabOn = false
+local gunGrabConn = nil
+
+local function startGunGrab()
+	while gunGrabOn do
+		task.wait(0.3)
+		-- Só pega se inocente (sem role) e se a gun esta dropada no mapa
+		local myRole = getPlayerRole()
+		if myRole ~= "innocent" then task.wait(0.5); continue end
+
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if not hrp then continue end
+
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			if obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name == "Sheriff's Gun" or obj.Name == "Revolver") then
+				local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
+				if handle then
+					hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0,2,0))
+					task.wait(0.15)
+					break
+				end
+			end
+		end
+	end
+end
+
+local t_gunGrab = secGunGrab:Toggle("auto pegar gun dropada", false, function(v)
+	gunGrabOn = v
+	if v then
+		ui:Toast("rbxassetid://131165537896572", "[GunGrab] ativo",
+			"buscando gun dropada no mapa...", ROLE_COLOR.sheriff)
+		task.spawn(startGunGrab)
+	else
+		ui:Toast("rbxassetid://131165537896572", "[GunGrab] desativado", "", ROLE_COLOR.unknown)
+	end
+end)
+ui:CfgRegister("mm2_gun_grab", function() return gunGrabOn end, function(v) t_gunGrab.Set(v) end)
+
+-- ── AFK Farm ─────────────────────────────────────────────────────────────────
+local secAfk = tabFarm:Section("afk")
+secAfk:Divider("anti-afk")
+
+local afkOn = false
+local afkConn = nil
+
+local t_afk = secAfk:Toggle("anti-afk", false, function(v)
+	afkOn = v
+	if afkConn then afkConn:Disconnect(); afkConn = nil end
+	if v then
+		afkConn = RunService.Heartbeat:Connect(function()
+			local VU = pcall(function()
+				game:GetService("VirtualUser"):Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+				task.wait()
+				game:GetService("VirtualUser"):Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+			end)
+		end)
+		ui:Toast("rbxassetid://131165537896572", "[Anti-AFK] ativo",
+			"nao sera kickado por inatividade", Color3.fromRGB(200,200,255))
+	else
+		ui:Toast("rbxassetid://131165537896572", "[Anti-AFK] desativado", "", ROLE_COLOR.unknown)
+	end
+end)
+ui:CfgRegister("mm2_afk", function() return afkOn end, function(v) t_afk.Set(v) end)
+
+-- ── Round Survival ───────────────────────────────────────────────────────────
+local secSurv = tabFarm:Section("survival")
+secSurv:Divider("sobrevivência")
+
+-- Loop que mantém o jogador fugindo do murderer quando é inocente
+local surviveOn  = false
+local FLEE_DIST  = 20  -- distância mínima do murderer
+
+local function surviveLoop()
+	while surviveOn do
+		task.wait(0.2)
+		local myRole = getPlayerRole()
+		if myRole == "murderer" then task.wait(0.5); continue end
+
+		local murderer = findMurderer()
+		if not murderer then continue end
+
+		local mChar = murderer.Character
+		local mHrp  = mChar and mChar:FindFirstChild("HumanoidRootPart")
+		local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if not mHrp or not myHrp then continue end
+
+		local dist = (myHrp.Position - mHrp.Position).Magnitude
+		if dist < FLEE_DIST then
+			-- Foge na direção oposta
+			local fleeDir = (myHrp.Position - mHrp.Position).Unit
+			local newPos  = myHrp.Position + fleeDir * 30
+			myHrp.CFrame = CFrame.new(newPos)
+		end
+	end
+end
+
+local t_survive = secSurv:Toggle("auto flee murderer", false, function(v)
+	surviveOn = v
+	if v then
+		ui:Toast("rbxassetid://131165537896572", "[Survive] ativo",
+			"fugindo automaticamente do murderer", ROLE_COLOR.innocent)
+		task.spawn(surviveLoop)
+	else
+		ui:Toast("rbxassetid://131165537896572", "[Survive] desativado", "", ROLE_COLOR.unknown)
+	end
+end)
+ui:CfgRegister("mm2_survive", function() return surviveOn end, function(v) t_survive.Set(v) end)
+
+local s_fleeRange = secSurv:Slider("flee range (studs)", 5, 60, 20, function(v)
+	FLEE_DIST = v
+end)
+ui:CfgRegister("mm2_flee_range", function() return FLEE_DIST end, function(v) s_fleeRange.Set(v) end)
+
+end -- TAB FARM
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- TAB: CONFIG

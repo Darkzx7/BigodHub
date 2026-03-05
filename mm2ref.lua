@@ -1490,10 +1490,12 @@ secCI:Button("[DEBUG] scan + copy to clipboard", function()
 ")
     print(output)
 
-    -- Copia pro clipboard
-    pcall(function() setclipboard(output) end)
-    -- Fallback para executores com nome diferente
-    pcall(function() toclipboard(output) end)
+    -- Copia pro clipboard — testa qual função o executor tem
+    local copied = false
+    if setclipboard then pcall(function() setclipboard(output); copied=true end) end
+    if not copied and toclipboard then pcall(function() toclipboard(output); copied=true end) end
+    if not copied and Clipboard then pcall(function() Clipboard:Set(output); copied=true end) end
+    if not copied and syn and syn.clipboard then pcall(function() syn.clipboard.set(output); copied=true end) end
 
     ui:Toast("rbxassetid://131165537896572",
         "[Debug] "..#lines.." linhas",

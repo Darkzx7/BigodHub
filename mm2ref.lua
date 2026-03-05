@@ -25,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v10", "rbxassetid://131165537896572", "ref_mm2v10")
+local ui = RefLib.new("mm2 v11", "rbxassetid://131165537896572", "ref_mm2v11")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- REMOTES REAIS (Cobalt)
@@ -192,78 +192,147 @@ end
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local silentAimOn    = false
-local silentAimTarget = nil   -- Character alvo atual
-local _origCamCF     = nil    -- CFrame original da câmera antes do desvio
-local _saConn        = nil    -- conexão RenderStepped do silent aim
+local _origCamCF     = nil
+local _saConn        = nil
+local _namecallHook  = nil  -- hook __namecall
 
 local function getSilentAimTarget()
-    -- Prioridade: murderer > qualquer inimigo mais próximo
     local m = findByRole("murderer")
     if m and m.Character then return m.Character end
     return nil
 end
 
+-- Silent Aim REAL via __namecall hook
+-- Como funciona:
+--   O LocalScript da gun chama workspace:FindPartOnRayWithIgnoreList() ou
+--   workspace:Raycast() para calcular onde a bala vai.
+--   Hookeamos __namecall no workspace para interceptar qualquer chamada
+--   de Raycast/FindPartOnRay e substituir a direção pelo alvo.
+--   Resultado: a bala vai pro alvo independente de onde você está olhando.
+--   Zero teleporte, zero movimento — invisível para outros jogadores.
 local function startSilentAim()
-    if _saConn then _saConn:Disconnect() end
+    if _namecallHook then return end  -- já hookado
+
     local mouse = player:GetMouse()
+
+    -- Hook principal via __namecall no workspace
+    -- Intercepta: Raycast, FindPartOnRay, FindPartOnRayWithIgnoreList
+    local mt = getrawmetatable(game)
+    local oldNamecall = rawget(mt, "__namecall")
+    setreadonly(mt, false)
+
+    rawset(mt, "__namecall", newcclosure(function(self, ...)
+        if not silentAimOn then return oldNamecall(self, ...) end
+
+        local method = getnamecallmethod()
+        -- Intercepta apenas chamadas de Raycast no workspace
+        if (method == "Raycast" or method == "FindPartOnRay"
+        or method == "FindPartOnRayWithIgnoreList"
+        or method == "FindPartOnRayWithWhitelist") and self == workspace then
+
+            local targetChar = getSilentAimTarget()
+            if targetChar then
+                local tHRP = targetChar:FindFirstChild("HumanoidRootPart")
+                          or targetChar:FindFirstChild("Head")
+                if tHRP then
+                    local args = {...}
+                    -- args[1] = origin (Ray ou Vector3), args[2] = direction/ignorelist
+                    -- Substitui a direção para apontar pro alvo
+                    if method == "Raycast" then
+                        -- workspace:Raycast(origin, direction, params)
+                        local origin = args[1]
+                        if typeof(origin) == "Vector3" then
+                            local dir = (tHRP.Position - origin).Unit * 1000
+                            return oldNamecall(self, origin, dir, args[3])
+                        end
+                    elseif method == "FindPartOnRay" then
+                        -- workspace:FindPartOnRay(Ray, ignoreInstance, ...)
+                        local ray = args[1]
+                        if typeof(ray) == "Ray" then
+                            local newDir = (tHRP.Position - ray.Origin).Unit * 1000
+                            local newRay = Ray.new(ray.Origin, newDir)
+                            return oldNamecall(self, newRay, args[2], args[3], args[4])
+                        end
+                    elseif method == "FindPartOnRayWithIgnoreList" then
+                        local ray = args[1]
+                        if typeof(ray) == "Ray" then
+                            local newDir = (tHRP.Position - ray.Origin).Unit * 1000
+                            local newRay = Ray.new(ray.Origin, newDir)
+                            return oldNamecall(self, newRay, args[2], args[3], args[4])
+                        end
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+
+    setreadonly(mt, true)
+    _namecallHook = oldNamecall
+
+    -- Também faz rawset no Mouse.Hit como camada extra
     _saConn = RunService.RenderStepped:Connect(function()
         if not silentAimOn then return end
         local targetChar = getSilentAimTarget()
         if not targetChar then return end
         local tHRP = targetChar:FindFirstChild("HumanoidRootPart")
                   or targetChar:FindFirstChild("Head")
-        if not tHRP then return end
-
-        -- Override Mouse.Hit para apontar pro alvo SEMPRE
-        -- O LocalScript da gun usa Mouse.Hit.Position para a direção da bala
-        local aimCF = CFrame.new(tHRP.Position)
-        pcall(function() rawset(mouse, "Hit", aimCF) end)
-
-        -- Também redireciona câmera como fallback
-        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-            _origCamCF = _origCamCF or cam.CFrame
-            pcall(function()
-                cam.CFrame = CFrame.new(cam.CFrame.Position, tHRP.Position)
-            end)
-        elseif _origCamCF then
-            pcall(function() cam.CFrame = _origCamCF end)
-            _origCamCF = nil
+        if tHRP then
+            pcall(function() rawset(mouse, "Hit", CFrame.new(tHRP.Position)) end)
+            pcall(function() rawset(mouse, "Target", tHRP) end)
         end
     end)
 end
 
 local function stopSilentAim()
     if _saConn then _saConn:Disconnect(); _saConn = nil end
-    if _origCamCF then pcall(function() cam.CFrame = _origCamCF end); _origCamCF = nil end
-    -- Restaura Mouse.Hit
+    -- Restaura __namecall original
+    if _namecallHook then
+        pcall(function()
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            rawset(mt, "__namecall", _namecallHook)
+            setreadonly(mt, true)
+        end)
+        _namecallHook = nil
+    end
     pcall(function()
         local mouse = player:GetMouse()
         rawset(mouse, "Hit", nil)
+        rawset(mouse, "Target", nil)
     end)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- HITBOX EXPANDER
+-- KNIFE HITBOX EXPANDER (Handle da knife)
 -- Como funciona:
---   Aumenta o tamanho do HumanoidRootPart do murderer no cliente local.
---   O servidor usa a posição/tamanho client-side para o Raycast de hit detection.
---   Um HRP de 20x20x20 é praticamente impossível de errar.
---   Invisível para outros jogadores (é só local).
+--   Expande o Handle.Size da sua própria knife localmente.
+--   O servidor usa Touched no Handle para registrar o hit.
+--   Um Handle maior = área de swing muito maior = acerta de longe.
+--   Diferente de tp — você swinga normalmente, só a área é maior.
+--
+-- HITBOX nos players (HRP):
+--   Expande HRP de todos os players localmente.
+--   Útil para gun (bala acerta hitbox maior) e knife swing.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
-local hitboxSize    = 12    -- studs (default conservador)
-local hitboxTargets = {}    -- [player] = originalSize
+local hitboxSize    = 12
+local hitboxTargets = {}
 local _hbConn       = nil
+
+-- Knife handle expander
+local knifeHitboxOn   = false
+local knifeHitboxSize = 15  -- studs (Handle da knife fica enorme)
+local _knifeOrigSize  = nil
+local _knifeHbConn    = nil
 
 local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    if not hitboxTargets[p] then
-        hitboxTargets[p] = hrp.Size  -- salva tamanho original
-    end
-    hrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+    if not hitboxTargets[p] then hitboxTargets[p] = hrp.Size end
+    pcall(function() hrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize) end)
 end
 
 local function removeHitbox(p)
@@ -287,14 +356,7 @@ local function startHitbox()
         if not hitboxOn then return end
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
-            -- Aplica só no murderer (mais seguro e mais eficiente)
-            local role = getRole(p)
-            if role == "murderer" then
-                applyHitbox(p)
-            else
-                -- Remove se não é mais murderer
-                if hitboxTargets[p] then removeHitbox(p) end
-            end
+            applyHitbox(p)
         end
     end)
 end
@@ -304,10 +366,43 @@ local function stopHitbox()
     removeAllHitboxes()
 end
 
+-- Expande o Handle da knife do próprio player
+local function applyKnifeHitbox()
+    local knife = getKnifeTool()
+    if not knife then return end
+    local h = knife:FindFirstChild("Handle"); if not h then return end
+    if not _knifeOrigSize then _knifeOrigSize = h.Size end
+    pcall(function() h.Size = Vector3.new(knifeHitboxSize, knifeHitboxSize, knifeHitboxSize) end)
+end
+
+local function removeKnifeHitbox()
+    local knife = getKnifeTool()
+    if knife then
+        local h = knife:FindFirstChild("Handle")
+        if h and _knifeOrigSize then
+            pcall(function() h.Size = _knifeOrigSize end)
+        end
+    end
+    _knifeOrigSize = nil
+end
+
+local function startKnifeHitbox()
+    if _knifeHbConn then _knifeHbConn:Disconnect() end
+    _knifeHbConn = RunService.Heartbeat:Connect(function()
+        if not knifeHitboxOn then return end
+        applyKnifeHitbox()
+    end)
+end
+
+local function stopKnifeHitbox()
+    if _knifeHbConn then _knifeHbConn:Disconnect(); _knifeHbConn = nil end
+    removeKnifeHitbox()
+end
+
 Players.PlayerRemoving:Connect(function(p) removeHitbox(p) end)
 for _, p in ipairs(Players:GetPlayers()) do
     p.CharacterAdded:Connect(function()
-        hitboxTargets[p] = nil  -- reseta ao respawnar
+        hitboxTargets[p] = nil
         if hitboxOn then task.wait(1); applyHitbox(p) end
     end)
 end
@@ -506,35 +601,20 @@ local function knifeAt(targetChar)
     if not knife then equipKnife(); task.wait(0.15); knife = getKnifeTool() end
     if not knife then return false end
 
-    -- Passo 1: teleporta HRP do player para cima do alvo (Touched server-side)
-    hrp.CFrame = CFrame.new(tHRP.Position + Vector3.new(0, 0.5, 0))
-    task.wait(0.05)
+    -- Aponta para o alvo e ativa swing normalmente
+    -- O hitbox expandido do Handle garante que o Touched do servidor dispare
+    hrp.CFrame = CFrame.lookAt(hrp.Position, tHRP.Position)
+    task.wait(0.03)
+    pcall(function() knife:Activate() end)
 
-    -- Passo 2: teleporta o Handle da knife para dentro do alvo
-    local kHandle = knife:FindFirstChild("Handle")
-    if kHandle then
-        pcall(function()
-            local saved = kHandle.CFrame
-            kHandle.CFrame = CFrame.new(tHRP.Position)
-            task.wait(0.05)
-            pcall(function() kHandle.CFrame = saved end)
-        end)
-    end
-
-    -- Passo 3: RemoteEvents com várias assinaturas
+    -- Tenta RemoteEvents como camada extra (sem teleporte)
     pcall(function()
         for _, obj in ipairs(knife:GetDescendants()) do
             if obj:IsA("RemoteEvent") then
                 pcall(function() obj:FireServer(tHRP.Position, tHRP) end)
-                pcall(function() obj:FireServer(tHRP) end)
-                pcall(function() obj:FireServer(tHRP.Position) end)
             end
         end
     end)
-
-    -- Passo 4: Activate com character apontado
-    hrp.CFrame = CFrame.lookAt(tHRP.Position + Vector3.new(0,0,0.1), tHRP.Position)
-    pcall(function() knife:Activate() end)
 
     return true
 end
@@ -988,28 +1068,26 @@ ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t
 secSheriff:Divider("hitbox expander")
 -- Aumenta o HRP do murderer localmente. Como o servidor usa posição client-side
 -- para validar hits, um HRP enorme = impossível de errar com qualquer tiro.
-local t_hb = secSheriff:Toggle("hitbox expander (murderer)", false, function(v)
+-- Hitbox dos players (pra gun acertar)
+local t_hb = secSheriff:Toggle("hitbox expander (todos players)", false, function(v)
     hitboxOn = v
     if v then
         startHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]",
-            "ativo — murderer tem hitbox "..hitboxSize.."x",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","players com hitbox "..hitboxSize.."x",ROLE_COLOR.sheriff)
     else
         stopHitbox()
         ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_hitbox", function() return hitboxOn end, function(v) t_hb.Set(v) end)
-
-local s_hbsize = secSheriff:Slider("tamanho hitbox (studs)", 4, 40, 12, function(v)
+local s_hbsize = secSheriff:Slider("tamanho hitbox players (studs)", 4, 40, 12, function(v)
     hitboxSize = v
     if hitboxOn then
-        -- Reaplicar com novo tamanho
         for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= player and getRole(p) == "murderer" then
+            if p ~= player then
                 local chr = p.Character
                 local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
-                if hrp then hrp.Size = Vector3.new(v,v,v) end
+                if hrp then pcall(function() hrp.Size = Vector3.new(v,v,v) end) end
             end
         end
     end
@@ -1232,7 +1310,30 @@ end)
 -- MURDERER
 -- ─────────────────────────────────────────────────────────────────────────────
 local secMurd=tabCombat:Section("murderer")
-secMurd:Divider("knife aura")
+
+-- Knife handle hitbox expander
+secMurd:Divider("knife hitbox (aura de range)")
+-- Expande o Handle da sua knife. O servidor usa Touched no Handle
+-- para registrar o hit — Handle maior = range maior sem teleporte.
+local t_kh = secMurd:Toggle("knife hitbox expander", false, function(v)
+    knifeHitboxOn = v
+    if v then
+        startKnifeHitbox()
+        ui:Toast("rbxassetid://131165537896572","[Knife Hitbox]",
+            "ativo — handle "..knifeHitboxSize.." studs",ROLE_COLOR.murderer)
+    else
+        stopKnifeHitbox()
+        ui:Toast("rbxassetid://131165537896572","[Knife Hitbox]","desativado",ROLE_COLOR.unknown)
+    end
+end)
+ui:CfgRegister("mm2_knifehitbox", function() return knifeHitboxOn end, function(v) t_kh.Set(v) end)
+local s_khs = secMurd:Slider("tamanho handle knife (studs)", 4, 40, 15, function(v)
+    knifeHitboxSize = v
+    if knifeHitboxOn then applyKnifeHitbox() end
+end)
+ui:CfgRegister("mm2_knifehitboxsize", function() return knifeHitboxSize end, function(v) s_khs.Set(v) end)
+
+secMurd:Divider("knife aura (auto swing)")
 local knifeAura=false; local knifeRange=12; local lastKnife=0; local knifeCd=0.35
 
 local function knifeAuraLoop()
@@ -1251,10 +1352,13 @@ local function knifeAuraLoop()
         end
         if best then
             lastKnife=tick()
-            -- Tp e ataca
+            -- Aponta para o alvo e swinga — sem teleporte
+            -- O knife hitbox expandido cuida do range
             local bHRP=best.Character and best.Character:FindFirstChild("HumanoidRootPart")
-            if bHRP then hrp.CFrame=bHRP.CFrame*CFrame.new(0,0,-2.5) end
-            task.wait(0.03)
+            if bHRP then
+                hrp.CFrame = CFrame.lookAt(hrp.Position, bHRP.Position)
+            end
+            task.wait(0.02)
             knifeAt(best.Character)
         end
     end
@@ -1397,27 +1501,46 @@ end)
 
 local secGrab=tabFarm:Section("gun grab (inocente)")
 local grabOn=false
+
 local function grabLoop()
     while grabOn do
-        task.wait(0.5)
+        task.wait(0.6)
         if getRole()=="murderer" then continue end
         local hrp=myHRP(); if not hrp then continue end
-        if getGunTool() then continue end
+        if getGunTool() then continue end  -- já tem gun
+
+        -- Acha a gun dropada mais próxima
         local best, bestD=nil, 800
         for _, obj in ipairs(workspace:GetDescendants()) do
             if obj:IsA("Tool") and GUN_NAMES[obj.Name] and isDropped(obj) then
                 local h=obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-                if h then local d=(hrp.Position-h.Position).Magnitude
-                    if d<bestD then best=h; bestD=d end end
+                if h then
+                    local d=(hrp.Position-h.Position).Magnitude
+                    if d<bestD then best=h; bestD=d end
+                end
             end
         end
+
         if best then
             hrp=myHRP(); if not hrp then continue end
-            hrp.CFrame=CFrame.new(best.Position+Vector3.new(0,3,0)); task.wait(0.5)
+
+            -- Salva posição original ANTES de qualquer tp
+            local savedCF = hrp.CFrame
+
+            -- Tp para cima da gun (pega a gun)
+            hrp.CFrame = CFrame.new(best.Position + Vector3.new(0, 2.5, 0))
+            task.wait(0.35)  -- tempo suficiente para o Touched registrar e equip acontecer
+
+            -- Volta para a posição original
+            hrp = myHRP(); if not hrp then continue end
+            hrp.CFrame = savedCF
+
+            task.wait(0.3)
         end
     end
 end
-local t_grab=secGrab:Toggle("auto pegar gun", false, function(v)
+
+local t_grab=secGrab:Toggle("auto pegar gun (vai e volta)", false, function(v)
     grabOn=v
     if v then task.spawn(grabLoop)
         ui:Toast("rbxassetid://131165537896572","[Gun Grab]","buscando gun...",ROLE_COLOR.sheriff)
@@ -1474,11 +1597,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v10")
+ui:BuildConfigTab(tabCfg, "ref_mm2v11")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v10.0  ["..ROLE_LABEL[role].."]",
+        "mm2 v11.0  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

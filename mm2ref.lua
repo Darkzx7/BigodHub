@@ -25,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v9", "rbxassetid://131165537896572", "ref_mm2v9")
+local ui = RefLib.new("mm2 v10", "rbxassetid://131165537896572", "ref_mm2v10")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- REMOTES REAIS (Cobalt)
@@ -205,6 +205,7 @@ end
 
 local function startSilentAim()
     if _saConn then _saConn:Disconnect() end
+    local mouse = player:GetMouse()
     _saConn = RunService.RenderStepped:Connect(function()
         if not silentAimOn then return end
         local targetChar = getSilentAimTarget()
@@ -212,23 +213,21 @@ local function startSilentAim()
         local tHRP = targetChar:FindFirstChild("HumanoidRootPart")
                   or targetChar:FindFirstChild("Head")
         if not tHRP then return end
-        local hrp = myHRP(); if not hrp then return end
 
-        -- Verifica se mouse está sendo pressionado (tiro iminente)
-        local mouse = player:GetMouse()
-        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-        or UserInputService:GetGamepadButtonDown(Enum.KeyCode.ButtonR2) then
-            -- Redireciona câmera para o alvo silenciosamente
-            _origCamCF = cam.CFrame
-            local aimPos = tHRP.Position
-            cam.CFrame = CFrame.new(cam.CFrame.Position, aimPos)
-            -- Restaura no próximo frame (após o servidor processar o Raycast)
-            task.defer(function()
-                if _origCamCF and cam then
-                    pcall(function() cam.CFrame = _origCamCF end)
-                    _origCamCF = nil
-                end
+        -- Override Mouse.Hit para apontar pro alvo SEMPRE
+        -- O LocalScript da gun usa Mouse.Hit.Position para a direção da bala
+        local aimCF = CFrame.new(tHRP.Position)
+        pcall(function() rawset(mouse, "Hit", aimCF) end)
+
+        -- Também redireciona câmera como fallback
+        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+            _origCamCF = _origCamCF or cam.CFrame
+            pcall(function()
+                cam.CFrame = CFrame.new(cam.CFrame.Position, tHRP.Position)
             end)
+        elseif _origCamCF then
+            pcall(function() cam.CFrame = _origCamCF end)
+            _origCamCF = nil
         end
     end)
 end
@@ -236,6 +235,11 @@ end
 local function stopSilentAim()
     if _saConn then _saConn:Disconnect(); _saConn = nil end
     if _origCamCF then pcall(function() cam.CFrame = _origCamCF end); _origCamCF = nil end
+    -- Restaura Mouse.Hit
+    pcall(function()
+        local mouse = player:GetMouse()
+        rawset(mouse, "Hit", nil)
+    end)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -396,7 +400,6 @@ local function shootAt(targetChar)
                or targetChar:FindFirstChild("Head")
     if not tHRP then return false end
 
-    -- Garante gun disponível
     local handle, gunTool = getGunHandle()
     if not handle then
         equipGun(); task.wait(0.15)
@@ -404,33 +407,60 @@ local function shootAt(targetChar)
     end
     if not handle then return false end
 
-    local originPos = handle.Position
-    local targetPos = tHRP.Position
+    -- Aponta HRP para o alvo (necessário para alguns LocalScripts da gun)
+    hrp.CFrame = CFrame.lookAt(hrp.Position, tHRP.Position)
+    task.wait(0.03)
+
+    local targetPos  = tHRP.Position
     local targetPart = getNearbyWorkspacePart(targetPos)
 
-    -- Aponta para o alvo
-    hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
-    task.wait(0.04)
-
-    -- firesignal EXATO do Cobalt
+    -- Estratégia 1: originPos = exatamente no alvo (bala nasce no alvo = hit instantâneo)
+    -- O LocalScript da gun usa originPos apenas para efeito visual da trajetória.
+    -- O servidor usa Touched no projétil — se o projétil começa no HRP, Touched dispara.
     local ok = false
     pcall(function()
         firesignal(GunFiredEvent.OnClientEvent,
             handle,
-            originPos,
-            targetPos,
+            targetPos,          -- origin = posição do alvo (bala nasce no alvo)
+            targetPos + Vector3.new(0, -1, 0),  -- target levemente abaixo
             targetPart or tHRP
         )
         ok = true
     end)
 
-    -- Tenta RemoteEvent da gun para dano server-side
+    -- Estratégia 2: tiro normal com origem real mas apontando pro alvo
+    -- (funciona se o servidor usa Raycast com distância grande)
+    if not ok then
+        pcall(function()
+            firesignal(GunFiredEvent.OnClientEvent,
+                handle,
+                handle.Position,
+                targetPos,
+                targetPart or tHRP
+            )
+            ok = true
+        end)
+    end
+
+    -- Estratégia 3: teleporta handle para o alvo momentaneamente
+    -- (força Touched no HRP do target com o projétil)
+    pcall(function()
+        if gunTool then
+            local savedCF = handle.CFrame
+            handle.CFrame = CFrame.new(targetPos)
+            task.wait(0.05)
+            pcall(function() handle.CFrame = savedCF end)
+        end
+    end)
+
+    -- Estratégia 4: tenta todos RemoteEvents da gun com várias assinaturas
     if gunTool then
         pcall(function()
             for _, obj in ipairs(gunTool:GetDescendants()) do
                 if obj:IsA("RemoteEvent") then
-                    pcall(function() obj:FireServer(targetPos, tHRP) end)
-                    break
+                    pcall(function() obj:FireServer(targetPos, tHRP, handle.Position) end)
+                    pcall(function() obj:FireServer(tHRP, targetPos) end)
+                    pcall(function() obj:FireServer(targetPos) end)
                 end
             end
         end)
@@ -476,21 +506,37 @@ local function knifeAt(targetChar)
     if not knife then equipKnife(); task.wait(0.15); knife = getKnifeTool() end
     if not knife then return false end
 
-    hrp.CFrame = tHRP.CFrame * CFrame.new(0, 0, -3)
-    task.wait(0.04)
-    hrp.CFrame = CFrame.lookAt(hrp.Position, tHRP.Position)
+    -- Passo 1: teleporta HRP do player para cima do alvo (Touched server-side)
+    hrp.CFrame = CFrame.new(tHRP.Position + Vector3.new(0, 0.5, 0))
+    task.wait(0.05)
 
-    local fired = false
+    -- Passo 2: teleporta o Handle da knife para dentro do alvo
+    local kHandle = knife:FindFirstChild("Handle")
+    if kHandle then
+        pcall(function()
+            local saved = kHandle.CFrame
+            kHandle.CFrame = CFrame.new(tHRP.Position)
+            task.wait(0.05)
+            pcall(function() kHandle.CFrame = saved end)
+        end)
+    end
+
+    -- Passo 3: RemoteEvents com várias assinaturas
     pcall(function()
         for _, obj in ipairs(knife:GetDescendants()) do
             if obj:IsA("RemoteEvent") then
                 pcall(function() obj:FireServer(tHRP.Position, tHRP) end)
-                fired = true; break
+                pcall(function() obj:FireServer(tHRP) end)
+                pcall(function() obj:FireServer(tHRP.Position) end)
             end
         end
     end)
-    if not fired then pcall(function() knife:Activate(); fired = true end) end
-    return fired
+
+    -- Passo 4: Activate com character apontado
+    hrp.CFrame = CFrame.lookAt(tHRP.Position + Vector3.new(0,0,0.1), tHRP.Position)
+    pcall(function() knife:Activate() end)
+
+    return true
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -520,14 +566,30 @@ end
 local function collectCoin(coinPart)
     if not coinPart or not coinPart.Parent then return end
     local hrp = myHRP(); if not hrp then return end
-    hrp.CFrame = CFrame.new(coinPart.Position + Vector3.new(0, 3, 0))
-    task.wait(0.1)
+
+    -- Teleporta diretamente para DENTRO da coin (trigger Touched server-side)
+    -- Tenta 3x com offsets para garantir que o Touched dispare
+    local pos = coinPart.Position
+    local offsets = {
+        Vector3.new(0, 0, 0),       -- dentro da coin
+        Vector3.new(0, 0.5, 0),     -- levemente acima
+        Vector3.new(0, -0.5, 0),    -- levemente abaixo
+    }
+    for _, off in ipairs(offsets) do
+        hrp = myHRP(); if not hrp then return end
+        if not coinPart.Parent then return end
+        hrp.CFrame = CFrame.new(pos + off)
+        task.wait(0.06)
+    end
+
+    -- Tenta FireServer se CoinCollected for RemoteEvent
     if CoinCollectedEvent then
         pcall(function()
             if CoinCollectedEvent:IsA("RemoteEvent") then
                 CoinCollectedEvent:FireServer("Coin", 1, 1, {Value = 1})
             end
         end)
+        -- Atualiza UI local
         pcall(function()
             firesignal(CoinCollectedEvent.OnClientEvent, "Coin", 1, 1, {Value = 1})
         end)
@@ -1412,11 +1474,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v9")
+ui:BuildConfigTab(tabCfg, "ref_mm2v10")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v9.0  ["..ROLE_LABEL[role].."]",
+        "mm2 v10.0  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

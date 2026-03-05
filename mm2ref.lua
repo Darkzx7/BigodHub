@@ -331,8 +331,13 @@ local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    if not hitboxTargets[p] then hitboxTargets[p] = hrp.Size end
-    pcall(function() hrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize) end)
+    if not hitboxTargets[p] then
+        hitboxTargets[p] = { size = hrp.Size, collide = hrp.CanCollide }
+    end
+    pcall(function()
+        hrp.Size      = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+        hrp.CanCollide = false  -- remove colisão física do hitbox expandido
+    end)
 end
 
 local function removeHitbox(p)
@@ -341,7 +346,10 @@ local function removeHitbox(p)
     local chr = p.Character
     if chr then
         local hrp = chr:FindFirstChild("HumanoidRootPart")
-        if hrp then pcall(function() hrp.Size = orig end) end
+        if hrp then pcall(function()
+            hrp.Size       = orig.size
+            hrp.CanCollide = orig.collide
+        end) end
     end
     hitboxTargets[p] = nil
 end
@@ -371,8 +379,13 @@ local function applyKnifeHitbox()
     local knife = getKnifeTool()
     if not knife then return end
     local h = knife:FindFirstChild("Handle"); if not h then return end
-    if not _knifeOrigSize then _knifeOrigSize = h.Size end
-    pcall(function() h.Size = Vector3.new(knifeHitboxSize, knifeHitboxSize, knifeHitboxSize) end)
+    if not _knifeOrigSize then
+        _knifeOrigSize = { size = h.Size, collide = h.CanCollide }
+    end
+    pcall(function()
+        h.Size       = Vector3.new(knifeHitboxSize, knifeHitboxSize, knifeHitboxSize)
+        h.CanCollide = false  -- sem colisão física no handle expandido
+    end)
 end
 
 local function removeKnifeHitbox()
@@ -380,7 +393,10 @@ local function removeKnifeHitbox()
     if knife then
         local h = knife:FindFirstChild("Handle")
         if h and _knifeOrigSize then
-            pcall(function() h.Size = _knifeOrigSize end)
+            pcall(function()
+                h.Size       = _knifeOrigSize.size
+                h.CanCollide = _knifeOrigSize.collide
+            end)
         end
     end
     _knifeOrigSize = nil
@@ -1087,7 +1103,10 @@ local s_hbsize = secSheriff:Slider("tamanho hitbox players (studs)", 4, 40, 12, 
             if p ~= player then
                 local chr = p.Character
                 local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
-                if hrp then pcall(function() hrp.Size = Vector3.new(v,v,v) end) end
+                if hrp then pcall(function()
+                    hrp.Size       = Vector3.new(v,v,v)
+                    hrp.CanCollide = false
+                end) end
             end
         end
     end

@@ -25,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v14", "rbxassetid://131165537896572", "ref_mm2v14")
+local ui = RefLib.new("mm2 v14b", "rbxassetid://131165537896572", "ref_mm2v14b")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- REMOTES REAIS (Cobalt)
@@ -1439,41 +1439,66 @@ secCI:Button("quem e o murderer / sheriff", function()
         "vivos: "..alive, ROLE_COLOR.unknown)
 end)
 
-secCI:Button("[DEBUG] scan workspace items", function()
-    -- Imprime no output TUDO que parece ser arma no workspace
-    -- Use isso para descobrir o nome/tipo real das guns/knives dropadas
-    local results = {}
-    local keywords = {"gun","knife","weapon","tool","blade","pistol","revolver","sheriff","murder","coin"}
+secCI:Button("[DEBUG] scan + copy to clipboard", function()
+    local lines = {}
+    local seen  = {}
+
+    -- 1) Tudo com nome de arma/keyword
+    local keywords = {"gun","knife","weapon","tool","blade","pistol","revolver","sheriff","murder","coin","handle"}
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if not obj.Parent then continue end
+        if not obj.Parent or seen[obj] then continue end
         local nameLow = obj.Name:lower()
         for _, kw in ipairs(keywords) do
             if nameLow:find(kw) then
-                local parentName = obj.Parent and obj.Parent.Name or "nil"
-                local info = obj.ClassName..": '"..obj.Name.."' (pai: '"..parentName.."')"
-                table.insert(results, info)
-                print("[MM2 SCAN] " .. info)
+                seen[obj] = true
+                local path = obj.Name
+                local cur  = obj.Parent
+                for _=1,6 do
+                    if not cur or cur == workspace then break end
+                    path = cur.Name.."."..path
+                    cur  = cur.Parent
+                end
+                local line = obj.ClassName.." | "..path
+                table.insert(lines, line)
                 break
             end
         end
     end
-    -- Também lista todos Tools no workspace independente do nome
+
+    -- 2) Todos Tools/Models dropados (independente do nome)
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") or obj:IsA("Model") then
-            if isDropped(obj) then
-                local info = "[DROPPED] "..obj.ClassName..": '"..obj.Name.."'"
-                table.insert(results, info)
-                print("[MM2 SCAN] " .. info)
-            end
+        if seen[obj] then continue end
+        if (obj:IsA("Tool") or obj:IsA("Model")) and isDropped(obj) then
+            seen[obj] = true
+            local line = "[DROPPED] "..obj.ClassName.." | "..obj.Name.." (pai: "..obj.Parent.Name..")"
+            table.insert(lines, line)
         end
     end
-    if #results == 0 then
-        print("[MM2 SCAN] Nada encontrado — rode durante uma partida com items no chão")
-        ui:Toast("rbxassetid://131165537896572","[Debug]","nada encontrado — veja output/console",ROLE_COLOR.unknown)
-    else
-        print("[MM2 SCAN] Total: "..#results.." items")
-        ui:Toast("rbxassetid://131165537896572","[Debug] "..#results.." items","veja o console/output do executor",ROLE_COLOR.sheriff)
+
+    -- 3) PlayerData cache atual (roles)
+    for username, data in pairs(playerDataCache) do
+        if data.Role then
+            table.insert(lines, "[ROLE] "..username.." = "..tostring(data.Role))
+        end
     end
+
+    if #lines == 0 then
+        table.insert(lines, "Nada encontrado. Rode durante uma partida com items no chao.")
+    end
+
+    local output = table.concat(lines, "
+")
+    print(output)
+
+    -- Copia pro clipboard
+    pcall(function() setclipboard(output) end)
+    -- Fallback para executores com nome diferente
+    pcall(function() toclipboard(output) end)
+
+    ui:Toast("rbxassetid://131165537896572",
+        "[Debug] "..#lines.." linhas",
+        "copiado pro clipboard!",
+        ROLE_COLOR.sheriff)
 end)
 
 end -- COMBAT
@@ -1647,11 +1672,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v14")
+ui:BuildConfigTab(tabCfg, "ref_mm2v14b")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v14.0  ["..ROLE_LABEL[role].."]",
+        "mm2 v14b.0  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

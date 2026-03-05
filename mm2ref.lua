@@ -25,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v11", "rbxassetid://131165537896572", "ref_mm2v11")
+local ui = RefLib.new("mm2 v13", "rbxassetid://131165537896572", "ref_mm2v13")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- REMOTES REAIS (Cobalt)
@@ -174,12 +174,47 @@ end
 local function isDropped(tool)
     if not tool or not tool.Parent then return false end
     local p = tool.Parent
+    -- Se está num Backpack → não dropado
     if p:IsA("Backpack") then return false end
+    -- Se está no character de algum player → não dropado (equipado)
     for _, pl in ipairs(Players:GetPlayers()) do
         if pl.Character == p then return false end
     end
+    -- Se o pai é um player diretamente → não dropado
+    if p:IsA("Player") then return false end
     return true
 end
+
+-- ── Item Finders ─────────────────────────────────────────────────────────────
+-- MM2 pode dropar armas como: Tool direto, Model>Tool, ou Model com BaseParts
+-- Estratégia: busca por nome em TODOS os descendentes sem restrição de tipo pai
+
+local function findDroppedItems(nameTable)
+    local found = {}
+    local seen  = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if seen[obj] then continue end
+        seen[obj] = true
+        -- Aceita Tool OU Model com nome de arma
+        if (obj:IsA("Tool") or obj:IsA("Model")) and nameTable[obj.Name] then
+            if isDropped(obj) then
+                -- Tenta pegar Handle, senão pega qualquer BasePart
+                local h = obj:FindFirstChild("Handle")
+                       or obj:FindFirstChildWhichIsA("BasePart")
+                       or obj:FindFirstChildOfClass("BasePart")
+                if h then
+                    table.insert(found, {tool=obj, handle=h})
+                end
+            end
+        end
+    end
+    -- Fallback extra: busca pelo nome "Handle" dentro de qualquer coisa
+    -- que não seja character/backpack — pega gun mesmo sem nome conhecido
+    return found
+end
+
+local function findDroppedGuns()   return findDroppedItems(GUN_NAMES)   end
+local function findDroppedKnives() return findDroppedItems(KNIFE_NAMES) end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- SILENT AIM
@@ -967,10 +1002,14 @@ local function makeItemBB(tool)
     if not isDropped(tool) then return end
     local isKnife=KNIFE_NAMES[tool.Name]; local isGun=GUN_NAMES[tool.Name]
     if not isKnife and not isGun then return end
-    local adornee=tool:FindFirstChild("Handle") or tool:FindFirstChildOfClass("BasePart")
+    local adornee = tool:FindFirstChild("Handle")
+                 or tool:FindFirstChildWhichIsA("BasePart")
+                 or tool:FindFirstChildOfClass("BasePart")
     if not adornee then
         task.spawn(function()
-            local h=tool:WaitForChild("Handle",4)
+            task.wait(2)  -- espera a tool carregar
+            local h = tool:FindFirstChild("Handle")
+                   or tool:FindFirstChildOfClass("BasePart")
             if h and itemEspOn and not itemBBs[tool] then makeItemBB(tool) end
         end); return
     end
@@ -1001,6 +1040,14 @@ local function makeItemBB(tool)
 end
 
 local function scanItems()
+    -- Usa os finders robustos que checam dentro de Models também
+    for _, g in ipairs(findDroppedGuns()) do
+        task.spawn(makeItemBB, g.tool)
+    end
+    for _, k in ipairs(findDroppedKnives()) do
+        task.spawn(makeItemBB, k.tool)
+    end
+    -- Fallback: GetDescendants completo
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Tool") and (KNIFE_NAMES[obj.Name] or GUN_NAMES[obj.Name]) then
             task.spawn(makeItemBB, obj)
@@ -1022,32 +1069,34 @@ ui:CfgRegister("mm2_item_esp", function() return itemEspOn end, function(v) t_it
 
 secItemEsp:Button("tp to knife", function()
     local hrp=myHRP(); if not hrp then return end
-    local best, bestD=nil, math.huge
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") and KNIFE_NAMES[obj.Name] and isDropped(obj) then
-            local h=obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-            if h then local d=(hrp.Position-h.Position).Magnitude
-                if d<bestD then best=h; bestD=d end end
-        end
+    local knives = findDroppedKnives()
+    local best, bestD = nil, math.huge
+    for _, k in ipairs(knives) do
+        local d = (hrp.Position - k.handle.Position).Magnitude
+        if d < bestD then best = k.handle; bestD = d end
     end
-    if best then hrp.CFrame=CFrame.new(best.Position+Vector3.new(0,3,0))
-        ui:Toast("rbxassetid://131165537896572","[Knife] tp","encontrada!",ROLE_COLOR.murderer)
-    else ui:Toast("rbxassetid://131165537896572","tp knife","nao encontrada",ROLE_COLOR.unknown) end
+    if best then
+        hrp.CFrame = CFrame.new(best.Position + Vector3.new(0,3,0))
+        ui:Toast("rbxassetid://131165537896572","[Knife] tp","encontrada! "..math.floor(bestD).."m",ROLE_COLOR.murderer)
+    else
+        ui:Toast("rbxassetid://131165537896572","tp knife","nenhuma knife dropada",ROLE_COLOR.unknown)
+    end
 end)
 
 secItemEsp:Button("tp to gun", function()
     local hrp=myHRP(); if not hrp then return end
-    local best, bestD=nil, math.huge
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") and GUN_NAMES[obj.Name] and isDropped(obj) then
-            local h=obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-            if h then local d=(hrp.Position-h.Position).Magnitude
-                if d<bestD then best=h; bestD=d end end
-        end
+    local guns = findDroppedGuns()
+    local best, bestD = nil, math.huge
+    for _, g in ipairs(guns) do
+        local d = (hrp.Position - g.handle.Position).Magnitude
+        if d < bestD then best = g.handle; bestD = d end
     end
-    if best then hrp.CFrame=CFrame.new(best.Position+Vector3.new(0,3,0))
-        ui:Toast("rbxassetid://131165537896572","[Gun] tp","encontrada!",ROLE_COLOR.sheriff)
-    else ui:Toast("rbxassetid://131165537896572","tp gun","nao encontrada",ROLE_COLOR.unknown) end
+    if best then
+        hrp.CFrame = CFrame.new(best.Position + Vector3.new(0,3,0))
+        ui:Toast("rbxassetid://131165537896572","[Gun] tp","encontrada! "..math.floor(bestD).."m",ROLE_COLOR.sheriff)
+    else
+        ui:Toast("rbxassetid://131165537896572","tp gun","nenhuma gun dropada no mapa",ROLE_COLOR.unknown)
+    end
 end)
 
 end -- ESP
@@ -1355,39 +1404,62 @@ ui:CfgRegister("mm2_knifehitboxsize", function() return knifeHitboxSize end, fun
 secMurd:Divider("knife aura (auto swing)")
 local knifeAura=false; local knifeRange=12; local lastKnife=0; local knifeCd=0.35
 
+local _knifeAuraConn = nil  -- Heartbeat connection (sem task.wait = sem lag)
+
 local function knifeAuraLoop()
-    while knifeAura do
-        task.wait(0.08)
-        if getRole()~="murderer" then continue end
-        if tick()-lastKnife<knifeCd then continue end
-        local hrp=myHRP(); if not hrp then continue end
-        local best, bestD=nil, knifeRange
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p==player then continue end
-            local ph=p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-            if not ph or not isAlive(p) then continue end
-            local d=(hrp.Position-ph.Position).Magnitude
-            if d<bestD then best=p; bestD=d end
+    -- Para conexão anterior se existir
+    if _knifeAuraConn then _knifeAuraConn:Disconnect(); _knifeAuraConn = nil end
+
+    -- Pre-equipa a knife uma vez
+    equipKnife()
+
+    local accum = 0
+    _knifeAuraConn = RunService.Heartbeat:Connect(function(dt)
+        if not knifeAura then
+            _knifeAuraConn:Disconnect(); _knifeAuraConn = nil; return
         end
+
+        accum = accum + dt
+        if accum < knifeCd then return end  -- respeita cooldown sem yield
+        accum = 0
+
+        if getRole() ~= "murderer" then return end
+
+        local hrp = myHRP(); if not hrp then return end
+        local knife = getKnifeTool(); if not knife then return end
+
+        -- Acha alvo mais próximo dentro do range
+        local best, bestD = nil, knifeRange
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p == player then continue end
+            local ph = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+            if not ph or not isAlive(p) then continue end
+            local d = (hrp.Position - ph.Position).Magnitude
+            if d < bestD then best = p; bestD = d end
+        end
+
         if best then
-            lastKnife=tick()
-            -- Aponta para o alvo e swinga — sem teleporte
-            -- O knife hitbox expandido cuida do range
-            local bHRP=best.Character and best.Character:FindFirstChild("HumanoidRootPart")
+            local bHRP = best.Character and best.Character:FindFirstChild("HumanoidRootPart")
             if bHRP then
+                -- Aponta pro alvo (CFrame direto, sem yield)
                 hrp.CFrame = CFrame.lookAt(hrp.Position, bHRP.Position)
             end
-            task.wait(0.02)
-            knifeAt(best.Character)
+            -- Activate diretamente — sem task.spawn, sem task.wait
+            -- Heartbeat já roda fora do render loop, é seguro
+            pcall(function() knife:Activate() end)
         end
-    end
+    end)
 end
 
-local t_ka=secMurd:Toggle("knife aura (tp + hit)", false, function(v)
+local t_ka=secMurd:Toggle("knife aura", false, function(v)
     knifeAura=v
-    if v then task.spawn(knifeAuraLoop)
+    if v then
+        knifeAuraLoop()  -- inicia direto (já usa Heartbeat internamente)
         ui:Toast("rbxassetid://131165537896572","[Knife Aura]","ativo",ROLE_COLOR.murderer)
-    else ui:Toast("rbxassetid://131165537896572","[Knife Aura]","desativado",ROLE_COLOR.unknown) end
+    else
+        if _knifeAuraConn then _knifeAuraConn:Disconnect(); _knifeAuraConn=nil end
+        ui:Toast("rbxassetid://131165537896572","[Knife Aura]","desativado",ROLE_COLOR.unknown)
+    end
 end)
 ui:CfgRegister("mm2_knifeaura", function() return knifeAura end, function(v) t_ka.Set(v) end)
 local s_kr=secMurd:Slider("range aura (studs)", 4, 60, 12, function(v) knifeRange=v end)
@@ -1528,16 +1600,11 @@ local function grabLoop()
         local hrp=myHRP(); if not hrp then continue end
         if getGunTool() then continue end  -- já tem gun
 
-        -- Acha a gun dropada mais próxima
-        local best, bestD=nil, 800
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Tool") and GUN_NAMES[obj.Name] and isDropped(obj) then
-                local h=obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-                if h then
-                    local d=(hrp.Position-h.Position).Magnitude
-                    if d<bestD then best=h; bestD=d end
-                end
-            end
+        -- Acha a gun dropada mais próxima (inclui guns dentro de Models)
+        local best, bestD=nil, math.huge
+        for _, g in ipairs(findDroppedGuns()) do
+            local d = (hrp.Position - g.handle.Position).Magnitude
+            if d < bestD then best = g.handle; bestD = d end
         end
 
         if best then
@@ -1616,11 +1683,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v11")
+ui:BuildConfigTab(tabCfg, "ref_mm2v13")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v11.0  ["..ROLE_LABEL[role].."]",
+        "mm2 v13.0  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

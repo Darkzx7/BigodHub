@@ -25,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v14b", "rbxassetid://131165537896572", "ref_mm2v14b")
+local ui = RefLib.new("mm2 v13", "rbxassetid://131165537896572", "ref_mm2v13")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- REMOTES REAIS (Cobalt)
@@ -399,12 +399,7 @@ local function startHitbox()
         if not hitboxOn then return end
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
-            -- Hitbox APENAS no murderer (impostor)
-            if getRole(p) == "murderer" then
-                applyHitbox(p)
-            else
-                if hitboxTargets[p] then removeHitbox(p) end
-            end
+            applyHitbox(p)
         end
     end)
 end
@@ -1138,28 +1133,30 @@ ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t
 secSheriff:Divider("hitbox expander")
 -- Aumenta o HRP do murderer localmente. Como o servidor usa posição client-side
 -- para validar hits, um HRP enorme = impossível de errar com qualquer tiro.
--- Hitbox só no murderer (pra gun acertar mais fácil)
-local t_hb = secSheriff:Toggle("hitbox expander (murderer)", false, function(v)
+-- Hitbox dos players (pra gun acertar)
+local t_hb = secSheriff:Toggle("hitbox expander (todos players)", false, function(v)
     hitboxOn = v
     if v then
         startHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]","murderer hitbox "..hitboxSize.."x",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","players com hitbox "..hitboxSize.."x",ROLE_COLOR.sheriff)
     else
         stopHitbox()
         ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_hitbox", function() return hitboxOn end, function(v) t_hb.Set(v) end)
-local s_hbsize = secSheriff:Slider("tamanho hitbox murderer (studs)", 4, 40, 12, function(v)
+local s_hbsize = secSheriff:Slider("tamanho hitbox players (studs)", 4, 40, 12, function(v)
     hitboxSize = v
     if hitboxOn then
-        local m = findByRole("murderer")
-        if m and m.Character then
-            local hrp = m.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then pcall(function()
-                hrp.Size = Vector3.new(v,v,v)
-                hrp.CanCollide = false
-            end) end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player then
+                local chr = p.Character
+                local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
+                if hrp then pcall(function()
+                    hrp.Size       = Vector3.new(v,v,v)
+                    hrp.CanCollide = false
+                end) end
+            end
         end
     end
 end)
@@ -1253,8 +1250,70 @@ player.CharacterAdded:Connect(function()
     if shootBtnOn then task.wait(1); buildShootBtn() end
 end)
 
+-- ── Gun Aura (Sheriff) ────────────────────────────────────────────────────────
+-- Combina: tp perto do murderer + silent aim + disparo automático
+-- É o método mais confiável porque elimina distância E mira ao mesmo tempo
+secSheriff:Divider("gun aura")
+local gunAuraOn  = false
+local gunAuraDist = 18  -- distância máxima do murderer antes de tp
+local lastGunAura = 0
+local gunAuraCD   = 0.8
+
+local function gunAuraLoop()
+    while gunAuraOn do
+        task.wait(0.1)
+        if getRole() ~= "sheriff" then continue end
+        if tick() - lastGunAura < gunAuraCD then continue end
+
+        local m = findByRole("murderer"); if not m then continue end
+        local mChr = m.Character; if not mChr then continue end
+        local mHRP = mChr:FindFirstChild("HumanoidRootPart"); if not mHRP then continue end
+        local hrp = myHRP(); if not hrp then continue end
+
+        local dist = (hrp.Position - mHRP.Position).Magnitude
+
+        -- Tp para perto se estiver longe demais
+        if dist > gunAuraDist then
+            hrp.CFrame = mHRP.CFrame * CFrame.new(0, 0, -(gunAuraDist * 0.6))
+            task.wait(0.08)
+            hrp = myHRP(); if not hrp then continue end
+        end
+
+        -- Aponta HRP e câmera para o alvo
+        local targetPos = mHRP.Position
+        hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
+        pcall(function()
+            local saved = cam.CFrame
+            cam.CFrame = CFrame.new(cam.CFrame.Position, targetPos)
+            task.defer(function() pcall(function() cam.CFrame = saved end) end)
+        end)
+        task.wait(0.04)
+
+        -- Dispara
+        lastGunAura = tick()
+        shootAt(mChr)
+    end
+end
+
+local t_ga = secSheriff:Toggle("gun aura (tp + silent aim + shoot)", false, function(v)
+    gunAuraOn = v
+    if v then
+        task.spawn(gunAuraLoop)
+        ui:Toast("rbxassetid://131165537896572","[Gun Aura]",
+            "ativo — tp+mira+tiro no murderer",ROLE_COLOR.sheriff)
+    else
+        ui:Toast("rbxassetid://131165537896572","[Gun Aura]","desativado",ROLE_COLOR.unknown)
+    end
+end)
+ui:CfgRegister("mm2_gunaura", function() return gunAuraOn end, function(v) t_ga.Set(v) end)
+
+local s_gacd = secSheriff:Slider("gun aura cooldown (x0.1s)", 2, 30, 8, function(v)
+    gunAuraCD = v / 10
+end)
+ui:CfgRegister("mm2_gacd", function() return gunAuraCD*10 end, function(v) s_gacd.Set(v) end)
+
 -- ── Auto Shoot ────────────────────────────────────────────────────────────────
-secSheriff:Divider("auto shoot")
+secSheriff:Divider("auto shoot (range livre)")
 local autoShootOn=false; local lastShot=0; local shotCD=0.6
 
 local function autoShootLoop()
@@ -1306,7 +1365,14 @@ secSheriff:Button("atirar no murderer (1x)", function()
         (ok and "disparado" or "falhou").." -> "..m.DisplayName, ROLE_COLOR.sheriff)
 end)
 
-
+secSheriff:Button("tp para murderer", function()
+    local m=findByRole("murderer")
+    if not m then
+        ui:Toast("rbxassetid://131165537896572","tp","murderer nao detectado",ROLE_COLOR.unknown); return end
+    local mh=m.Character and m.Character:FindFirstChild("HumanoidRootPart"); local hrp=myHRP()
+    if mh and hrp then hrp.CFrame=mh.CFrame*CFrame.new(0,0,-4)
+        ui:Toast("rbxassetid://131165537896572","[TP]","-> "..m.DisplayName,ROLE_COLOR.murderer) end
+end)
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MURDERER
@@ -1428,7 +1494,14 @@ secMurd:Button("matar mais proximo", function()
     ui:Toast("rbxassetid://131165537896572","[Knife]","-> "..best.DisplayName,ROLE_COLOR.murderer)
 end)
 
-
+secMurd:Button("tp para sheriff", function()
+    local s=findByRole("sheriff")
+    if not s then
+        ui:Toast("rbxassetid://131165537896572","tp","sheriff nao detectado",ROLE_COLOR.unknown); return end
+    local sh=s.Character and s.Character:FindFirstChild("HumanoidRootPart"); local hrp=myHRP()
+    if sh and hrp then hrp.CFrame=sh.CFrame*CFrame.new(0,0,-4)
+        ui:Toast("rbxassetid://131165537896572","[TP]","-> "..s.DisplayName,ROLE_COLOR.sheriff) end
+end)
 
 local secCI=tabCombat:Section("info")
 secCI:Button("quem e o murderer / sheriff", function()
@@ -1437,82 +1510,6 @@ secCI:Button("quem e o murderer / sheriff", function()
     ui:Toast("rbxassetid://131165537896572",
         "M: "..(m and m.DisplayName or "?").."  |  S: "..(s and s.DisplayName or "?"),
         "vivos: "..alive, ROLE_COLOR.unknown)
-end)
-
-secCI:Button("[DEBUG] scan + copy", function()
-    local ok, err = pcall(function()
-        local lines = {}
-        local seen  = {}
-
-        -- Tools/Models dropados
-        pcall(function()
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if seen[obj] then continue end
-                if not obj or not obj.Parent then continue end
-                pcall(function()
-                    if obj:IsA("Tool") or obj:IsA("Model") then
-                        if isDropped(obj) then
-                            seen[obj] = true
-                            table.insert(lines, "DROPPED|"..obj.ClassName.."|"..tostring(obj.Name).."|pai:"..tostring(obj.Parent.Name))
-                        end
-                    end
-                end)
-            end
-        end)
-
-        -- Keywords
-        pcall(function()
-            local kws = {"gun","knife","coin","handle","weapon","sheriff","murder"}
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if seen[obj] then continue end
-                if not obj or not obj.Parent then continue end
-                pcall(function()
-                    local n = obj.Name:lower()
-                    for _, kw in ipairs(kws) do
-                        if n:find(kw,1,true) then
-                            seen[obj] = true
-                            table.insert(lines, "KW|"..obj.ClassName.."|"..tostring(obj.Name).."|pai:"..tostring(obj.Parent.Name))
-                            break
-                        end
-                    end
-                end)
-            end
-        end)
-
-        -- Roles
-        pcall(function()
-            for u, d in pairs(playerDataCache) do
-                if d and d.Role then
-                    table.insert(lines, "ROLE|"..tostring(u).."|"..tostring(d.Role))
-                end
-            end
-        end)
-
-        if #lines == 0 then
-            table.insert(lines, "vazio - rode durante partida com items no chao")
-        end
-
-        local output = table.concat(lines, "
-")
-        print("[MM2]
-"..output)
-
-        -- clipboard
-        pcall(function()
-            local fns = {setclipboard, toclipboard}
-            for _, fn in ipairs(fns) do
-                if type(fn) == "function" then
-                    fn(output); break
-                end
-            end
-        end)
-
-        ui:Toast("rbxassetid://131165537896572","[Debug] "..#lines.." items","copiado!",ROLE_COLOR.sheriff)
-    end)
-    if not ok then
-        ui:Toast("rbxassetid://131165537896572","[Debug] erro",tostring(err),ROLE_COLOR.err)
-        print("[MM2 DEBUG ERROR] "..tostring(err))
-    end
 end)
 
 end -- COMBAT
@@ -1686,11 +1683,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v14b")
+ui:BuildConfigTab(tabCfg, "ref_mm2v13")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v14b.0  ["..ROLE_LABEL[role].."]",
+        "mm2 v13.0  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

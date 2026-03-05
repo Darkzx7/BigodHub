@@ -12,8 +12,28 @@
 
 local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 local RefLib
-pcall(function() RefLib = loadstring(game:HttpGet(LIB_URL, true))() end)
-if not RefLib then error("[mm2] nao foi possivel carregar a UI lib") end
+
+-- Tenta carregar com diagnóstico de erro
+local libSrc, httpErr = nil, nil
+local httpOk = pcall(function()
+    libSrc = game:HttpGet(LIB_URL, true)
+end)
+
+if not httpOk or not libSrc or #libSrc < 100 then
+    error("[mm2] HttpGet falhou — verifique se o executor tem acesso HTTP. URL: " .. LIB_URL)
+end
+
+local loadOk, loadResult = pcall(loadstring, libSrc)
+if not loadOk or type(loadResult) ~= "function" then
+    error("[mm2] loadstring falhou na lib: " .. tostring(loadResult))
+end
+
+local runOk, runResult = pcall(loadResult)
+if not runOk or not runResult then
+    error("[mm2] execucao da lib falhou: " .. tostring(runResult))
+end
+
+RefLib = runResult
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")

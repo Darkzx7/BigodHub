@@ -13,7 +13,7 @@
 local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 local RefLib
 pcall(function() RefLib = loadstring(game:HttpGet(LIB_URL, true))() end)
-if not RefLib then error("[mm2] falha ao carregar UI lib") end
+if not RefLib then error("[mm2] nao foi possivel carregar a UI lib") end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -25,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v15", "rbxassetid://131165537896572", "ref_mm2v15")
+local ui = RefLib.new("mm2 v14b", "rbxassetid://131165537896572", "ref_mm2v14b")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- REMOTES REAIS (Cobalt)
@@ -52,7 +52,6 @@ end)
 
 local KNIFE_NAMES = { Knife = true }
 local GUN_NAMES   = { Gun = true, ["Sheriff's Gun"] = true, Revolver = true, SheriffGun = true }
-local GUNDROP_NAMES = { GunDrop = true }  -- nome real da gun dropada no workspace
 local COIN_NAMES  = { Coin = true, coin = true, GoldCoin = true, goldcoin = true, Coins = true }
 
 local ROLE_COLOR = {
@@ -99,33 +98,9 @@ if RoleSelectEvent then
     end)
 end
 
-player.CharacterAdded:Connect(function(chr)
+player.CharacterAdded:Connect(function()
     playerDataCache = {}
     roleCache[player] = nil
-    -- Detecta papel pelo que entra no Backpack (método confirmado pelo source)
-    local bp = player:WaitForChild("Backpack", 5)
-    if bp then
-        bp.ChildAdded:Connect(function(child)
-            if KNIFE_NAMES[child.Name] then
-                roleCache[player] = "murderer"
-            elseif GUN_NAMES[child.Name] then
-                roleCache[player] = "sheriff"
-            end
-        end)
-    end
-end)
-
--- Também detecta imediatamente se já tem arma
-task.spawn(function()
-    local bp = player:FindFirstChild("Backpack")
-    if bp then
-        for name in pairs(KNIFE_NAMES) do
-            if bp:FindFirstChild(name) then roleCache[player]="murderer" end
-        end
-        for name in pairs(GUN_NAMES) do
-            if bp:FindFirstChild(name) then roleCache[player]="sheriff" end
-        end
-    end
 end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -211,38 +186,35 @@ local function isDropped(tool)
 end
 
 -- ── Item Finders ─────────────────────────────────────────────────────────────
--- Confirmado pelo source do MM2: gun dropada = Model "GunDrop" no workspace
--- knife dropada pode ser Tool "Knife" ou similar solto no workspace
+-- MM2 pode dropar armas como: Tool direto, Model>Tool, ou Model com BaseParts
+-- Estratégia: busca por nome em TODOS os descendentes sem restrição de tipo pai
 
-local function findDroppedGuns()
+local function findDroppedItems(nameTable)
     local found = {}
-    -- "GunDrop" é o nome real confirmado pelo source do jogo
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name == "GunDrop" then
-            local h = obj:FindFirstChildOfClass("BasePart") or obj:FindFirstChild("Handle")
-            table.insert(found, {tool=obj, handle=h or obj})
-        end
-    end
-    -- Fallback: Tools com nome de gun soltas no workspace
+    local seen  = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") and GUN_NAMES[obj.Name] and isDropped(obj) then
-            local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-            if h then table.insert(found, {tool=obj, handle=h}) end
+        if seen[obj] then continue end
+        seen[obj] = true
+        -- Aceita Tool OU Model com nome de arma
+        if (obj:IsA("Tool") or obj:IsA("Model")) and nameTable[obj.Name] then
+            if isDropped(obj) then
+                -- Tenta pegar Handle, senão pega qualquer BasePart
+                local h = obj:FindFirstChild("Handle")
+                       or obj:FindFirstChildWhichIsA("BasePart")
+                       or obj:FindFirstChildOfClass("BasePart")
+                if h then
+                    table.insert(found, {tool=obj, handle=h})
+                end
+            end
         end
     end
+    -- Fallback extra: busca pelo nome "Handle" dentro de qualquer coisa
+    -- que não seja character/backpack — pega gun mesmo sem nome conhecido
     return found
 end
 
-local function findDroppedKnives()
-    local found = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") and KNIFE_NAMES[obj.Name] and isDropped(obj) then
-            local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-            if h then table.insert(found, {tool=obj, handle=h}) end
-        end
-    end
-    return found
-end
+local function findDroppedGuns()   return findDroppedItems(GUN_NAMES)   end
+local function findDroppedKnives() return findDroppedItems(KNIFE_NAMES) end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- SILENT AIM
@@ -265,95 +237,91 @@ local function getSilentAimTarget()
     return nil
 end
 
--- Silent Aim REAL via __namecall
--- Confirmado pelo source do MM2:
---   Knife: FireServer no RemoteEvent "Throw" — Arguments[2] = posição do alvo
---   Gun:   InvokeServer na RemoteFunction "ShootGun" — Arguments[2] = posição do alvo
--- Simplesmente substituímos Arguments[2] pela posição do murderer com prediction
--- newcclosure é opcional — fallback pra função normal se o executor não tiver
-local _newcc = (type(newcclosure)=="function") and newcclosure or function(f) return f end
-
+-- Silent Aim REAL via __namecall hook
+-- Como funciona:
+--   O LocalScript da gun chama workspace:FindPartOnRayWithIgnoreList() ou
+--   workspace:Raycast() para calcular onde a bala vai.
+--   Hookeamos __namecall no workspace para interceptar qualquer chamada
+--   de Raycast/FindPartOnRay e substituir a direção pelo alvo.
+--   Resultado: a bala vai pro alvo independente de onde você está olhando.
+--   Zero teleporte, zero movimento — invisível para outros jogadores.
 local function startSilentAim()
-    if _namecallHook then return end
+    if _namecallHook then return end  -- já hookado
 
-    if type(getrawmetatable)~="function" or type(setreadonly)~="function" or type(getnamecallmethod)~="function" then
-        warn("[mm2] executor sem suporte a hooks — silent aim indisponivel")
-        return
-    end
+    local mouse = player:GetMouse()
 
-    local ok, err = pcall(function()
+    -- Hook principal via __namecall no workspace
+    -- Intercepta: Raycast, FindPartOnRay, FindPartOnRayWithIgnoreList
     local mt = getrawmetatable(game)
     local oldNamecall = rawget(mt, "__namecall")
     setreadonly(mt, false)
 
-    rawset(mt, "__namecall", _newcc(function(self, ...)
+    rawset(mt, "__namecall", newcclosure(function(self, ...)
         if not silentAimOn then return oldNamecall(self, ...) end
 
         local method = getnamecallmethod()
-        local args   = {...}
-        local name   = tostring(self)
+        -- Intercepta apenas chamadas de Raycast no workspace
+        if (method == "Raycast" or method == "FindPartOnRay"
+        or method == "FindPartOnRayWithIgnoreList"
+        or method == "FindPartOnRayWithWhitelist") and self == workspace then
 
-        -- ── GUN: InvokeServer no "ShootGun" ──────────────────────────────────
-        -- O sheriff chama ShootGun:InvokeServer(origin, targetPos)
-        -- Substituímos targetPos pela posição do murderer
-        if method == "InvokeServer" and name == "ShootGun" then
-            pcall(function()
-                local targetChar = getSilentAimTarget()
-                if not targetChar then return end
-                local hrp = targetChar:FindFirstChild("HumanoidRootPart")
-                if not hrp then return end
-                -- Prediction de movimento (igual ao source original)
-                local vel = hrp.AssemblyLinearVelocity
-                local prediction = vel / 40
-                -- Só aplica prediction se não estiver pulando
-                if math.abs(vel.Y) < 10 then
-                    args[2] = hrp.Position + prediction
-                else
-                    args[2] = hrp.Position
+            local targetChar = getSilentAimTarget()
+            if targetChar then
+                local tHRP = targetChar:FindFirstChild("HumanoidRootPart")
+                          or targetChar:FindFirstChild("Head")
+                if tHRP then
+                    local args = {...}
+                    -- args[1] = origin (Ray ou Vector3), args[2] = direction/ignorelist
+                    -- Substitui a direção para apontar pro alvo
+                    if method == "Raycast" then
+                        -- workspace:Raycast(origin, direction, params)
+                        local origin = args[1]
+                        if typeof(origin) == "Vector3" then
+                            local dir = (tHRP.Position - origin).Unit * 1000
+                            return oldNamecall(self, origin, dir, args[3])
+                        end
+                    elseif method == "FindPartOnRay" then
+                        -- workspace:FindPartOnRay(Ray, ignoreInstance, ...)
+                        local ray = args[1]
+                        if typeof(ray) == "Ray" then
+                            local newDir = (tHRP.Position - ray.Origin).Unit * 1000
+                            local newRay = Ray.new(ray.Origin, newDir)
+                            return oldNamecall(self, newRay, args[2], args[3], args[4])
+                        end
+                    elseif method == "FindPartOnRayWithIgnoreList" then
+                        local ray = args[1]
+                        if typeof(ray) == "Ray" then
+                            local newDir = (tHRP.Position - ray.Origin).Unit * 1000
+                            local newRay = Ray.new(ray.Origin, newDir)
+                            return oldNamecall(self, newRay, args[2], args[3], args[4])
+                        end
+                    end
                 end
-            end)
-            return oldNamecall(self, unpack(args))
+            end
         end
-
-        -- ── KNIFE: FireServer no "Throw" ──────────────────────────────────────
-        -- O murderer chama Throw:FireServer(origin, targetPos)
-        -- Substituímos targetPos pela posição do alvo mais próximo
-        if method == "FireServer" and name == "Throw" then
-            pcall(function()
-                -- Alvo da faca = player mais próximo (não só murderer)
-                local hrp = myHRP(); if not hrp then return end
-                local best, bestD = nil, math.huge
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p == player then continue end
-                    local ph = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                    if not ph then continue end
-                    local d = (hrp.Position - ph.Position).Magnitude
-                    if d < bestD then best = ph; bestD = d end
-                end
-                if not best then return end
-                -- Prediction de velocidade (igual ao source original)
-                local vel = best.AssemblyLinearVelocity * Vector3.new(1,0,1)
-                local mag = (best.Position - hrp.Position).Magnitude
-                local prediction = vel * 0.5 * mag / 100
-                args[2] = best.Position + prediction
-            end)
-            return oldNamecall(self, unpack(args))
-        end
-
         return oldNamecall(self, ...)
     end))
 
     setreadonly(mt, true)
     _namecallHook = oldNamecall
-    end) -- end pcall
 
-    if not ok then
-        warn("[mm2] silent aim hook falhou: "..tostring(err))
-    end
+    -- Também faz rawset no Mouse.Hit como camada extra
+    _saConn = RunService.RenderStepped:Connect(function()
+        if not silentAimOn then return end
+        local targetChar = getSilentAimTarget()
+        if not targetChar then return end
+        local tHRP = targetChar:FindFirstChild("HumanoidRootPart")
+                  or targetChar:FindFirstChild("Head")
+        if tHRP then
+            pcall(function() rawset(mouse, "Hit", CFrame.new(tHRP.Position)) end)
+            pcall(function() rawset(mouse, "Target", tHRP) end)
+        end
+    end)
 end
 
 local function stopSilentAim()
     if _saConn then _saConn:Disconnect(); _saConn = nil end
+    -- Restaura __namecall original
     if _namecallHook then
         pcall(function()
             local mt = getrawmetatable(game)
@@ -363,6 +331,11 @@ local function stopSilentAim()
         end)
         _namecallHook = nil
     end
+    pcall(function()
+        local mouse = player:GetMouse()
+        rawset(mouse, "Hit", nil)
+        rawset(mouse, "Target", nil)
+    end)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -1032,8 +1005,7 @@ end
 local function makeItemBB(tool)
     if itemBBs[tool] then return end
     if not isDropped(tool) then return end
-    local isKnife = KNIFE_NAMES[tool.Name]
-    local isGun   = GUN_NAMES[tool.Name] or GUNDROP_NAMES[tool.Name]
+    local isKnife=KNIFE_NAMES[tool.Name]; local isGun=GUN_NAMES[tool.Name]
     if not isKnife and not isGun then return end
     local adornee = tool:FindFirstChild("Handle")
                  or tool:FindFirstChildWhichIsA("BasePart")
@@ -1089,17 +1061,8 @@ local function scanItems()
 end
 workspace.DescendantAdded:Connect(function(obj)
     if not itemEspOn then return end
-    local isItem = (obj:IsA("Tool") or obj:IsA("Model"))
-        and (KNIFE_NAMES[obj.Name] or GUN_NAMES[obj.Name] or GUNDROP_NAMES[obj.Name])
-    if isItem then
+    if obj:IsA("Tool") and (KNIFE_NAMES[obj.Name] or GUN_NAMES[obj.Name]) then
         task.wait(0.15); task.spawn(makeItemBB, obj)
-    end
-end)
--- GunDrop aparece direto no workspace como filho
-workspace.ChildAdded:Connect(function(obj)
-    if not itemEspOn then return end
-    if GUNDROP_NAMES[obj.Name] then
-        task.wait(0.1); task.spawn(makeItemBB, obj)
     end
 end)
 
@@ -1499,7 +1462,7 @@ secCI:Button("[DEBUG] scan + copy", function()
 
         -- Keywords
         pcall(function()
-            local kws = {"gun","knife","coin","handle","weapon","sheriff","murder","gundrop","drop"}
+            local kws = {"gun","knife","coin","handle","weapon","sheriff","murder"}
             for _, obj in ipairs(workspace:GetDescendants()) do
                 if seen[obj] then continue end
                 if not obj or not obj.Parent then continue end
@@ -1638,14 +1601,7 @@ local function grabLoop()
         task.wait(0.6)
         if getRole()=="murderer" then continue end
         local hrp=myHRP(); if not hrp then continue end
-        if getGunTool() then continue end  -- já tem gun equipada
-        -- Também verifica se já tem gun no backpack (pode ter pegado mas não equipou)
-        local bp2 = player:FindFirstChild("Backpack")
-        if bp2 then
-            local hasGun = false
-            for n in pairs(GUN_NAMES) do if bp2:FindFirstChild(n) then hasGun=true end end
-            if hasGun then continue end
-        end
+        if getGunTool() then continue end  -- já tem gun
 
         -- Acha a gun dropada mais próxima (inclui guns dentro de Models)
         local best, bestD=nil, math.huge
@@ -1730,11 +1686,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v15")
+ui:BuildConfigTab(tabCfg, "ref_mm2v14b")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v15.0  ["..ROLE_LABEL[role].."]",
+        "mm2 v14b.0  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

@@ -12,28 +12,8 @@
 
 local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 local RefLib
-
--- Tenta carregar com diagnóstico de erro
-local libSrc, httpErr = nil, nil
-local httpOk = pcall(function()
-    libSrc = game:HttpGet(LIB_URL, true)
-end)
-
-if not httpOk or not libSrc or #libSrc < 100 then
-    error("[mm2] HttpGet falhou — verifique se o executor tem acesso HTTP. URL: " .. LIB_URL)
-end
-
-local loadOk, loadResult = pcall(loadstring, libSrc)
-if not loadOk or type(loadResult) ~= "function" then
-    error("[mm2] loadstring falhou na lib: " .. tostring(loadResult))
-end
-
-local runOk, runResult = pcall(loadResult)
-if not runOk or not runResult then
-    error("[mm2] execucao da lib falhou: " .. tostring(runResult))
-end
-
-RefLib = runResult
+pcall(function() RefLib = loadstring(game:HttpGet(LIB_URL, true))() end)
+if not RefLib then error("[mm2] falha ao carregar UI lib") end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -290,14 +270,23 @@ end
 --   Knife: FireServer no RemoteEvent "Throw" — Arguments[2] = posição do alvo
 --   Gun:   InvokeServer na RemoteFunction "ShootGun" — Arguments[2] = posição do alvo
 -- Simplesmente substituímos Arguments[2] pela posição do murderer com prediction
-local function startSilentAim()
-    if _namecallHook then return end  -- já hookado
+-- newcclosure é opcional — fallback pra função normal se o executor não tiver
+local _newcc = (type(newcclosure)=="function") and newcclosure or function(f) return f end
 
+local function startSilentAim()
+    if _namecallHook then return end
+
+    if type(getrawmetatable)~="function" or type(setreadonly)~="function" or type(getnamecallmethod)~="function" then
+        warn("[mm2] executor sem suporte a hooks — silent aim indisponivel")
+        return
+    end
+
+    local ok, err = pcall(function()
     local mt = getrawmetatable(game)
     local oldNamecall = rawget(mt, "__namecall")
     setreadonly(mt, false)
 
-    rawset(mt, "__namecall", newcclosure(function(self, ...)
+    rawset(mt, "__namecall", _newcc(function(self, ...)
         if not silentAimOn then return oldNamecall(self, ...) end
 
         local method = getnamecallmethod()
@@ -356,6 +345,11 @@ local function startSilentAim()
 
     setreadonly(mt, true)
     _namecallHook = oldNamecall
+    end) -- end pcall
+
+    if not ok then
+        warn("[mm2] silent aim hook falhou: "..tostring(err))
+    end
 end
 
 local function stopSilentAim()

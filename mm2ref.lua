@@ -335,20 +335,18 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- AIM ASSIST — rotaciona a câmera suavemente pro murderer quando gun equipada
+-- AIM SNAP — snapa câmera pro murderer no momento do tiro
 --
--- Funciona em PC e mobile porque age direto no CFrame da câmera.
--- Não usa hookmetamethod, não quebra câmera, não gera warnings.
--- O jogador atira normalmente — a câmera já tá apontada pro alvo.
--- "strength" controla o quanto a câmera puxa (0.0 a 1.0).
--- "fov" controla o raio de ativação em studs — só ativa se o alvo
--- estiver dentro do cone de visão, parecendo aim assist natural.
+-- Diferente do aim assist suave (inútil), isso funciona assim:
+-- Detecta quando a gun dispara (Tool.Activated) e no mesmo frame
+-- força cam.CFrame a olhar pro HRP do murderer.
+-- Parece correção de recoil — não tem teleporte, não é óbvio.
+-- Funciona em PC e mobile pois age no cam.CFrame direto.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local aimAssistOn       = false
-local aimAssistStrength = 0.08   -- suave por padrão (difícil de notar)
-local aimAssistFov      = 80     -- studs — só puxa se alvo estiver perto da mira
-local _aaConn           = nil
+local aimAssistOn = false
+local _aaConn     = nil
+local _aaToolConn = nil
 
 local function isGunEquipped()
     local chr = player.Character; if not chr then return false end
@@ -367,97 +365,104 @@ local function getAimTarget()
     return nil
 end
 
+-- Snapa câmera pro alvo num único frame
+local function snapCamToTarget(target)
+    if not target or not target.Parent then return end
+    local camPos = cam.CFrame.Position
+    cam.CFrame = CFrame.lookAt(camPos, target.Position)
+end
+
+-- Conecta o snap no evento Activated da gun equipada
+local function hookGunActivated()
+    if _aaToolConn then _aaToolConn:Disconnect(); _aaToolConn = nil end
+    local chr = player.Character; if not chr then return end
+    for name in pairs(GUN_NAMES) do
+        local tool = chr:FindFirstChild(name)
+        if tool then
+            _aaToolConn = tool.Activated:Connect(function()
+                if not aimAssistOn then return end
+                local t = getAimTarget(); if not t then return end
+                snapCamToTarget(t)
+            end)
+            return
+        end
+    end
+end
+
 local function startAimAssist()
     if _aaConn then _aaConn:Disconnect() end
-    _aaConn = RunService.RenderStepped:Connect(function()
+    -- Reconecta sempre que um novo tool aparece no character
+    _aaConn = RunService.Heartbeat:Connect(function()
         if not aimAssistOn then return end
         if not isGunEquipped() then return end
-
-        local target = getAimTarget(); if not target then return end
-        local hrp    = myHRP(); if not hrp then return end
-
-        local camCF   = cam.CFrame
-        local toTarget = (target.Position - camCF.Position)
-
-        -- Só ativa se o alvo estiver dentro do raio de ativação
-        if toTarget.Magnitude > aimAssistFov then return end
-
-        -- Verifica se o alvo está na frente da câmera (cone ~90 graus)
-        local lookDir  = camCF.LookVector
-        local targetDir = toTarget.Unit
-        if lookDir:Dot(targetDir) < 0.5 then return end
-
-        -- Interpola suavemente o LookVector da câmera em direção ao alvo
-        local newLook = lookDir:Lerp(targetDir, aimAssistStrength)
-        local right   = camCF.RightVector
-        local up      = right:Cross(newLook).Unit
-
-        cam.CFrame = CFrame.fromMatrix(camCF.Position, right, up)
+        if not _aaToolConn then hookGunActivated() end
+    end)
+    player.CharacterAdded:Connect(function()
+        if _aaToolConn then _aaToolConn:Disconnect(); _aaToolConn = nil end
     end)
 end
 
 local function stopAimAssist()
     aimAssistOn = false
     if _aaConn then _aaConn:Disconnect(); _aaConn = nil end
+    if _aaToolConn then _aaToolConn:Disconnect(); _aaToolConn = nil end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- HITBOX EXPANDER
--- Abordagem do script universal: modifica HRP.Size diretamente + Transparency
--- + Material Neon pra visualização opcional. Muito mais confiável que Part extra.
+-- HITBOX EXPANDER — para FACA (Touched server-side)
+--
+-- hrp.Size no cliente NÃO afeta o servidor — é só visual.
+-- O servidor do MM2 valida faca via Touched na Handle da knife.
+-- A solução real: criar uma Part invisível grande weldada no character
+-- de CADA PLAYER. Quando a faca do murderer toca essa Part, o servidor
+-- registra o hit normalmente (porque a Part é filha do character).
+--
+-- Para GUN: o servidor faz raycast — hitbox de Part não ajuda.
+-- O que ajuda na gun é o aim snap acima.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
 local hitboxSize    = 20
 local hitboxVisible = false
 local _hbConn       = nil
-local hitboxOriginals = {}
-
-local function saveOriginal(p)
-    if hitboxOriginals[p] then return end
-    local chr = p.Character; if not chr then return end
-    local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    hitboxOriginals[p] = {
-        size         = hrp.Size,
-        transparency = hrp.Transparency,
-        brickColor   = hrp.BrickColor,
-        material     = hrp.Material,
-    }
-end
+local hitboxParts   = {}  -- [player] = Part
 
 local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    saveOriginal(p)
-    pcall(function()
-        hrp.Size         = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-        hrp.Transparency = hitboxVisible and 0.6 or 1
-        if hitboxVisible then
-            hrp.BrickColor = BrickColor.new("Really red")
-            hrp.Material   = Enum.Material.Neon
-        end
-        hrp.CanCollide = false
-    end)
+    -- Não recria se já existe e está no lugar
+    local existing = hitboxParts[p]
+    if existing and existing.Parent == chr then return end
+
+    local hb = Instance.new("Part")
+    hb.Name          = "mm2_hb"
+    hb.Size          = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+    hb.Transparency  = hitboxVisible and 0.5 or 1
+    hb.BrickColor    = BrickColor.new("Really red")
+    hb.Material      = hitboxVisible and Enum.Material.Neon or Enum.Material.Plastic
+    hb.CanCollide    = false
+    hb.CanTouch      = true   -- ESSENCIAL: servidor detecta Touched nessa Part
+    hb.Anchored      = false
+    hb.CastShadow    = false
+    hb.Parent        = chr   -- filho do character, não do HRP
+
+    local w = Instance.new("WeldConstraint")
+    w.Part0  = hrp
+    w.Part1  = hb
+    w.Parent = hb
+
+    hitboxParts[p] = hb
 end
 
-local function restoreHitbox(p)
-    if not p then return end
-    local orig = hitboxOriginals[p]; if not orig then return end
-    local chr = p.Character; if not chr then return end
-    local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    pcall(function()
-        hrp.Size         = orig.size
-        hrp.Transparency = orig.transparency
-        hrp.BrickColor   = orig.brickColor
-        hrp.Material     = orig.material
-    end)
-    hitboxOriginals[p] = nil
+local function removeHitbox(p)
+    local hb = hitboxParts[p]
+    if hb and hb.Parent then pcall(function() hb:Destroy() end) end
+    hitboxParts[p] = nil
 end
 
-local function restoreAllHitboxes()
-    for p in pairs(hitboxOriginals) do restoreHitbox(p) end
-    hitboxOriginals = {}
+local function removeAllHitboxes()
+    for p in pairs(hitboxParts) do removeHitbox(p) end
 end
 
 local function startHitbox()
@@ -467,21 +472,33 @@ local function startHitbox()
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
             applyHitbox(p)
+            -- Atualiza tamanho e visibilidade se slider mudou
+            local hb = hitboxParts[p]
+            if hb and hb.Parent then
+                if hb.Size.X ~= hitboxSize then
+                    pcall(function() hb.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize) end)
+                end
+                local wantTrans = hitboxVisible and 0.5 or 1
+                if hb.Transparency ~= wantTrans then
+                    pcall(function()
+                        hb.Transparency = wantTrans
+                        hb.Material = hitboxVisible and Enum.Material.Neon or Enum.Material.Plastic
+                    end)
+                end
+            end
         end
     end)
 end
 
 local function stopHitbox()
     if _hbConn then _hbConn:Disconnect(); _hbConn = nil end
-    restoreAllHitboxes()
+    removeAllHitboxes()
 end
 
-Players.PlayerRemoving:Connect(function(p)
-    hitboxOriginals[p] = nil
-end)
+Players.PlayerRemoving:Connect(function(p) hitboxParts[p] = nil end)
 for _, p in ipairs(Players:GetPlayers()) do
     p.CharacterAdded:Connect(function()
-        hitboxOriginals[p] = nil
+        hitboxParts[p] = nil
         if hitboxOn then task.wait(1); applyHitbox(p) end
     end)
 end
@@ -976,39 +993,29 @@ do
 
 local secSheriff = tabCombat:Section("sheriff")
 
-secSheriff:Divider("aim assist (camera)")
-local t_sa = secSheriff:Toggle("aim assist (puxa camera pro murderer)", false, function(v)
+secSheriff:Divider("aim snap (camera)")
+local t_sa = secSheriff:Toggle("aim snap (snapa camera no tiro)", false, function(v)
     aimAssistOn = v
     if v then
         startAimAssist()
-        ui:Toast("rbxassetid://131165537896572","[Aim Assist]",
-            "ativo — camera suave, PC e mobile",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Aim Snap]",
+            "ativo — snapa camera pro murderer ao atirar",ROLE_COLOR.sheriff)
     else
         stopAimAssist()
-        ui:Toast("rbxassetid://131165537896572","[Aim Assist]","desativado",ROLE_COLOR.unknown)
+        ui:Toast("rbxassetid://131165537896572","[Aim Snap]","desativado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_silentaim", function() return aimAssistOn end, function(v) t_sa.Set(v) end)
 
-local s_aaStr = secSheriff:Slider("forca do aim (1=fraco 10=forte)", 1, 10, 1, function(v)
-    aimAssistStrength = v / 100
-end)
-ui:CfgRegister("mm2_aastr", function() return aimAssistStrength*100 end, function(v) s_aaStr.Set(v) end)
-
-local s_aaFov = secSheriff:Slider("raio de ativacao (studs)", 10, 200, 80, function(v)
-    aimAssistFov = v
-end)
-ui:CfgRegister("mm2_aafov", function() return aimAssistFov end, function(v) s_aaFov.Set(v) end)
-
-secSheriff:Divider("hitbox expander")
-local t_hb = secSheriff:Toggle("hitbox expander (todos players)", false, function(v)
+secSheriff:Divider("hitbox expander (faca)")
+local t_hb = secSheriff:Toggle("hitbox expander (aumenta area de hit da faca)", false, function(v)
     hitboxOn = v
     if v then
         startHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]","ativo — "..hitboxSize.." studs",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","ativo — "..hitboxSize.." studs (faca)",ROLE_COLOR.murderer)
     else
         stopHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado — hrp restaurado",ROLE_COLOR.unknown)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_hitbox", function() return hitboxOn end, function(v) t_hb.Set(v) end)

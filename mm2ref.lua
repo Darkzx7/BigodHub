@@ -346,27 +346,11 @@ local function startSilentAim()
         return _saNamecall(self, ...)
     end))
 
-    -- Hook __index — intercepta Mouse.Hit e Mouse.Target
-    _saIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-        if silentAimOn and self == mouse and not checkcaller() then
-            local target = getSilentTarget()
-            if target then
-                if key == "Hit" or key == "hit" then
-                    return CFrame.new(target.Position)
-                elseif key == "Target" or key == "target" then
-                    return target
-                end
-            end
-        end
-        return _saIndex(self, key)
-    end))
 end
 
 local function stopSilentAim()
-    -- hookmetamethod nao tem unhook direto — desativa via flag silentAimOn = false
-    -- os hooks ficam mas retornam o comportamento original quando silentAimOn = false
+    -- desativa via flag — hooks ficam ativos mas retornam comportamento original
     _saNamecall = nil
-    _saIndex    = nil
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -604,10 +588,10 @@ local function shootAt(targetChar)
     end
     if not handle then return false end
 
-    -- Aponta HRP e câmera para o alvo (necessário para Raycast interno da gun)
     local targetPos = tHRP.Position
+
+    -- Aponta HRP para o alvo (orienta o personagem)
     hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
-    task.wait(0.02)
 
     local ok = false
 
@@ -631,32 +615,6 @@ local function shootAt(targetChar)
             ok = true
         end)
     end
-
-    -- Método 2: firesignal nos RemoteEvents internos da gun
-    if gunTool then
-        pcall(function()
-            for _, obj in ipairs(gunTool:GetDescendants()) do
-                if obj:IsA("RemoteEvent") then
-                    pcall(function() obj:FireServer(targetPos, tHRP) end)
-                    ok = true
-                end
-            end
-        end)
-    end
-
-    -- Método 3: firesignal no GunFired (efeito visual + possível validação)
-    pcall(function()
-        if GunFiredEvent then
-            local targetPart = getNearbyWorkspacePart(targetPos)
-            firesignal(GunFiredEvent.OnClientEvent,
-                handle,
-                handle and handle.Position or targetPos,
-                targetPos,
-                targetPart or tHRP
-            )
-        end
-    end)
-    if not ok then ok = true end
 
     return ok
 end

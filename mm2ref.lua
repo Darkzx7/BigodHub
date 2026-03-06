@@ -327,24 +327,7 @@ local function findDroppedGuns()
     return found
 end
 
-local function findDroppedKnives()
-    local found = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") and KNIFE_NAMES[obj.Name] then
-            local inBp = false
-            local p = obj.Parent
-            if p and p:IsA("Backpack") then inBp = true end
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl.Character == p then inBp = true; break end
-            end
-            if not inBp then
-                local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-                if h then table.insert(found, { tool = obj, handle = h }) end
-            end
-        end
-    end
-    return found
-end
+
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- SILENT AIM v9.3
@@ -949,7 +932,7 @@ ui:CfgRegister("mm2_esp", function() return espOn end, function(v) t_esp.Set(v) 
 local s_dist=secESP:Slider("distancia max (studs)", 50, 1000, 300, function(v) espMax=v end)
 ui:CfgRegister("mm2_esp_dist", function() return espMax end, function(v) s_dist.Set(v) end)
 
-local secItemEsp = tabESP:Section("item esp (knife + gun)")
+local secItemEsp = tabESP:Section("item esp (gun)")
 local itemEspOn = false; local itemBBs = {}
 
 local function removeItemBB(obj)
@@ -957,18 +940,16 @@ local function removeItemBB(obj)
     itemBBs[obj]=nil
 end
 
-local function makeItemBB(obj, adornee, isKnife)
+local function makeItemBB(obj, adornee)
     if itemBBs[obj] then return end
     if not adornee or not adornee.Parent then return end
-    local col   = isKnife and ROLE_COLOR.murderer or ROLE_COLOR.sheriff
-    local label = isKnife and "[ KNIFE ]" or "[ GUN ]"
     local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,108,0,44)
     bb.StudsOffset=Vector3.new(0,4,0); bb.AlwaysOnTop=true; bb.ResetOnSpawn=false
     bb.Adornee=adornee; bb.Parent=adornee
     local nm=Instance.new("TextLabel"); nm.BackgroundTransparency=1; nm.Size=UDim2.new(1,0,0,22)
-    nm.Font=Enum.Font.GothamBold; nm.TextSize=14; nm.TextColor3=col
+    nm.Font=Enum.Font.GothamBold; nm.TextSize=14; nm.TextColor3=ROLE_COLOR.sheriff
     nm.TextStrokeTransparency=0.12; nm.TextXAlignment=Enum.TextXAlignment.Center
-    nm.Text=label; nm.Parent=bb
+    nm.Text="[ GUN ]"; nm.Parent=bb
     local dl=Instance.new("TextLabel"); dl.BackgroundTransparency=1; dl.Size=UDim2.new(1,0,0,14)
     dl.Position=UDim2.new(0,0,0,24); dl.Font=Enum.Font.Gotham; dl.TextSize=10
     dl.TextColor3=Color3.fromRGB(200,200,220); dl.TextXAlignment=Enum.TextXAlignment.Center
@@ -991,19 +972,7 @@ end
 local function scanItems()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then
-            task.spawn(makeItemBB, obj, obj, false)
-        end
-        if obj:IsA("Tool") and KNIFE_NAMES[obj.Name] then
-            local inBp = false
-            local p = obj.Parent
-            if p and p:IsA("Backpack") then inBp = true end
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl.Character == p then inBp = true; break end
-            end
-            if not inBp then
-                local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-                if h then task.spawn(makeItemBB, obj, h, true) end
-            end
+            task.spawn(makeItemBB, obj, obj)
         end
     end
 end
@@ -1012,36 +981,21 @@ workspace.DescendantAdded:Connect(function(obj)
     if not itemEspOn then return end
     task.wait(0.1)
     if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then
-        makeItemBB(obj, obj, false)
-    elseif obj:IsA("Tool") and KNIFE_NAMES[obj.Name] then
-        local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-        if h then makeItemBB(obj, h, true) end
+        makeItemBB(obj, obj)
     end
 end)
 
-local t_item=secItemEsp:Toggle("knife + gun dropped esp", false, function(v)
+local t_item=secItemEsp:Toggle("gun dropped esp", false, function(v)
     itemEspOn=v; if v then scanItems() end
     for _, bb in pairs(itemBBs) do bb.Enabled=v end
 end)
 ui:CfgRegister("mm2_item_esp", function() return itemEspOn end, function(v) t_item.Set(v) end)
 
-secItemEsp:Button("tp to knife", function()
-    local hrp=myHRP(); if not hrp then return end
-    local knives = findDroppedKnives()
-    local best, bestD = nil, math.huge
-    for _, k in ipairs(knives) do
-        local d = (hrp.Position - k.handle.Position).Magnitude
-        if d < bestD then best = k.handle; bestD = d end
-    end
-    if best then
-        hrp.CFrame = CFrame.new(best.Position + Vector3.new(0,3,0))
-        ui:Toast("rbxassetid://131165537896572","[Knife] tp","encontrada! "..math.floor(bestD).."m",ROLE_COLOR.murderer)
-    else
-        ui:Toast("rbxassetid://131165537896572","tp knife","nenhuma knife dropada",ROLE_COLOR.unknown)
-    end
-end)
-
 secItemEsp:Button("tp to gun", function()
+    -- Só funciona se o player estiver vivo
+    if not isAlive(player) then
+        ui:Toast("rbxassetid://131165537896572","tp gun","voce esta morto",ROLE_COLOR.unknown); return
+    end
     local hrp=myHRP(); if not hrp then return end
     local guns = findDroppedGuns()
     local best, bestD = nil, math.huge

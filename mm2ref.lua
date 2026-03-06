@@ -1,19 +1,5 @@
---[[ ================================================================
-  mm2_ui.lua — Murder Mystery 2  v9.1 (scanner-fixed)
-
-  FIXES v9.1 (baseado no scanner real do servidor):
-  ─ Coin Farm: agora busca Coin_Server (part com Touched real)
-      estrutura real: CoinContainer > Coin_Server > CoinVisual
-  ─ Gun Grab/ESP/TP: GunDrop é Part em ResearchFacility, não Tool
-      busca por GetDescendants com nome GunDrop em todo workspace
-  ─ Shoot/Silent Aim: hook em Tool.Activated via __namecall
-      GunFired é só efeito visual — tiro real = Activated + physics
-  ─ Hitbox Expander: continua igual (funciona via HRP client-side)
-================================================================ --]]
-
--- URL corrigida: ref_lib.lua (nome real do arquivo no repositório)
 local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua", true))()
-if not RefLib then error("[mm2] ERRO: RefLib nao carregou. Verifique se ref_lib.lua existe no repositorio.") end
+if not RefLib then error("[mm2] ERRO: RefLib nao carregou.") end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -27,31 +13,40 @@ local cam    = workspace.CurrentCamera
 
 local ui = RefLib.new("mm2 v16", "rbxassetid://131165537896572", "ref_mm2v16")
 
--- ══════════════════════════════════════════════════════════════════════════════
--- REMOTES REAIS (confirmados pelo scanner)
--- ══════════════════════════════════════════════════════════════════════════════
+-- REMOTES confirmados pelo scanner
+local GunFiredEvent       = ReplicatedStorage:WaitForChild("ClientServices", 5)
+                                and ReplicatedStorage.ClientServices:WaitForChild("WeaponService", 5)
+                                and ReplicatedStorage.ClientServices.WeaponService:WaitForChild("GunFired", 5)
 
-local GunFiredEvent, CoinCollectedEvent, RoleSelectEvent
+-- GetCoin: RemoteEvent real de coleta (confirmado no scanner)
+local GetCoinEvent
+pcall(function() GetCoinEvent = ReplicatedStorage.Remotes.Gameplay.GetCoin end)
 
+-- UpdateDataClient: BindableEvent (confirmado no scanner)
+local UpdateDataClient
+pcall(function() UpdateDataClient = ReplicatedStorage:WaitForChild("UpdateDataClient", 3) end)
+
+-- Insight.CoinCollected: BindableEvent (confirmado no scanner)
+local InsightCoinCollected
+pcall(function() InsightCoinCollected = ReplicatedStorage:WaitForChild("Insight.CoinCollected", 3) end)
+
+-- PlayerDataChanged: BindableEvent confirmado no scanner
+-- "Modules.CurrentRoundClient.PlayerDataChanged"
+local PlayerDataChangedBind
 pcall(function()
-    -- scanner confirmou: ClientServices.WeaponService.GunFired
-    GunFiredEvent = ReplicatedStorage:WaitForChild("ClientServices", 5)
-        :WaitForChild("WeaponService", 5)
-        :WaitForChild("GunFired", 5)
-end)
-pcall(function()
-    CoinCollectedEvent = ReplicatedStorage.Remotes.Gameplay.CoinCollected
-end)
-pcall(function()
-    RoleSelectEvent = ReplicatedStorage.Remotes.Gameplay.RoleSelect
+    PlayerDataChangedBind = ReplicatedStorage.Modules
+        :WaitForChild("CurrentRoundClient", 5)
+        :WaitForChild("PlayerDataChanged", 5)
 end)
 
--- KnifeKill e GunKill (BindableEvents confirmados pelo scanner)
+-- RoleSelect: RemoteEvent confirmado
+local RoleSelectEvent
+pcall(function() RoleSelectEvent = ReplicatedStorage.Remotes.Gameplay.RoleSelect end)
+
 local KnifeKillEvent, GunKillEvent
 pcall(function() KnifeKillEvent = ReplicatedStorage.Remotes.Gameplay.KnifeKill end)
 pcall(function() GunKillEvent   = ReplicatedStorage.Remotes.Gameplay.GunKill   end)
 
--- EliminatePlayer (RemoteFunction confirmado pelo scanner)
 local EliminatePlayerRemote
 pcall(function() EliminatePlayerRemote = ReplicatedStorage.Remotes.Gameplay.EliminatePlayer end)
 
@@ -61,15 +56,11 @@ pcall(function() EliminatePlayerRemote = ReplicatedStorage.Remotes.Gameplay.Elim
 
 local KNIFE_NAMES   = { Knife = true }
 local GUN_NAMES     = { Gun = true, ["Sheriff's Gun"] = true, Revolver = true, SheriffGun = true }
--- FIX: scanner mostrou que a gun dropada no mapa é Part chamada "GunDrop"
--- pai: ResearchFacility (ou qualquer mapa). NÃO é um Tool.
 local GUNDROP_NAMES = { GunDrop = true }
 
--- FIX: estrutura real das coins confirmada pelo scanner:
--- Model|CoinContainer > Part|Coin_Server > Part|CoinVisual > MeshPart|MainCoin
--- O Touched server-side está em Coin_Server, então é ELA que devemos tocar
+-- Scanner confirmou: CoinContainer > Coin_Server > CoinVisual > MainCoin
+-- Touched server-side está em Coin_Server
 local COIN_SERVER_NAME = "Coin_Server"
-local COIN_CONTAINER   = "CoinContainer"
 
 local ROLE_COLOR = {
     murderer = Color3.fromRGB(220, 55, 55),
@@ -83,25 +74,42 @@ local ROLE_LABEL = {
 }
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- CACHE DE DADOS (PlayerDataChanged)
+-- CACHE DE DADOS
+-- Scanner confirmou: BindableEvent|Modules.CurrentRoundClient.PlayerDataChanged
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local playerDataCache = {}
 local roleCache = {}
 
-local PlayerDataChangedEvent = nil
-pcall(function()
-    PlayerDataChangedEvent = ReplicatedStorage.Remotes.Gameplay.PlayerDataChanged
-end)
-
-if PlayerDataChangedEvent then
-    PlayerDataChangedEvent.OnClientEvent:Connect(function(data)
+-- Ouve o BindableEvent correto (não RemoteEvent)
+if PlayerDataChangedBind then
+    PlayerDataChangedBind.Event:Connect(function(data)
         if type(data) ~= "table" then return end
         for username, info in pairs(data) do
             playerDataCache[username] = info
         end
     end)
 end
+
+-- Também ouve UpdateData/UpdateData2/UpdateData3 (todos RemoteEvents no scanner)
+local function hookUpdateData(evName)
+    pcall(function()
+        local ev = ReplicatedStorage:FindFirstChild(evName)
+        if ev and ev:IsA("RemoteEvent") then
+            ev.OnClientEvent:Connect(function(data)
+                if type(data) ~= "table" then return end
+                for username, info in pairs(data) do
+                    if type(info) == "table" then
+                        playerDataCache[username] = info
+                    end
+                end
+            end)
+        end
+    end)
+end
+hookUpdateData("UpdateData")
+hookUpdateData("UpdateData2")
+hookUpdateData("UpdateData3")
 
 if RoleSelectEvent then
     RoleSelectEvent.OnClientEvent:Connect(function(roleName)
@@ -122,6 +130,7 @@ player.CharacterAdded:Connect(function()
         elseif GUN_NAMES[child.Name] then roleCache[player] = "sheriff" end
     end) end
 end)
+
 task.defer(function()
     local bp = player:FindFirstChild("Backpack"); if not bp then return end
     for n in pairs(KNIFE_NAMES) do if bp:FindFirstChild(n) then roleCache[player] = "murderer" end end
@@ -188,19 +197,30 @@ local function isValidPos(pos)
     return pos.Magnitude < 100000
 end
 
+-- Round ativo = CoinContainer existe no workspace (confirmado pelo scanner)
+local function isRoundActive()
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name == "CoinContainer" then return true end
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "GunDrop" then return true end
+    end
+    return false
+end
+
 -- ══════════════════════════════════════════════════════════════════════════════
--- FIX: COIN FINDERS — busca Coin_Server (part com Touched real)
--- Estrutura real (scanner): CoinContainer > Coin_Server > CoinVisual > MainCoin
--- O servidor registra a coleta via Touched em Coin_Server
+-- COIN FARM
+-- Scanner confirmou: CoinContainer > Coin_Server (Touched server-side aqui)
+-- A coleta real acontece quando o HRP do player toca Coin_Server
+-- GetCoin (RemoteEvent) pode ser alternativa mas Touched é mais confiável
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function findAllCoinServers()
     local coins = {}
     local seen  = {}
-    -- Busca todos Coin_Server no workspace inteiro
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == COIN_SERVER_NAME and obj:IsA("BasePart") then
-            if obj.Parent and not seen[obj] and isValidPos(obj.Position) then
+        if obj.Name == COIN_SERVER_NAME and obj:IsA("BasePart") and not seen[obj] then
+            if obj.Parent and isValidPos(obj.Position) then
                 seen[obj] = true
                 table.insert(coins, obj)
             end
@@ -209,32 +229,57 @@ local function findAllCoinServers()
     return coins
 end
 
+local function collectCoin(coinServer)
+    if not coinServer or not coinServer.Parent then return end
+    local hrp = myHRP(); if not hrp then return end
+    local pos = coinServer.Position
+
+    -- Teleporta diretamente em cima da Coin_Server para acionar o Touched
+    hrp.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
+    task.wait(0.05)
+
+    hrp = myHRP(); if not hrp then return end
+    if not coinServer.Parent then return end
+
+    -- Segunda tentativa com offset mínimo (às vezes Touched precisa de movimento)
+    hrp.CFrame = CFrame.new(pos.X + 0.1, pos.Y, pos.Z + 0.1)
+    task.wait(0.04)
+
+    -- Tenta GetCoin RemoteEvent (confirmado no scanner como alternativa)
+    if GetCoinEvent then
+        pcall(function()
+            GetCoinEvent:FireServer()
+        end)
+    end
+
+    -- UpdateDataClient BindableEvent (confirmado no scanner)
+    if UpdateDataClient then
+        pcall(function() UpdateDataClient:Fire() end)
+    end
+end
+
 -- ══════════════════════════════════════════════════════════════════════════════
--- FIX: GUN DROP FINDERS — GunDrop é Part, não Tool
--- Scanner: Part|GunDrop|pai:ResearchFacility
--- Precisa buscar GetDescendants em todo workspace por nome "GunDrop"
+-- GUN / KNIFE FINDERS
+-- Scanner: Part|GunDrop|pai:ResearchFacility — NÃO é Tool
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function findDroppedGuns()
     local found = {}
-    -- Busca GunDrop (Part do mapa — confirmado pelo scanner)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then
             table.insert(found, { tool = obj, handle = obj })
         end
     end
-    -- Fallback: Tool com nome de gun que esteja dropado (não num backpack/char)
+    -- fallback: Tool de gun dropada fora de backpack/character
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Tool") and GUN_NAMES[obj.Name] then
-            local inBackpack = false
+            local inBp = false
             local p = obj.Parent
-            if p then
-                if p:IsA("Backpack") then inBackpack = true end
-                for _, pl in ipairs(Players:GetPlayers()) do
-                    if pl.Character == p then inBackpack = true; break end
-                end
+            if p and p:IsA("Backpack") then inBp = true end
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl.Character == p then inBp = true; break end
             end
-            if not inBackpack then
+            if not inBp then
                 local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
                 if h then table.insert(found, { tool = obj, handle = h }) end
             end
@@ -247,15 +292,13 @@ local function findDroppedKnives()
     local found = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Tool") and KNIFE_NAMES[obj.Name] then
-            local inBackpack = false
+            local inBp = false
             local p = obj.Parent
-            if p then
-                if p:IsA("Backpack") then inBackpack = true end
-                for _, pl in ipairs(Players:GetPlayers()) do
-                    if pl.Character == p then inBackpack = true; break end
-                end
+            if p and p:IsA("Backpack") then inBp = true end
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl.Character == p then inBp = true; break end
             end
-            if not inBackpack then
+            if not inBp then
                 local h = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
                 if h then table.insert(found, { tool = obj, handle = h }) end
             end
@@ -264,8 +307,14 @@ local function findDroppedKnives()
     return found
 end
 
+-- ══════════════════════════════════════════════════════════════════════════════
+-- SILENT AIM v9.3
+-- Só hook __index no mouse (Hit/Target).
+-- __namecall REMOVIDO — causava warnings no ZoomController.Popper da câmera.
+-- isGunEquipped() garante que só intercepta no contexto de tiro real.
+-- ══════════════════════════════════════════════════════════════════════════════
+
 local silentAimOn = false
-local _saNamecall = nil
 local _saIndex    = nil
 
 local SA_HIT_PROPS = { Hit = true, hit = true }
@@ -281,8 +330,7 @@ local function getSilentTarget()
 end
 
 local function isGunEquipped()
-    local chr = player.Character
-    if not chr then return false end
+    local chr = player.Character; if not chr then return false end
     for name in pairs(GUN_NAMES) do
         if chr:FindFirstChild(name) then return true end
     end
@@ -297,17 +345,14 @@ local function startSilentAim()
 
     local mouse = player:GetMouse()
 
-    -- SEM __namecall: nao hookeia Raycast/FindPartOnRay do workspace.
-    -- Isso evita interferir com ZoomController.Popper, fisica, animacoes, etc.
-    -- O MM2 usa Mouse.Hit/Target pra calcular direcao do tiro — so isso basta.
-
+    -- Só __index, só Hit/Target, só quando gun equipada
+    -- Nenhuma outra propriedade do mouse é tocada (Delta, ViewSizeX, etc.)
     _saIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
         if silentAimOn
             and self == mouse
             and not checkcaller()
             and isGunEquipped()
         then
-            -- so intercepta Hit e Target, nada mais
             if SA_HIT_PROPS[key] or SA_TGT_PROPS[key] then
                 local target = getSilentTarget()
                 if target then
@@ -325,11 +370,11 @@ end
 
 local function stopSilentAim()
     silentAimOn = false
+    -- hook permanece mas flag desativa redirecionamento
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- HITBOX EXPANDER — expande HRP de todos os players
--- Funciona porque o servidor usa posição client-side para validar hits
+-- HITBOX EXPANDER
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
@@ -362,10 +407,8 @@ local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    if hitboxTargets[p] then return end -- já tem hitbox
+    if hitboxTargets[p] then return end
 
-    -- Cria uma Part invisível grande weldada no HRP
-    -- Funciona mesmo com hrp.Size sendo readonly no cliente
     local hbPart = Instance.new("Part")
     hbPart.Name         = "mm2_hitbox"
     hbPart.Size         = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
@@ -404,14 +447,11 @@ local function startHitbox()
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
             applyHitbox(p)
-            -- Atualiza tamanho se slider mudou
             local hbPart = hitboxTargets[p]
-            if hbPart and hbPart.Parent then
-                if hbPart.Size.X ~= hitboxSize then
-                    pcall(function()
-                        hbPart.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-                    end)
-                end
+            if hbPart and hbPart.Parent and hbPart.Size.X ~= hitboxSize then
+                pcall(function()
+                    hbPart.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                end)
             end
         end
     end)
@@ -434,8 +474,6 @@ Players.PlayerAdded:Connect(function(p)
         if hitboxOn then task.wait(1); applyHitbox(p) end
     end)
 end)
-
--- ── Knife Hitbox ──────────────────────────────────────────────────────────────
 
 local function applyKnifeHitbox()
     local knife = getKnifeTool(); if not knife then return end
@@ -518,34 +556,11 @@ local function equipGun()
     end
 end
 
-local function getNearbyWorkspacePart(pos)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local chars = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Character then table.insert(chars, p.Character) end
-    end
-    params.FilterDescendantsInstances = chars
-    local result = workspace:Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), params)
-    if result and result.Instance then return result.Instance end
-    local best, bestD = nil, 25
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            local d = (obj.Position - pos).Magnitude
-            if d < bestD then best = obj; bestD = d end
-        end
-    end
-    return best
-end
-
 -- ══════════════════════════════════════════════════════════════════════════════
--- SHOOT — método principal: Activate direto na Tool (como clique real)
---
--- Por que isso funciona melhor que firesignal(GunFired):
---   GunFired é um RemoteEvent CLIENT-SIDE apenas (efeito visual da trajetória).
---   O tiro real é processado pelo LocalScript quando Tool.Activated dispara.
---   Ativar a tool diretamente = exatamente o que acontece com clique real.
---   Com silent aim ativo (câmera apontando pro alvo), o Raycast interno acerta.
+-- SHOOT
+-- Gun do MM2 usa Mouse.Hit/Target pra direcionar tiro (LocalScript|Client no Toys).
+-- Com silent aim ativo, Mouse.Hit já retorna CFrame do alvo antes de chegar aqui.
+-- Equipa a gun, aponta HRP pro alvo, chama :Activate().
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function shootAt(targetChar)
@@ -562,27 +577,23 @@ local function shootAt(targetChar)
     end
     if not handle then return false end
 
-    -- Aponta HRP e câmera para o alvo (necessário para Raycast interno da gun)
     local targetPos = tHRP.Position
     hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
     task.wait(0.02)
 
-    local ok = false
-
-    -- Garante que a gun está equipada no CHARACTER (não no backpack)
-    -- Activate só funciona quando a tool está no character
+    -- Garante que a gun está no character (Activate só funciona equipada)
     local chr = player.Character
-    if chr and not chr:FindFirstChild(gunTool and gunTool.Name or "") then
+    if chr and gunTool and not chr:FindFirstChild(gunTool.Name) then
         local hum = chr:FindFirstChildOfClass("Humanoid")
-        if hum and gunTool then
+        if hum then
             pcall(function() hum:EquipTool(gunTool) end)
             task.wait(0.1)
-            -- Atualiza handle e gunTool após equip
             handle, gunTool = getGunHandle()
         end
     end
 
-    -- Método 1: Activate com câmera apontada pro alvo
+    local ok = false
+
     if gunTool and chr and chr:FindFirstChild(gunTool.Name) then
         pcall(function()
             gunTool:Activate()
@@ -590,7 +601,7 @@ local function shootAt(targetChar)
         end)
     end
 
-    -- Método 2: firesignal nos RemoteEvents internos da gun
+    -- Tenta RemoteEvents internos da gun como fallback
     if gunTool then
         pcall(function()
             for _, obj in ipairs(gunTool:GetDescendants()) do
@@ -602,20 +613,7 @@ local function shootAt(targetChar)
         end)
     end
 
-    -- Método 3: firesignal no GunFired (efeito visual + possível validação)
-    pcall(function()
-        if GunFiredEvent then
-            local targetPart = getNearbyWorkspacePart(targetPos)
-            firesignal(GunFiredEvent.OnClientEvent,
-                handle,
-                handle and handle.Position or targetPos,
-                targetPos,
-                targetPart or tHRP
-            )
-        end
-    end)
     if not ok then ok = true end
-
     return ok
 end
 
@@ -649,50 +647,9 @@ local function knifeAt(targetChar)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- FIX: COIN FARM — teleporta para Coin_Server (part com Touched real)
--- Estrutura real: Model|CoinContainer > Part|Coin_Server > Part|CoinVisual
--- O Touched server-side está em Coin_Server — é ela que deve ser tocada
--- ══════════════════════════════════════════════════════════════════════════════
-
-local function collectCoin(coinServer)
-    if not coinServer or not coinServer.Parent then return end
-    local hrp = myHRP(); if not hrp then return end
-    local pos = coinServer.Position
-
-    -- Teleporta deitado levemente abaixo do chão (disfarce — parece bug de física)
-    -- CFrame.Angles(math.pi/2,0,0) = personagem deitado
-    -- Y -1.5 = levemente enterrado no chão
-    hrp = myHRP(); if not hrp then return end
-    if not coinServer.Parent then return end
-    hrp.CFrame = CFrame.new(pos + Vector3.new(0, -1.5, 0)) * CFrame.Angles(math.pi/2, 0, 0)
-    task.wait(0.08)
-    -- Segunda tentativa levemente deslocada
-    hrp = myHRP(); if not hrp then return end
-    if not coinServer.Parent then return end
-    hrp.CFrame = CFrame.new(pos + Vector3.new(0.3, -1.2, 0.3)) * CFrame.Angles(math.pi/2, 0, 0)
-    task.wait(0.06)
-
-    -- Tenta BindableEvent local (UpdateDataClient confirmado no scanner)
-    pcall(function()
-        local upd = ReplicatedStorage:FindFirstChild("UpdateDataClient")
-        if upd and upd:IsA("BindableEvent") then
-            upd:Fire()
-        end
-    end)
-
-    -- Tenta CoinCollected RemoteEvent
-    if CoinCollectedEvent then
-        pcall(function()
-            if CoinCollectedEvent:IsA("RemoteEvent") then
-                CoinCollectedEvent:FireServer()
-            end
-        end)
-    end
-end
-
--- ══════════════════════════════════════════════════════════════════════════════
 -- TEMA
 -- ══════════════════════════════════════════════════════════════════════════════
+
 local T = {
     panel  = Color3.fromRGB(36, 26, 56),
     accent = Color3.fromRGB(128, 38, 220),
@@ -707,6 +664,7 @@ local T = {
 -- ══════════════════════════════════════════════════════════════════════════════
 -- TABS
 -- ══════════════════════════════════════════════════════════════════════════════
+
 local tabMain   = ui:Tab("main")
 local tabESP    = ui:Tab("esp")
 local tabCombat = ui:Tab("combat")
@@ -952,11 +910,6 @@ ui:CfgRegister("mm2_esp", function() return espOn end, function(v) t_esp.Set(v) 
 local s_dist=secESP:Slider("distancia max (studs)", 50, 1000, 300, function(v) espMax=v end)
 ui:CfgRegister("mm2_esp_dist", function() return espMax end, function(v) s_dist.Set(v) end)
 
--- ──────────────────────────────────────────────────────────────────────────────
--- FIX: ITEM ESP — GunDrop é Part, não Tool
--- Scanner confirmou: Part|GunDrop|pai:ResearchFacility
--- Busca por nome "GunDrop" em BaseParts + Tools dropadas de knife
--- ──────────────────────────────────────────────────────────────────────────────
 local secItemEsp = tabESP:Section("item esp (knife + gun)")
 local itemEspOn = false; local itemBBs = {}
 
@@ -991,19 +944,16 @@ local function makeItemBB(obj, adornee, isKnife)
         end
     end)
 
-    -- Remove ESP quando o objeto sair do workspace
     obj.AncestryChanged:Connect(function()
         if not obj:IsDescendantOf(workspace) then removeItemBB(obj) end
     end)
 end
 
 local function scanItems()
-    -- FIX: GunDrop (Part do mapa) — confirmado pelo scanner
     for _, obj in ipairs(workspace:GetDescendants()) do
         if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then
             task.spawn(makeItemBB, obj, obj, false)
         end
-        -- Knives dropadas (Tool)
         if obj:IsA("Tool") and KNIFE_NAMES[obj.Name] then
             local inBp = false
             local p = obj.Parent
@@ -1052,7 +1002,6 @@ secItemEsp:Button("tp to knife", function()
     end
 end)
 
--- FIX: TP Gun — agora busca GunDrop (Part) além de Tool
 secItemEsp:Button("tp to gun", function()
     local hrp=myHRP(); if not hrp then return end
     local guns = findDroppedGuns()
@@ -1078,14 +1027,13 @@ do
 
 local secSheriff = tabCombat:Section("sheriff")
 
--- ── Silent Aim ────────────────────────────────────────────────────────────────
 secSheriff:Divider("silent aim")
 local t_sa = secSheriff:Toggle("silent aim (auto mira)", false, function(v)
     silentAimOn = v
     if v then
         startSilentAim()
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-            "ativo — hook em Tool.Activate",ROLE_COLOR.sheriff)
+            "ativo — hook Mouse.Hit/Target",ROLE_COLOR.sheriff)
     else
         stopSilentAim()
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]","desativado",ROLE_COLOR.unknown)
@@ -1093,7 +1041,6 @@ local t_sa = secSheriff:Toggle("silent aim (auto mira)", false, function(v)
 end)
 ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t_sa.Set(v) end)
 
--- ── Hitbox Expander ───────────────────────────────────────────────────────────
 secSheriff:Divider("hitbox expander")
 local t_hb = secSheriff:Toggle("hitbox expander (todos players)", false, function(v)
     hitboxOn = v
@@ -1108,22 +1055,9 @@ end)
 ui:CfgRegister("mm2_hitbox", function() return hitboxOn end, function(v) t_hb.Set(v) end)
 local s_hbsize = secSheriff:Slider("tamanho hitbox players (studs)", 4, 40, 12, function(v)
     hitboxSize = v
-    if hitboxOn then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= player then
-                local chr = p.Character
-                local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
-                if hrp then pcall(function()
-                    hrp.Size       = Vector3.new(v,v,v)
-                    hrp.CanCollide = false
-                end) end
-            end
-        end
-    end
 end)
 ui:CfgRegister("mm2_hitboxsize", function() return hitboxSize end, function(v) s_hbsize.Set(v) end)
 
--- ── Botão de tiro ─────────────────────────────────────────────────────────────
 secSheriff:Divider("botao de tiro (mobile safe)")
 
 local shootBtnGui = nil; local shootBtnOn = false; local shootCd = false
@@ -1181,9 +1115,6 @@ local function buildShootBtn()
         end
         shootCd = true
         setBtnState("...", Color3.fromRGB(80,80,80))
-
-        local mHRP = m.Character and (m.Character:FindFirstChild("HumanoidRootPart") or m.Character:FindFirstChild("Head"))
-
         local ok = shootAt(m.Character)
         setBtnState(ok and "FIRED!" or "FALHOU", ok and T.ok or T.err)
         task.wait(1)
@@ -1203,7 +1134,6 @@ player.CharacterAdded:Connect(function()
     if shootBtnOn then task.wait(1); buildShootBtn() end
 end)
 
--- ── Gun Aura ──────────────────────────────────────────────────────────────────
 secSheriff:Divider("gun aura")
 local gunAuraOn   = false
 local gunAuraDist = 18
@@ -1228,10 +1158,8 @@ local function gunAuraLoop()
             hrp = myHRP(); if not hrp then continue end
         end
 
-        local targetPos = mHRP.Position
-        hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
+        hrp.CFrame = CFrame.lookAt(hrp.Position, mHRP.Position)
         task.wait(0.04)
-
         lastGunAura = tick()
         shootAt(mChr)
     end
@@ -1254,7 +1182,6 @@ local s_gacd = secSheriff:Slider("gun aura cooldown (x0.1s)", 2, 30, 8, function
 end)
 ui:CfgRegister("mm2_gacd", function() return gunAuraCD*10 end, function(v) s_gacd.Set(v) end)
 
--- ── Auto Shoot ────────────────────────────────────────────────────────────────
 secSheriff:Divider("auto shoot (range livre)")
 local autoShootOn=false; local lastShot=0; local shotCD=0.6
 
@@ -1304,9 +1231,6 @@ secSheriff:Button("tp para murderer", function()
         ui:Toast("rbxassetid://131165537896572","[TP]","-> "..m.DisplayName,ROLE_COLOR.murderer) end
 end)
 
--- ─────────────────────────────────────────────────────────────────────────────
--- MURDERER
--- ─────────────────────────────────────────────────────────────────────────────
 local secMurd=tabCombat:Section("murderer")
 
 secMurd:Divider("knife hitbox (aura de range)")
@@ -1335,7 +1259,6 @@ local _knifeAuraConn = nil
 local function knifeAuraLoop()
     if _knifeAuraConn then _knifeAuraConn:Disconnect(); _knifeAuraConn = nil end
 
-    -- Equipa a knife fora do loop (task.spawn = nao bloqueia o Heartbeat)
     task.spawn(function()
         local bp = player:FindFirstChild("Backpack"); if not bp then return end
         local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -1347,10 +1270,8 @@ local function knifeAuraLoop()
     end)
 
     local accum      = 0
-    -- Cache que atualiza a cada 0.5s — evita getRole/isAlive a cada tick
     local cachedRole = "unknown"
     local roleTimer  = 0
-    -- Cache de HRPs dos players — evita FindFirstChild a cada tick
     local playerHRPs = {}
 
     _knifeAuraConn = RunService.Heartbeat:Connect(function(dt)
@@ -1361,11 +1282,9 @@ local function knifeAuraLoop()
         accum     = accum + dt
         roleTimer = roleTimer + dt
 
-        -- Atualiza role cache a cada 0.5s (nao a cada tick)
         if roleTimer >= 0.5 then
             roleTimer  = 0
             cachedRole = getRole()
-            -- Atualiza cache de HRPs
             playerHRPs = {}
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= player and isAlive(p) then
@@ -1384,7 +1303,6 @@ local function knifeAuraLoop()
         local knife = getKnifeTool(); if not knife then return end
         local hrpPos = hrp.Position
 
-        -- Acha alvo mais próximo usando cache (sem FindFirstChild por tick)
         local best, bestD = nil, knifeRange
         for p, ph in pairs(playerHRPs) do
             if not ph.Parent then playerHRPs[p] = nil; continue end
@@ -1393,8 +1311,6 @@ local function knifeAuraLoop()
         end
 
         if best then
-            -- Só rotaciona HRP se o alvo mudou de posição significativamente
-            -- (evita update de física desnecessário a cada swing)
             local lookCF = CFrame.lookAt(hrpPos, best.Position)
             if math.abs(hrp.CFrame.LookVector:Dot(lookCF.LookVector) - 1) > 0.01 then
                 hrp.CFrame = lookCF
@@ -1472,34 +1388,17 @@ end -- COMBAT
 -- ══════════════════════════════════════════════════════════════════════════════
 do
 
--- ─────────────────────────────────────────────────────────────────────────────
--- FIX: COIN FARM — usa findAllCoinServers() em vez de findAllCoins()
--- Teleporta para Coin_Server (BasePart com Touched real do servidor)
--- A estrutura real é: CoinContainer > Coin_Server > CoinVisual > MainCoin
--- ─────────────────────────────────────────────────────────────────────────────
+-- ── COIN FARM ─────────────────────────────────────────────────────────────────
+-- Scanner confirmou: CoinContainer > Coin_Server (Touched server-side)
+-- Teleporta HRP direto nas coordenadas de Coin_Server para acionar Touched
+-- GetCoin RemoteEvent como reforço (confirmado no scanner)
 local secFarm=tabFarm:Section("coin farm")
 local farmOn=false; local farmDelay=1.2; local farmCount=0
-
--- Verifica se o round está ativo: lobby não tem Coin_Server nem GunDrop no workspace
-local function isRoundActive()
-    -- Round ativo = existe CoinContainer no workspace
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name == "CoinContainer" then return true end
-    end
-    -- Fallback: existe GunDrop (mapa carregado)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "GunDrop" then return true end
-    end
-    return false
-end
 
 local function collectCoinsLoop()
     farmCount=0
     while farmOn do
-        -- Só funciona durante o round
-        if not isRoundActive() then
-            task.wait(3); continue
-        end
+        if not isRoundActive() then task.wait(3); continue end
 
         local hrp=myHRP()
         local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -1519,7 +1418,8 @@ local function collectCoinsLoop()
             if not farmOn then break end
             if not coinPart or not coinPart.Parent then continue end
             hrp=myHRP(); if not hrp then break end
-            collectCoin(coinPart); farmCount=farmCount+1
+            collectCoin(coinPart)
+            farmCount=farmCount+1
             task.wait(farmDelay)
         end
         task.wait(1.5)
@@ -1566,17 +1466,15 @@ secFarm:Button("collect coins (1x)", function()
     end)
 end)
 
--- ─────────────────────────────────────────────────────────────────────────────
--- FIX: GUN GRAB — busca GunDrop (Part) em todo workspace
+-- ── GUN GRAB ──────────────────────────────────────────────────────────────────
 -- Scanner: Part|GunDrop|pai:ResearchFacility
--- ─────────────────────────────────────────────────────────────────────────────
+-- Teleporta em cima da GunDrop para acionar Touched server-side
 local secGrab=tabFarm:Section("gun grab (inocente)")
 local grabOn=false
 
 local function grabLoop()
     while grabOn do
         task.wait(0.6)
-        -- Só funciona durante o round
         if not isRoundActive() then continue end
         if getRole()=="murderer" then continue end
         local hrp=myHRP(); if not hrp then continue end
@@ -1591,11 +1489,8 @@ local function grabLoop()
         if best then
             hrp=myHRP(); if not hrp then continue end
             local savedCF = hrp.CFrame
-
-            -- Tp para a GunDrop (Part do mapa — Touched registra a pegada)
             hrp.CFrame = CFrame.new(best.Position + Vector3.new(0, 2.5, 0))
             task.wait(0.35)
-
             hrp = myHRP(); if not hrp then continue end
             hrp.CFrame = savedCF
             task.wait(0.3)
@@ -1665,6 +1560,6 @@ ui:BuildConfigTab(tabCfg, "ref_mm2v16")
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v9.1 scanner-fixed  ["..ROLE_LABEL[role].."]",
+        "mm2 v9.3  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

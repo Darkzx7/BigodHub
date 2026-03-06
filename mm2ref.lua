@@ -11,72 +11,9 @@
   ─ Hitbox Expander: continua igual (funciona via HRP client-side)
 ================================================================ --]]
 
-local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
-local RefLib
-
--- Loader robusto para Delta e outros executors mobile
-local function fetchUrl(url)
-    local ok, result
-    -- Método 1: game:HttpGet
-    ok, result = pcall(function() return game:HttpGet(url, true) end)
-    if ok and type(result) == "string" and #result > 10 then return result end
-    -- Método 2: request() global (Delta, Fluxus, Arceus)
-    ok, result = pcall(function()
-        local res = request({ Url = url, Method = "GET" })
-        return res and res.Body
-    end)
-    if ok and type(result) == "string" and #result > 10 then return result end
-    -- Método 3: syn.request
-    ok, result = pcall(function()
-        local res = syn.request({ Url = url, Method = "GET" })
-        return res and res.Body
-    end)
-    if ok and type(result) == "string" and #result > 10 then return result end
-    return nil
-end
-
-local libSource = fetchUrl(LIB_URL)
-if not libSource then
-    error("[mm2] ERRO: nao foi possivel baixar a RefLib. Verifique sua conexao.")
-end
-
-local libFn, loadErr = loadstring(libSource)
-if not libFn then
-    error("[mm2] ERRO ao compilar RefLib: " .. tostring(loadErr))
-end
-
--- Muitas libs de executor registram no _G em vez de dar return
--- Tenta capturar das duas formas
-local ok, result = pcall(libFn)
-
--- Forma 1: lib retornou a tabela direto
-if ok and type(result) == "table" and result.new then
-    RefLib = result
-end
-
--- Forma 2: lib se registrou no _G com nome comum
-if not RefLib then
-    local globalNames = {"RefLib", "reflib", "Library", "library", "Lib", "lib", "UI", "ui"}
-    for _, name in ipairs(globalNames) do
-        local g = rawget(_G, name)
-        if type(g) == "table" and g.new then
-            RefLib = g; break
-        end
-    end
-end
-
--- Forma 3: escaneia _G inteiro por tabela com método .new
-if not RefLib then
-    for key, val in pairs(_G) do
-        if type(val) == "table" and type(rawget(val, "new")) == "function" then
-            RefLib = val; break
-        end
-    end
-end
-
-if not RefLib then
-    error("[mm2] ERRO: RefLib carregou mas nao retornou tabela valida. Verifique a URL da lib.")
-end
+-- URL corrigida: ref_lib.lua (nome real do arquivo no repositório)
+local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua", true))()
+if not RefLib then error("[mm2] ERRO: RefLib nao carregou. Verifique se ref_lib.lua existe no repositorio.") end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -388,18 +325,16 @@ local function startSilentAim()
                     end
                 end
             end
-            -- Hook FireServer genérico (cobertura extra para executors que usam isso)
+            -- Hook FireServer genérico (cobertura extra)
             if silentAimOn and method == "FireServer" then
-                pcall(function()
-                    local target = getSilentTarget()
-                    if not target then return end
+                local target = getSilentTarget()
+                if target then
                     local args = { ... }
-                    -- Se o primeiro arg parece uma posição, substitui pelo alvo
                     if args[1] and typeof(args[1]) == "Vector3" then
                         args[1] = target.Position
+                        return oldNC(self, table.unpack(args))
                     end
-                    return oldNC(self, table.unpack(args))
-                end)
+                end
             end
             return oldNC(self, ...)
         end))
@@ -433,6 +368,22 @@ local knifeHitboxOn   = false
 local knifeHitboxSize = 15
 local _knifeOrigSize  = nil
 local _knifeHbConn    = nil
+
+local function getKnifeTool()
+    local chr = player.Character
+    if chr then
+        for name in pairs(KNIFE_NAMES) do
+            local t = chr:FindFirstChild(name); if t then return t end
+        end
+    end
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        for name in pairs(KNIFE_NAMES) do
+            local t = bp:FindFirstChild(name); if t then return t end
+        end
+    end
+    return nil
+end
 
 local function applyHitbox(p)
     if not p or p == player then return end
@@ -495,22 +446,6 @@ Players.PlayerAdded:Connect(function(p)
 end)
 
 -- ── Knife Hitbox ──────────────────────────────────────────────────────────────
-
-local function getKnifeTool()
-    local chr = player.Character
-    if chr then
-        for name in pairs(KNIFE_NAMES) do
-            local t = chr:FindFirstChild(name); if t then return t end
-        end
-    end
-    local bp = player:FindFirstChild("Backpack")
-    if bp then
-        for name in pairs(KNIFE_NAMES) do
-            local t = bp:FindFirstChild(name); if t then return t end
-        end
-    end
-    return nil
-end
 
 local function applyKnifeHitbox()
     local knife = getKnifeTool(); if not knife then return end

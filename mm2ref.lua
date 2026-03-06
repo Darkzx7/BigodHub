@@ -229,69 +229,74 @@ local function findAllCoinServers()
     return coins
 end
 
--- Velocidade de voo entre coins (studs/s) — ajustável
 local FARM_FLY_SPEED = 28
 
--- Move o HRP suavemente de origem até destino, passo a passo.
--- Isso aciona o Touched server-side porque o personagem realmente
--- atravessa a Part, ao invés de aparecer em cima dela via teleporte.
+-- Move o personagem usando BodyPosition (força física real).
+-- BodyPosition move o HRP via simulação de física, o que garante que
+-- o Touched server-side dispara ao passar pela Coin_Server.
 local function flyTo(destination, speedOverride)
     local speed = speedOverride or FARM_FLY_SPEED
     local hrp = myHRP(); if not hrp then return end
 
-    -- Desativa colisão temporariamente pra não travar em paredes
-    local chr = player.Character
-    if chr then
-        for _, p in ipairs(chr:GetDescendants()) do
-            if p:IsA("BasePart") then p.CanCollide = false end
-        end
+    local chr = player.Character; if not chr then return end
+
+    -- Desativa colisão do personagem pra não travar em paredes
+    for _, p in ipairs(chr:GetDescendants()) do
+        if p:IsA("BasePart") then p.CanCollide = false end
     end
 
-    local startPos = hrp.Position
-    local endPos   = destination
+    -- Remove BodyPosition anterior se existir
+    local oldBP = hrp:FindFirstChild("mm2_BodyPos")
+    if oldBP then oldBP:Destroy() end
 
-    local dist = (endPos - startPos).Magnitude
-    if dist < 0.5 then return end
+    local bp = Instance.new("BodyPosition")
+    bp.Name         = "mm2_BodyPos"
+    bp.MaxForce     = Vector3.new(1e5, 1e5, 1e5)
+    bp.D            = 500
+    bp.P            = 1e4
+    bp.Position     = destination
+    bp.Parent       = hrp
 
-    local steps    = math.max(4, math.ceil(dist / 2))   -- 1 passo a cada ~2 studs
-    local stepWait = (dist / speed) / steps              -- tempo por passo
+    -- Espera chegar (timeout = distancia/speed + margem)
+    local dist    = (destination - hrp.Position).Magnitude
+    local timeout = (dist / speed) + 1.5
+    local elapsed = 0
 
-    for i = 1, steps do
-        hrp = myHRP(); if not hrp then return end
-        local t   = i / steps
-        local pos = startPos:Lerp(endPos, t)
-        hrp.CFrame = CFrame.new(pos)
-        task.wait(stepWait)
+    repeat
+        task.wait(0.05)
+        elapsed = elapsed + 0.05
+        hrp = myHRP(); if not hrp then break end
+    until (hrp.Position - destination).Magnitude < 1.5 or elapsed >= timeout
+
+    -- Remove BodyPosition e zera velocidade
+    hrp = myHRP()
+    if hrp then
+        local bpObj = hrp:FindFirstChild("mm2_BodyPos")
+        if bpObj then bpObj:Destroy() end
+        hrp.AssemblyLinearVelocity = Vector3.zero
     end
-
-    -- Garante chegada exata
-    hrp = myHRP(); if not hrp then return end
-    hrp.CFrame = CFrame.new(endPos)
 end
 
 local function collectCoin(coinServer)
     if not coinServer or not coinServer.Parent then return end
     local hrp = myHRP(); if not hrp then return end
 
-    -- Destino: centro da Coin_Server + 1 stud acima (fica dentro da hitbox)
-    local pos = coinServer.Position + Vector3.new(0, 1, 0)
+    -- Voa até o centro exato da Coin_Server
+    flyTo(coinServer.Position)
 
-    -- Voa suavemente até a coin — aciona Touched ao atravessar
-    flyTo(pos)
-
-    -- Micro-oscilação pra garantir que o Touched dispara
+    -- Micro-oscilação pra garantir Touched (caso chegou no limite da hitbox)
     hrp = myHRP()
     if hrp and coinServer.Parent then
-        hrp.CFrame = CFrame.new(coinServer.Position + Vector3.new(0.2, 0.8, 0.2))
-        task.wait(0.06)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(coinServer.Position + Vector3.new(0.3, 0, 0.3))
+        task.wait(0.04)
         hrp = myHRP()
-        if hrp then
+        if hrp and coinServer.Parent then
             hrp.CFrame = CFrame.new(coinServer.Position)
+            task.wait(0.04)
         end
-        task.wait(0.05)
     end
 
-    -- GetCoin como reforço (RemoteEvent confirmado no scanner)
     if GetCoinEvent then
         pcall(function() GetCoinEvent:FireServer() end)
     end
@@ -330,26 +335,20 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM v9.3
--- Só hook __index no mouse (Hit/Target).
--- __namecall REMOVIDO — causava warnings no ZoomController.Popper da câmera.
--- isGunEquipped() garante que só intercepta no contexto de tiro real.
+-- AIM ASSIST — rotaciona a câmera suavemente pro murderer quando gun equipada
+--
+-- Funciona em PC e mobile porque age direto no CFrame da câmera.
+-- Não usa hookmetamethod, não quebra câmera, não gera warnings.
+-- O jogador atira normalmente — a câmera já tá apontada pro alvo.
+-- "strength" controla o quanto a câmera puxa (0.0 a 1.0).
+-- "fov" controla o raio de ativação em studs — só ativa se o alvo
+-- estiver dentro do cone de visão, parecendo aim assist natural.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local silentAimOn = false
-local _saIndex    = nil
-
-local SA_HIT_PROPS = { Hit = true, hit = true }
-local SA_TGT_PROPS = { Target = true, target = true }
-
-local function getSilentTarget()
-    local m = findByRole("murderer")
-    if m and m.Character then
-        return m.Character:FindFirstChild("HumanoidRootPart")
-            or m.Character:FindFirstChild("Head")
-    end
-    return nil
-end
+local aimAssistOn       = false
+local aimAssistStrength = 0.08   -- suave por padrão (difícil de notar)
+local aimAssistFov      = 80     -- studs — só puxa se alvo estiver perto da mira
+local _aaConn           = nil
 
 local function isGunEquipped()
     local chr = player.Character; if not chr then return false end
@@ -359,107 +358,106 @@ local function isGunEquipped()
     return false
 end
 
-local function startSilentAim()
-    if _saIndex then return end
-    if type(hookmetamethod) ~= "function" then
-        warn("[mm2] silent aim: executor nao suporta hookmetamethod"); return
+local function getAimTarget()
+    local m = findByRole("murderer")
+    if m and m.Character then
+        return m.Character:FindFirstChild("HumanoidRootPart")
+            or m.Character:FindFirstChild("Head")
     end
-
-    local mouse = player:GetMouse()
-
-    -- Só __index, só Hit/Target, só quando gun equipada
-    -- Nenhuma outra propriedade do mouse é tocada (Delta, ViewSizeX, etc.)
-    _saIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-        if silentAimOn
-            and self == mouse
-            and not checkcaller()
-            and isGunEquipped()
-        then
-            if SA_HIT_PROPS[key] or SA_TGT_PROPS[key] then
-                local target = getSilentTarget()
-                if target then
-                    if SA_HIT_PROPS[key] then
-                        return CFrame.new(target.Position)
-                    else
-                        return target
-                    end
-                end
-            end
-        end
-        return _saIndex(self, key)
-    end))
+    return nil
 end
 
-local function stopSilentAim()
-    silentAimOn = false
-    -- hook permanece mas flag desativa redirecionamento
+local function startAimAssist()
+    if _aaConn then _aaConn:Disconnect() end
+    _aaConn = RunService.RenderStepped:Connect(function()
+        if not aimAssistOn then return end
+        if not isGunEquipped() then return end
+
+        local target = getAimTarget(); if not target then return end
+        local hrp    = myHRP(); if not hrp then return end
+
+        local camCF   = cam.CFrame
+        local toTarget = (target.Position - camCF.Position)
+
+        -- Só ativa se o alvo estiver dentro do raio de ativação
+        if toTarget.Magnitude > aimAssistFov then return end
+
+        -- Verifica se o alvo está na frente da câmera (cone ~90 graus)
+        local lookDir  = camCF.LookVector
+        local targetDir = toTarget.Unit
+        if lookDir:Dot(targetDir) < 0.5 then return end
+
+        -- Interpola suavemente o LookVector da câmera em direção ao alvo
+        local newLook = lookDir:Lerp(targetDir, aimAssistStrength)
+        local right   = camCF.RightVector
+        local up      = right:Cross(newLook).Unit
+
+        cam.CFrame = CFrame.fromMatrix(camCF.Position, right, up)
+    end)
+end
+
+local function stopAimAssist()
+    aimAssistOn = false
+    if _aaConn then _aaConn:Disconnect(); _aaConn = nil end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- HITBOX EXPANDER
+-- Abordagem do script universal: modifica HRP.Size diretamente + Transparency
+-- + Material Neon pra visualização opcional. Muito mais confiável que Part extra.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
-local hitboxSize    = 12
-local hitboxTargets = {}
+local hitboxSize    = 20
+local hitboxVisible = false
 local _hbConn       = nil
+local hitboxOriginals = {}
 
-local knifeHitboxOn   = false
-local knifeHitboxSize = 15
-local _knifeOrigSize  = nil
-local _knifeHbConn    = nil
-
-local function getKnifeTool()
-    local chr = player.Character
-    if chr then
-        for name in pairs(KNIFE_NAMES) do
-            local t = chr:FindFirstChild(name); if t then return t end
-        end
-    end
-    local bp = player:FindFirstChild("Backpack")
-    if bp then
-        for name in pairs(KNIFE_NAMES) do
-            local t = bp:FindFirstChild(name); if t then return t end
-        end
-    end
-    return nil
+local function saveOriginal(p)
+    if hitboxOriginals[p] then return end
+    local chr = p.Character; if not chr then return end
+    local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    hitboxOriginals[p] = {
+        size         = hrp.Size,
+        transparency = hrp.Transparency,
+        brickColor   = hrp.BrickColor,
+        material     = hrp.Material,
+    }
 end
 
 local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    if hitboxTargets[p] then return end
-
-    local hbPart = Instance.new("Part")
-    hbPart.Name         = "mm2_hitbox"
-    hbPart.Size         = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-    hbPart.Transparency = 1
-    hbPart.CanCollide   = false
-    hbPart.Anchored     = false
-    hbPart.CastShadow   = false
-    hbPart.Parent       = chr
-
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0  = hrp
-    weld.Part1  = hbPart
-    weld.Parent = hbPart
-
-    hitboxTargets[p] = hbPart
+    saveOriginal(p)
+    pcall(function()
+        hrp.Size         = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+        hrp.Transparency = hitboxVisible and 0.6 or 1
+        if hitboxVisible then
+            hrp.BrickColor = BrickColor.new("Really red")
+            hrp.Material   = Enum.Material.Neon
+        end
+        hrp.CanCollide = false
+    end)
 end
 
-local function removeHitbox(p)
+local function restoreHitbox(p)
     if not p then return end
-    local hbPart = hitboxTargets[p]
-    if hbPart and hbPart.Parent then
-        pcall(function() hbPart:Destroy() end)
-    end
-    hitboxTargets[p] = nil
+    local orig = hitboxOriginals[p]; if not orig then return end
+    local chr = p.Character; if not chr then return end
+    local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    pcall(function()
+        hrp.Size         = orig.size
+        hrp.Transparency = orig.transparency
+        hrp.BrickColor   = orig.brickColor
+        hrp.Material     = orig.material
+    end)
+    hitboxOriginals[p] = nil
 end
 
-local function removeAllHitboxes()
-    for p in pairs(hitboxTargets) do removeHitbox(p) end
-    hitboxTargets = {}
+local function restoreAllHitboxes()
+    for p in pairs(hitboxOriginals) do restoreHitbox(p) end
+    hitboxOriginals = {}
 end
 
 local function startHitbox()
@@ -469,25 +467,21 @@ local function startHitbox()
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
             applyHitbox(p)
-            local hbPart = hitboxTargets[p]
-            if hbPart and hbPart.Parent and hbPart.Size.X ~= hitboxSize then
-                pcall(function()
-                    hbPart.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-                end)
-            end
         end
     end)
 end
 
 local function stopHitbox()
     if _hbConn then _hbConn:Disconnect(); _hbConn = nil end
-    removeAllHitboxes()
+    restoreAllHitboxes()
 end
 
-Players.PlayerRemoving:Connect(function(p) removeHitbox(p) end)
+Players.PlayerRemoving:Connect(function(p)
+    hitboxOriginals[p] = nil
+end)
 for _, p in ipairs(Players:GetPlayers()) do
     p.CharacterAdded:Connect(function()
-        hitboxTargets[p] = nil
+        hitboxOriginals[p] = nil
         if hitboxOn then task.wait(1); applyHitbox(p) end
     end)
 end
@@ -497,44 +491,6 @@ Players.PlayerAdded:Connect(function(p)
     end)
 end)
 
-local function applyKnifeHitbox()
-    local knife = getKnifeTool(); if not knife then return end
-    local h = knife:FindFirstChild("Handle"); if not h then return end
-    if not _knifeOrigSize then
-        _knifeOrigSize = { size = h.Size, collide = h.CanCollide }
-    end
-    pcall(function()
-        h.Size       = Vector3.new(knifeHitboxSize, knifeHitboxSize, knifeHitboxSize)
-        h.CanCollide = false
-    end)
-end
-
-local function removeKnifeHitbox()
-    local knife = getKnifeTool()
-    if knife then
-        local h = knife:FindFirstChild("Handle")
-        if h and _knifeOrigSize then
-            pcall(function()
-                h.Size       = _knifeOrigSize.size
-                h.CanCollide = _knifeOrigSize.collide
-            end)
-        end
-    end
-    _knifeOrigSize = nil
-end
-
-local function startKnifeHitbox()
-    if _knifeHbConn then _knifeHbConn:Disconnect() end
-    _knifeHbConn = RunService.Heartbeat:Connect(function()
-        if not knifeHitboxOn then return end
-        applyKnifeHitbox()
-    end)
-end
-
-local function stopKnifeHitbox()
-    if _knifeHbConn then _knifeHbConn:Disconnect(); _knifeHbConn = nil end
-    removeKnifeHitbox()
-end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- GUN TOOLS
@@ -1020,36 +976,50 @@ do
 
 local secSheriff = tabCombat:Section("sheriff")
 
-secSheriff:Divider("silent aim")
-local t_sa = secSheriff:Toggle("silent aim (auto mira)", false, function(v)
-    silentAimOn = v
+secSheriff:Divider("aim assist (camera)")
+local t_sa = secSheriff:Toggle("aim assist (puxa camera pro murderer)", false, function(v)
+    aimAssistOn = v
     if v then
-        startSilentAim()
-        ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-            "ativo — hook Mouse.Hit/Target",ROLE_COLOR.sheriff)
+        startAimAssist()
+        ui:Toast("rbxassetid://131165537896572","[Aim Assist]",
+            "ativo — camera suave, PC e mobile",ROLE_COLOR.sheriff)
     else
-        stopSilentAim()
-        ui:Toast("rbxassetid://131165537896572","[Silent Aim]","desativado",ROLE_COLOR.unknown)
+        stopAimAssist()
+        ui:Toast("rbxassetid://131165537896572","[Aim Assist]","desativado",ROLE_COLOR.unknown)
     end
 end)
-ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t_sa.Set(v) end)
+ui:CfgRegister("mm2_silentaim", function() return aimAssistOn end, function(v) t_sa.Set(v) end)
+
+local s_aaStr = secSheriff:Slider("forca do aim (1=fraco 10=forte)", 1, 10, 1, function(v)
+    aimAssistStrength = v / 100
+end)
+ui:CfgRegister("mm2_aastr", function() return aimAssistStrength*100 end, function(v) s_aaStr.Set(v) end)
+
+local s_aaFov = secSheriff:Slider("raio de ativacao (studs)", 10, 200, 80, function(v)
+    aimAssistFov = v
+end)
+ui:CfgRegister("mm2_aafov", function() return aimAssistFov end, function(v) s_aaFov.Set(v) end)
 
 secSheriff:Divider("hitbox expander")
 local t_hb = secSheriff:Toggle("hitbox expander (todos players)", false, function(v)
     hitboxOn = v
     if v then
         startHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]","players com hitbox "..hitboxSize.."x",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","ativo — "..hitboxSize.." studs",ROLE_COLOR.sheriff)
     else
         stopHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado",ROLE_COLOR.unknown)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado — hrp restaurado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_hitbox", function() return hitboxOn end, function(v) t_hb.Set(v) end)
-local s_hbsize = secSheriff:Slider("tamanho hitbox players (studs)", 4, 40, 12, function(v)
+local s_hbsize = secSheriff:Slider("tamanho hitbox (studs)", 4, 60, 20, function(v)
     hitboxSize = v
 end)
 ui:CfgRegister("mm2_hitboxsize", function() return hitboxSize end, function(v) s_hbsize.Set(v) end)
+local t_hbvis = secSheriff:Toggle("mostrar hitbox (neon vermelho)", false, function(v)
+    hitboxVisible = v
+end)
+ui:CfgRegister("mm2_hitboxvis", function() return hitboxVisible end, function(v) t_hbvis.Set(v) end)
 
 secSheriff:Divider("botao de tiro (mobile safe)")
 
@@ -1226,25 +1196,6 @@ end)
 
 local secMurd=tabCombat:Section("murderer")
 
-secMurd:Divider("knife hitbox (aura de range)")
-local t_kh = secMurd:Toggle("knife hitbox expander", false, function(v)
-    knifeHitboxOn = v
-    if v then
-        startKnifeHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Knife Hitbox]",
-            "ativo — handle "..knifeHitboxSize.." studs",ROLE_COLOR.murderer)
-    else
-        stopKnifeHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Knife Hitbox]","desativado",ROLE_COLOR.unknown)
-    end
-end)
-ui:CfgRegister("mm2_knifehitbox", function() return knifeHitboxOn end, function(v) t_kh.Set(v) end)
-local s_khs = secMurd:Slider("tamanho handle knife (studs)", 4, 40, 15, function(v)
-    knifeHitboxSize = v
-    if knifeHitboxOn then applyKnifeHitbox() end
-end)
-ui:CfgRegister("mm2_knifehitboxsize", function() return knifeHitboxSize end, function(v) s_khs.Set(v) end)
-
 secMurd:Divider("knife aura (auto swing)")
 local knifeAura=false; local knifeRange=12; local knifeCd=0.35
 local _knifeAuraConn = nil
@@ -1386,7 +1337,7 @@ do
 -- Teleporta HRP direto nas coordenadas de Coin_Server para acionar Touched
 -- GetCoin RemoteEvent como reforço (confirmado no scanner)
 local secFarm=tabFarm:Section("coin farm")
-local farmOn=false; local farmDelay=1.2; local farmCount=0
+local farmOn=false; local farmCount=0
 
 local function collectCoinsLoop()
     farmCount=0
@@ -1413,7 +1364,7 @@ local function collectCoinsLoop()
             hrp=myHRP(); if not hrp then break end
             collectCoin(coinPart)
             farmCount=farmCount+1
-            task.wait(farmDelay)
+            task.wait(0.1)
         end
         task.wait(1.5)
     end
@@ -1422,13 +1373,10 @@ end
 local t_farm=secFarm:Toggle("auto farm coins", false, function(v)
     farmOn=v
     if v then task.spawn(collectCoinsLoop)
-        ui:Toast("rbxassetid://131165537896572","[Farm] iniciado","delay: "..farmDelay.."s",Color3.fromRGB(255,210,50))
+        ui:Toast("rbxassetid://131165537896572","[Farm] iniciado","voando pelas coins...",Color3.fromRGB(255,210,50))
     else ui:Toast("rbxassetid://131165537896572","[Farm] parado","coletadas: "..farmCount,Color3.fromRGB(255,210,50)) end
 end)
 ui:CfgRegister("mm2_farm", function() return farmOn end, function(v) t_farm.Set(v) end)
-
-local s_fd=secFarm:Slider("pausa entre coins (x0.1s)", 5, 30, 12, function(v) farmDelay=v/10 end)
-ui:CfgRegister("mm2_farm_delay", function() return farmDelay*10 end, function(v) s_fd.Set(v) end)
 
 local s_fspd=secFarm:Slider("velocidade de voo (studs/s)", 8, 80, 28, function(v) FARM_FLY_SPEED=v end)
 ui:CfgRegister("mm2_farm_speed", function() return FARM_FLY_SPEED end, function(v) s_fspd.Set(v) end)
@@ -1456,7 +1404,7 @@ secFarm:Button("collect coins (1x)", function()
         local count=0
         for _, coinPart in ipairs(coins) do
             if not coinPart or not coinPart.Parent then continue end
-            collectCoin(coinPart); count=count+1; task.wait(farmDelay)
+            collectCoin(coinPart); count=count+1; task.wait(0.1)
         end
         ui:Toast("rbxassetid://131165537896572","[Coins] feito!","coletadas: "..count,Color3.fromRGB(255,210,50))
     end)
@@ -1556,6 +1504,6 @@ ui:BuildConfigTab(tabCfg, "ref_mm2v16")
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v9.4  ["..ROLE_LABEL[role].."]",
+        "mm2 v9.3  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

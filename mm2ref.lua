@@ -265,17 +265,21 @@ local function findDroppedKnives()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM v8 — hookmetamethod no __namecall e __index (método universal)
+-- SILENT AIM v9.2 — hookmetamethod corrigido (camera nao trava)
 --
--- Intercepta workspace:Raycast(), FindPartOnRay() e Mouse.Hit/Target
--- redirecionando a direção do tiro pro HRP do murderer.
--- Mesma técnica do Universal Silent Aim (Averiias).
--- O jogador aponta pra qualquer lugar, clica normalmente, bala vai pro alvo.
+-- Bug anterior: __index interceptava TODAS as props do mouse, incluindo
+-- Delta, ViewSizeX, CoordinateFrame, etc. que o engine usa pra rodar a camera.
+-- Fix: whitelist explicita so pra Hit/Target + guard isGunEquipped().
+-- __namecall: filtra por isGunEquipped() pra nao redirecionar raycasts
+-- do sistema de camera/fisica, so os do LocalScript da gun.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local silentAimOn   = false
-local _saNamecall   = nil
-local _saIndex      = nil
+local silentAimOn = false
+local _saNamecall = nil
+local _saIndex    = nil
+
+local SA_HIT_PROPS = { Hit = true, hit = true }
+local SA_TGT_PROPS = { Target = true, target = true }
 
 local function getSilentTarget()
     local m = findByRole("murderer")
@@ -290,25 +294,35 @@ local function _saGetDirection(origin, targetPos)
     return (targetPos - origin).Unit * 1000
 end
 
+local function isGunEquipped()
+    local chr = player.Character
+    if not chr then return false end
+    for name in pairs(GUN_NAMES) do
+        if chr:FindFirstChild(name) then return true end
+    end
+    return false
+end
+
 local function startSilentAim()
     if _saNamecall then return end
-
-    -- Verifica se o executor suporta hookmetamethod
     if type(hookmetamethod) ~= "function" then
         warn("[mm2] silent aim: executor nao suporta hookmetamethod"); return
     end
 
     local mouse = player:GetMouse()
 
-    -- Hook __namecall — intercepta Raycast e FindPartOnRay no workspace
     _saNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
-        local args   = { ... }
 
-        if silentAimOn and self == workspace and not checkcaller() then
+        if silentAimOn
+            and self == workspace
+            and not checkcaller()
+            and isGunEquipped()
+        then
             local target = getSilentTarget()
             if target then
-                -- workspace:Raycast(origin, direction, params)
+                local args = { ... }
+
                 if method == "Raycast" then
                     local origin = args[1]
                     if typeof(origin) == "Vector3" then
@@ -316,24 +330,11 @@ local function startSilentAim()
                         return _saNamecall(self, table.unpack(args))
                     end
 
-                -- workspace:FindPartOnRayWithIgnoreList(ray, ignoreList, ...)
-                elseif method == "FindPartOnRayWithIgnoreList" then
-                    local ray = args[1]
-                    if typeof(ray) == "Ray" then
-                        args[1] = Ray.new(ray.Origin, _saGetDirection(ray.Origin, target.Position))
-                        return _saNamecall(self, table.unpack(args))
-                    end
-
-                -- workspace:FindPartOnRay(ray, ...)
-                elseif method == "FindPartOnRay" or method == "findPartOnRay" then
-                    local ray = args[1]
-                    if typeof(ray) == "Ray" then
-                        args[1] = Ray.new(ray.Origin, _saGetDirection(ray.Origin, target.Position))
-                        return _saNamecall(self, table.unpack(args))
-                    end
-
-                -- workspace:FindPartOnRayWithWhitelist(ray, whitelist, ...)
-                elseif method == "FindPartOnRayWithWhitelist" then
+                elseif method == "FindPartOnRayWithIgnoreList"
+                    or  method == "FindPartOnRay"
+                    or  method == "findPartOnRay"
+                    or  method == "FindPartOnRayWithWhitelist"
+                then
                     local ray = args[1]
                     if typeof(ray) == "Ray" then
                         args[1] = Ray.new(ray.Origin, _saGetDirection(ray.Origin, target.Position))
@@ -346,16 +347,20 @@ local function startSilentAim()
         return _saNamecall(self, ...)
     end))
 
-    -- Hook __index — intercepta Mouse.Hit e Mouse.Target
     _saIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-        if silentAimOn and self == mouse and not checkcaller() then
+        if silentAimOn
+            and self == mouse
+            and not checkcaller()
+            and isGunEquipped()
+        then
             local target = getSilentTarget()
             if target then
-                if key == "Hit" or key == "hit" then
+                if SA_HIT_PROPS[key] then
                     return CFrame.new(target.Position)
-                elseif key == "Target" or key == "target" then
+                elseif SA_TGT_PROPS[key] then
                     return target
                 end
+                -- qualquer outra propriedade (Delta, ViewSizeX, etc.) passa normal
             end
         end
         return _saIndex(self, key)
@@ -363,10 +368,7 @@ local function startSilentAim()
 end
 
 local function stopSilentAim()
-    -- hookmetamethod nao tem unhook direto — desativa via flag silentAimOn = false
-    -- os hooks ficam mas retornam o comportamento original quando silentAimOn = false
-    _saNamecall = nil
-    _saIndex    = nil
+    silentAimOn = false
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════

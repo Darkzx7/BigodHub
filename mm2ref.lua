@@ -283,35 +283,41 @@ local function equipKnife()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM — HOOK NO __namecall DO RemoteEvent:FireServer
+-- SILENT AIM
 --
 -- Como funciona o tiro da gun no MM2 (confirmado pelo scan):
 --   GunClient → RemoteEvent|Shoot:FireServer(targetPos, targetInstance)
 --   GunServer recebe e faz raycast do GunRaycastAttachment1 → targetPos
 --
--- A câmera NÃO é movida. Interceptamos o FireServer da Shoot Remote
--- e substituímos os argumentos pelo HRP/Head do murderer.
--- Isso é transparente pro jogador — a mira visual fica onde está,
--- mas o servidor recebe a posição do alvo real.
+-- PROBLEMA NO MOBILE:
+--   tool:Activate() não funciona no mobile — o GunClient usa TouchTap/TouchLongPress
+--   pra detectar o toque, e o Activate() do executor não emula isso.
+--   Resultado: o FireServer nunca é chamado, tiro não sai.
+--
+-- SOLUÇÃO MOBILE:
+--   Detectamos o toque na tela via UserInputService.TouchTapInWorld (qualquer toque
+--   no mundo 3D = intenção de atirar) e chamamos o FireServer diretamente no
+--   Remote|Shoot da gun, substituindo a posição pelo alvo do silent aim.
+--   No PC o hook de __namecall continua funcionando normalmente.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local silentAimOn     = false
-local silentAimTarget = nil   -- player alvo (auto = murderer)
+local silentAimTarget = nil
 
--- Guarda os metatabelas originais pra poder restaurar
-local _origNamecall = nil
-local _namecallHooked = false
+local _namecallHooked  = false
+local _mobileShootConn = nil
+local _shootCooldown   = false
+
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 local function getSilentTarget()
     if silentAimTarget and silentAimTarget.Parent and isAlive(silentAimTarget) then
         return silentAimTarget
     end
-    -- Auto: murderer se você é sheriff, qualquer vivo se murderer
     local myRole = getRole()
     if myRole == "sheriff" then
         return findByRole("murderer")
     elseif myRole == "murderer" then
-        -- Pega o mais próximo
         local hrp = myHRP(); if not hrp then return nil end
         local best, bestD = nil, math.huge
         for _, p in ipairs(Players:GetPlayers()) do
@@ -331,7 +337,6 @@ end
 local function getTargetHitPos(targetPlayer)
     if not targetPlayer then return nil end
     local chr = targetPlayer.Character; if not chr then return nil end
-    -- Prefere Head (hitbox menor, mais preciso no servidor)
     local head = chr:FindFirstChild("Head")
     if head then return head.Position end
     local hrp = chr:FindFirstChild("HumanoidRootPart")
@@ -345,103 +350,165 @@ local function getTargetInstance(targetPlayer)
     return chr:FindFirstChild("Head") or chr:FindFirstChild("HumanoidRootPart") or chr
 end
 
--- Hook __namecall — intercepta QUALQUER :FireServer chamado no contexto do Gun Remote
--- Identificamos a Shoot remote pela instância pai (Tool Gun)
+-- Busca o Remote|Shoot dentro da gun equipada
+local function getShootRemote()
+    local chr = player.Character
+    local bp  = player:FindFirstChild("Backpack")
+    for name in pairs(GUN_NAMES) do
+        local tool = (chr and chr:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
+        if tool then
+            -- Scanner confirmou: RemoteEvent|Shoot|pai:Gun
+            local r = tool:FindFirstChild("Shoot")
+            if r and r:IsA("RemoteEvent") then return r, tool end
+            -- Fallback: qualquer RemoteEvent dentro da gun
+            for _, obj in ipairs(tool:GetDescendants()) do
+                if obj:IsA("RemoteEvent") then return obj, tool end
+            end
+        end
+    end
+    return nil, nil
+end
+
+-- Dispara o tiro com silent aim direto no RemoteEvent
+local function fireSilentShot()
+    if _shootCooldown then return end
+    local shootRemote, gunTool = getShootRemote()
+    if not shootRemote then return end
+
+    -- Gun precisa estar equipada no character (não no backpack)
+    local chr = player.Character
+    if chr and gunTool and not chr:FindFirstChild(gunTool.Name) then
+        local hum = chr:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function() hum:EquipTool(gunTool) end)
+            task.wait(0.1)
+            shootRemote, gunTool = getShootRemote()
+            if not shootRemote then return end
+        end
+    end
+
+    local target  = getSilentTarget()
+    local hitPos  = target and getTargetHitPos(target)
+    local hitInst = target and getTargetInstance(target)
+
+    -- Se não tem alvo, usa posição da câmera (tiro normal sem desvio)
+    if not hitPos then
+        hitPos  = cam.CFrame.Position + cam.CFrame.LookVector * 100
+        hitInst = workspace.Terrain
+    end
+
+    _shootCooldown = true
+    pcall(function()
+        shootRemote:FireServer(hitPos, hitInst)
+    end)
+    task.delay(0.65, function() _shootCooldown = false end)
+end
+
+-- Hook __namecall para PC: intercepta o FireServer que o GunClient já dispara
+-- e substitui os argumentos. No mobile isso não chega a rodar pois o GunClient
+-- nem dispara — por isso temos o listener de toque separado.
 local function hookSilentAim()
     if _namecallHooked then return end
     _namecallHooked = true
 
     local mt = getrawmetatable(game)
     local old_namecall = mt.__namecall
-
-    -- Precisa de setreadonly se o executor suportar
     pcall(function() setreadonly(mt, false) end)
 
     mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
 
         if silentAimOn and method == "FireServer" and self:IsA("RemoteEvent") then
-            -- Checa se é o Remote Shoot dentro de uma Tool de gun
             local parentTool = self.Parent
             if parentTool and parentTool:IsA("Tool") and GUN_NAMES[parentTool.Name] then
-                local target = getSilentTarget()
-                if target then
-                    local hitPos  = getTargetHitPos(target)
-                    local hitInst = getTargetInstance(target)
-                    if hitPos and hitInst then
-                        -- Substitui os argumentos: FireServer(hitPos, hitInst)
-                        -- A assinatura exata do GunClient pode variar, mas
-                        -- posição + instância é o padrão do MM2
-                        return old_namecall(self, hitPos, hitInst)
-                    end
+                local target  = getSilentTarget()
+                local hitPos  = target and getTargetHitPos(target)
+                local hitInst = target and getTargetInstance(target)
+                if hitPos and hitInst then
+                    return old_namecall(self, hitPos, hitInst)
                 end
             end
         end
 
         return old_namecall(self, ...)
     end)
+end
 
-    _origNamecall = old_namecall
+-- Listener de toque para MOBILE
+-- TouchTapInWorld dispara em qualquer tap no mundo 3D (não em GUIs)
+-- Isso emula o que o GunClient faria ao receber o toque do jogador
+local function startMobileSilentAim()
+    if _mobileShootConn then _mobileShootConn:Disconnect() end
+    _mobileShootConn = UserInputService.TouchTapInWorld:Connect(function(position, processedByUI)
+        if processedByUI then return end
+        if not silentAimOn then return end
+        -- Só atira se tiver gun equipada
+        local chr = player.Character
+        if not chr then return end
+        local hasGun = false
+        for name in pairs(GUN_NAMES) do
+            if chr:FindFirstChild(name) then hasGun = true; break end
+        end
+        if not hasGun then return end
+        fireSilentShot()
+    end)
+end
+
+local function stopMobileSilentAim()
+    if _mobileShootConn then
+        _mobileShootConn:Disconnect()
+        _mobileShootConn = nil
+    end
 end
 
 local function unhookSilentAim()
-    -- Desativa a flag; o hook permanece mas não faz nada com silentAimOn = false
-    -- (remover o hook causaria problemas se outro script também hookear)
     silentAimOn = false
+    stopMobileSilentAim()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- HITBOX EXPANDER — VERSÃO CORRIGIDA
 --
--- PROBLEMA DO SCRIPT ANTERIOR:
---   Expandia só o HumanoidRootPart, mas o TouchTransmitter da faca
---   verifica TODAS as BaseParts do character. Pior: HRP tem CanCollide=false
---   por padrão no MM2, então o Touch não registra mesmo expandido.
---
--- SOLUÇÃO:
---   1. Expandir TODAS as partes do character (torso, limbs, head)
---   2. Garantir CanCollide=true nelas (necessário pro TouchTransmitter funcionar)
---   3. Transparency controlada separadamente (não precisa ser visível pra colidir)
---   4. Para gun: hitbox grande no character faz o raycast server-side acertar
---      mesmo com aim levemente desviado
+-- SOLUÇÃO CORRETA:
+--   Touched do Roblox dispara mesmo com CanCollide=false — o Handle da faca
+--   tem TouchTransmitter ativo e dispara Touched em qualquer part que ele
+--   interseccionar no espaço, independente de CanCollide.
+--   Portanto: expandimos as parts SEM mudar CanCollide, sem colisão física.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn        = false
-local hitboxSize      = 12   -- menor que antes (20 era grande demais e suspeito)
+local hitboxSize      = 12
 local hitboxVisible   = false
 local _hbConn         = nil
-local hitboxOriginals = {}   -- [part] = {Size, CanCollide, Transparency}
+local hitboxOriginals = {}   -- [part] = {Size, Transparency}
 
 local function applyHitboxToChar(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
 
     for _, part in ipairs(chr:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            -- Só expande partes do character (ignora acessórios/tools)
-            if not hitboxOriginals[part] then
-                hitboxOriginals[part] = {
-                    Size         = part.Size,
-                    CanCollide   = part.CanCollide,
-                    Transparency = part.Transparency,
-                }
-            end
-            pcall(function()
-                -- Expande mantendo proporção pra parecer natural
-                local orig = hitboxOriginals[part].Size
-                local scale = hitboxSize / math.max(orig.X, orig.Y, orig.Z, 1)
-                part.Size = orig * math.max(scale, 1)
-                part.CanCollide   = true   -- ESSENCIAL pro TouchTransmitter funcionar
-                part.Transparency = hitboxVisible and 0.4 or part.Transparency
-            end)
-        end
-    end
+        if not part:IsA("BasePart") then continue end
+        if part.Parent:IsA("Accessory") then continue end
+        if part.Parent:IsA("Tool")      then continue end
 
-    -- HRP: não expandimos (evita bugs de física), mas garantimos CanCollide
-    local hrp = chr:FindFirstChild("HumanoidRootPart")
-    if hrp then
+        if not hitboxOriginals[part] then
+            hitboxOriginals[part] = {
+                Size         = part.Size,
+                Transparency = part.Transparency,
+            }
+        end
+
         pcall(function()
-            hrp.CanCollide = false  -- HRP deve ficar false (padrão Roblox)
+            local orig   = hitboxOriginals[part].Size
+            local maxDim = math.max(orig.X, orig.Y, orig.Z, 0.1)
+            local scale  = hitboxSize / maxDim
+            if scale > 1 then
+                part.Size = orig * scale
+            end
+            -- CanCollide NÃO é alterado — sem colisão física entre jogadores
+            if hitboxVisible then
+                part.Transparency = 0.5
+            end
         end)
     end
 end
@@ -451,7 +518,6 @@ local function restoreHitboxOfChar(p)
     local chr = p.Character
     local partsToRestore = {}
     for part, orig in pairs(hitboxOriginals) do
-        -- Checa se essa part pertence ao character desse player
         local ok, belongs = pcall(function()
             return chr and part:IsDescendantOf(chr)
         end)
@@ -460,14 +526,11 @@ local function restoreHitboxOfChar(p)
         end
     end
     for _, data in ipairs(partsToRestore) do
-        local part = data.part
-        local orig = data.orig
         pcall(function()
-            part.Size         = orig.Size
-            part.CanCollide   = orig.CanCollide
-            part.Transparency = orig.Transparency
+            data.part.Size         = data.orig.Size
+            data.part.Transparency = data.orig.Transparency
         end)
-        hitboxOriginals[part] = nil
+        hitboxOriginals[data.part] = nil
     end
 end
 
@@ -475,7 +538,6 @@ local function restoreAllHitboxes()
     for part, orig in pairs(hitboxOriginals) do
         pcall(function()
             part.Size         = orig.Size
-            part.CanCollide   = orig.CanCollide
             part.Transparency = orig.Transparency
         end)
     end
@@ -1033,9 +1095,15 @@ secSheriff:Divider("silent aim (hook fireserver)")
 local t_sa = secSheriff:Toggle("silent aim (sem mover camera)", false, function(v)
     silentAimOn = v
     if v then
-        hookSilentAim()  -- instala o hook uma vez
-        ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-            "ativo — hook no FireServer da Gun",ROLE_COLOR.sheriff)
+        hookSilentAim()  -- hook __namecall para PC
+        if isMobile then
+            startMobileSilentAim()  -- listener de toque para mobile
+            ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
+                "ativo (MOBILE) — toque na tela pra atirar",ROLE_COLOR.sheriff)
+        else
+            ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
+                "ativo (PC) — hook no FireServer da Gun",ROLE_COLOR.sheriff)
+        end
     else
         unhookSilentAim()
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]","desativado",ROLE_COLOR.unknown)

@@ -229,32 +229,71 @@ local function findAllCoinServers()
     return coins
 end
 
+-- Velocidade de voo entre coins (studs/s) — ajustável
+local FARM_FLY_SPEED = 28
+
+-- Move o HRP suavemente de origem até destino, passo a passo.
+-- Isso aciona o Touched server-side porque o personagem realmente
+-- atravessa a Part, ao invés de aparecer em cima dela via teleporte.
+local function flyTo(destination, speedOverride)
+    local speed = speedOverride or FARM_FLY_SPEED
+    local hrp = myHRP(); if not hrp then return end
+
+    -- Desativa colisão temporariamente pra não travar em paredes
+    local chr = player.Character
+    if chr then
+        for _, p in ipairs(chr:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+
+    local startPos = hrp.Position
+    local endPos   = destination
+
+    local dist = (endPos - startPos).Magnitude
+    if dist < 0.5 then return end
+
+    local steps    = math.max(4, math.ceil(dist / 2))   -- 1 passo a cada ~2 studs
+    local stepWait = (dist / speed) / steps              -- tempo por passo
+
+    for i = 1, steps do
+        hrp = myHRP(); if not hrp then return end
+        local t   = i / steps
+        local pos = startPos:Lerp(endPos, t)
+        hrp.CFrame = CFrame.new(pos)
+        task.wait(stepWait)
+    end
+
+    -- Garante chegada exata
+    hrp = myHRP(); if not hrp then return end
+    hrp.CFrame = CFrame.new(endPos)
+end
+
 local function collectCoin(coinServer)
     if not coinServer or not coinServer.Parent then return end
     local hrp = myHRP(); if not hrp then return end
-    local pos = coinServer.Position
 
-    -- Teleporta diretamente em cima da Coin_Server para acionar o Touched
-    hrp.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
-    task.wait(0.05)
+    -- Destino: centro da Coin_Server + 1 stud acima (fica dentro da hitbox)
+    local pos = coinServer.Position + Vector3.new(0, 1, 0)
 
-    hrp = myHRP(); if not hrp then return end
-    if not coinServer.Parent then return end
+    -- Voa suavemente até a coin — aciona Touched ao atravessar
+    flyTo(pos)
 
-    -- Segunda tentativa com offset mínimo (às vezes Touched precisa de movimento)
-    hrp.CFrame = CFrame.new(pos.X + 0.1, pos.Y, pos.Z + 0.1)
-    task.wait(0.04)
-
-    -- Tenta GetCoin RemoteEvent (confirmado no scanner como alternativa)
-    if GetCoinEvent then
-        pcall(function()
-            GetCoinEvent:FireServer()
-        end)
+    -- Micro-oscilação pra garantir que o Touched dispara
+    hrp = myHRP()
+    if hrp and coinServer.Parent then
+        hrp.CFrame = CFrame.new(coinServer.Position + Vector3.new(0.2, 0.8, 0.2))
+        task.wait(0.06)
+        hrp = myHRP()
+        if hrp then
+            hrp.CFrame = CFrame.new(coinServer.Position)
+        end
+        task.wait(0.05)
     end
 
-    -- UpdateDataClient BindableEvent (confirmado no scanner)
-    if UpdateDataClient then
-        pcall(function() UpdateDataClient:Fire() end)
+    -- GetCoin como reforço (RemoteEvent confirmado no scanner)
+    if GetCoinEvent then
+        pcall(function() GetCoinEvent:FireServer() end)
     end
 end
 
@@ -1434,8 +1473,11 @@ local t_farm=secFarm:Toggle("auto farm coins", false, function(v)
 end)
 ui:CfgRegister("mm2_farm", function() return farmOn end, function(v) t_farm.Set(v) end)
 
-local s_fd=secFarm:Slider("delay por coin (x0.1s)", 5, 30, 12, function(v) farmDelay=v/10 end)
+local s_fd=secFarm:Slider("pausa entre coins (x0.1s)", 5, 30, 12, function(v) farmDelay=v/10 end)
 ui:CfgRegister("mm2_farm_delay", function() return farmDelay*10 end, function(v) s_fd.Set(v) end)
+
+local s_fspd=secFarm:Slider("velocidade de voo (studs/s)", 8, 80, 28, function(v) FARM_FLY_SPEED=v end)
+ui:CfgRegister("mm2_farm_speed", function() return FARM_FLY_SPEED end, function(v) s_fspd.Set(v) end)
 
 secFarm:Button("status do farm", function()
     local coins = findAllCoinServers()

@@ -265,19 +265,20 @@ local function findDroppedKnives()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM v4 — Mouse.Hit / Mouse.Target hook (método real)
+-- SILENT AIM v6 — firesignal no Tool.Activated com posição do alvo
 --
+-- Método correto para Delta mobile (sem getrawmetatable, sem setreadonly).
 -- Como funciona:
---   Silent aim REAL = você aponta pra qualquer lugar e clica normalmente,
---   mas a bala vai pro alvo. Não move câmera nem personagem.
---   O MM2 usa player:GetMouse().Hit e .Target para calcular o Raycast do tiro.
---   Hookeamos o __index do Mouse para substituir Hit e Target pelo HRP do
---   murderer enquanto silentAimOn está ativo.
---   O clique físico funciona normalmente — zero interferência.
+--   No mobile o MM2 usa Tool.Activated + posição do toque para o Raycast.
+--   Quando o jogador toca na tela com a gun, interceptamos via InputBegan,
+--   cancelamos a propagação natural e disparamos firesignal(Tool.Activated)
+--   com a posição do HRP do murderer substituída.
+--   O servidor recebe o tiro apontado pro alvo. Zero hook de metamétodo.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local silentAimOn = false
-local _mouseHook  = nil
+local _saConn     = nil
+local _saBusy     = false
 
 local function getSilentTarget()
     local m = findByRole("murderer")
@@ -289,65 +290,48 @@ local function getSilentTarget()
 end
 
 local function startSilentAim()
-    if _mouseHook then return end
-    local mouse = player:GetMouse()
-    if not mouse then return end
+    if _saConn then return end
+    _saConn = UserInputService.InputBegan:Connect(function(inp, gp)
+        if gp or not silentAimOn or _saBusy then return end
+        local isTap = inp.UserInputType == Enum.UserInputType.MouseButton1
+                   or inp.UserInputType == Enum.UserInputType.Touch
+        if not isTap then return end
 
-    -- Hook __index do Mouse para interceptar .Hit e .Target
-    local ok = pcall(function()
-        local mt = getrawmetatable(mouse)
-        local old__index = rawget(mt, "__index")
-        setreadonly(mt, false)
-        rawset(mt, "__index", newcclosure(function(self, key)
-            if silentAimOn then
-                local target = getSilentTarget()
-                if target then
-                    if key == "Hit" then
-                        -- Retorna CFrame apontando do mouse para o HRP do alvo
-                        return CFrame.new(target.Position)
-                    elseif key == "Target" then
-                        -- Retorna a part do alvo diretamente
-                        return target
-                    end
+        -- Só age se a gun está equipada no character
+        local chr = player.Character; if not chr then return end
+        local gun = nil
+        for name in pairs(GUN_NAMES) do
+            gun = chr:FindFirstChild(name)
+            if gun then break end
+        end
+        if not gun then return end
+
+        local target = getSilentTarget(); if not target then return end
+
+        _saBusy = true
+
+        -- firesignal no Activated da gun passando posição do alvo
+        -- Delta suporta firesignal nativamente
+        pcall(function()
+            firesignal(gun.Activated, target.Position)
+        end)
+
+        -- Fallback: tenta via RemoteEvents internos da gun
+        pcall(function()
+            for _, obj in ipairs(gun:GetDescendants()) do
+                if obj:IsA("RemoteEvent") then
+                    pcall(function() obj:FireServer(target.Position, target) end)
                 end
             end
-            return old__index(self, key)
-        end))
-        setreadonly(mt, true)
-        _mouseHook = {mt = mt, old = old__index}
-    end)
-
-    -- Fallback para executors sem getrawmetatable (Delta pode não ter)
-    -- Nesse caso usa __newindex no Mouse para redirecionar Hit/Target
-    if not ok or not _mouseHook then
-        -- Método alternativo: substituição direta via Object.Changed
-        -- O Delta suporta isso sem precisar de getrawmetatable
-        _mouseHook = RunService.RenderStepped:Connect(function()
-            if not silentAimOn then return end
-            local target = getSilentTarget()
-            if not target then return end
-            -- No Delta, podemos setar Hit diretamente no mouse
-            pcall(function()
-                mouse.Hit = CFrame.new(target.Position)
-                mouse.Target = target
-            end)
         end)
-    end
+
+        task.delay(0.3, function() _saBusy = false end)
+    end)
 end
 
 local function stopSilentAim()
-    if not _mouseHook then return end
-    if typeof(_mouseHook) == "table" then
-        -- Restaura __index original
-        pcall(function()
-            setreadonly(_mouseHook.mt, false)
-            rawset(_mouseHook.mt, "__index", _mouseHook.old)
-            setreadonly(_mouseHook.mt, true)
-        end)
-    elseif typeof(_mouseHook) == "RBXScriptConnection" then
-        _mouseHook:Disconnect()
-    end
-    _mouseHook = nil
+    if _saConn then _saConn:Disconnect(); _saConn = nil end
+    _saBusy = false
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════

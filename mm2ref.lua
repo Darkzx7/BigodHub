@@ -467,20 +467,15 @@ local function unhookSilentAim()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- HITBOX EXPANDER — VERSÃO CORRIGIDA
---
--- SOLUÇÃO CORRETA:
---   Touched do Roblox dispara mesmo com CanCollide=false — o Handle da faca
---   tem TouchTransmitter ativo e dispara Touched em qualquer part que ele
---   interseccionar no espaço, independente de CanCollide.
---   Portanto: expandimos as parts SEM mudar CanCollide, sem colisão física.
+-- HITBOX EXPANDER
+-- Aplica UMA VEZ por character — sem loop no Heartbeat.
+-- Reaplica só quando um novo character spawna.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn        = false
 local hitboxSize      = 12
 local hitboxVisible   = false
-local _hbConn         = nil
-local hitboxOriginals = {}   -- [part] = {Size, Transparency}
+local hitboxOriginals = {}  -- [part] = {Size, Transparency}
 
 local function applyHitboxToChar(p)
     if not p or p == player then return end
@@ -490,47 +485,39 @@ local function applyHitboxToChar(p)
         if not part:IsA("BasePart") then continue end
         if part.Parent:IsA("Accessory") then continue end
         if part.Parent:IsA("Tool")      then continue end
+        if hitboxOriginals[part] then continue end  -- já aplicado, pula
 
-        if not hitboxOriginals[part] then
-            hitboxOriginals[part] = {
-                Size         = part.Size,
-                Transparency = part.Transparency,
-            }
+        hitboxOriginals[part] = {
+            Size         = part.Size,
+            Transparency = part.Transparency,
+        }
+
+        local orig   = part.Size
+        local maxDim = math.max(orig.X, orig.Y, orig.Z, 0.1)
+        local scale  = hitboxSize / maxDim
+        if scale > 1 then
+            pcall(function() part.Size = orig * scale end)
         end
-
-        pcall(function()
-            local orig   = hitboxOriginals[part].Size
-            local maxDim = math.max(orig.X, orig.Y, orig.Z, 0.1)
-            local scale  = hitboxSize / maxDim
-            if scale > 1 then
-                part.Size = orig * scale
-            end
-            -- CanCollide NÃO é alterado — sem colisão física entre jogadores
-            if hitboxVisible then
-                part.Transparency = 0.5
-            end
-        end)
+        if hitboxVisible then
+            pcall(function() part.Transparency = 0.5 end)
+        end
     end
 end
 
 local function restoreHitboxOfChar(p)
     if not p then return end
     local chr = p.Character
-    local partsToRestore = {}
     for part, orig in pairs(hitboxOriginals) do
         local ok, belongs = pcall(function()
             return chr and part:IsDescendantOf(chr)
         end)
         if ok and belongs then
-            table.insert(partsToRestore, {part = part, orig = orig})
+            pcall(function()
+                part.Size         = orig.Size
+                part.Transparency = orig.Transparency
+            end)
+            hitboxOriginals[part] = nil
         end
-    end
-    for _, data in ipairs(partsToRestore) do
-        pcall(function()
-            data.part.Size         = data.orig.Size
-            data.part.Transparency = data.orig.Transparency
-        end)
-        hitboxOriginals[data.part] = nil
     end
 end
 
@@ -545,31 +532,34 @@ local function restoreAllHitboxes()
 end
 
 local function startHitbox()
-    if _hbConn then _hbConn:Disconnect() end
-    _hbConn = RunService.Heartbeat:Connect(function()
-        if not hitboxOn then return end
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= player then
-                applyHitboxToChar(p)
-            end
+    -- Aplica em todos os players existentes agora (uma vez só)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            applyHitboxToChar(p)
         end
-    end)
+    end
 end
 
 local function stopHitbox()
     hitboxOn = false
-    if _hbConn then _hbConn:Disconnect(); _hbConn = nil end
     restoreAllHitboxes()
 end
 
+-- Reaplica quando um player ganha novo character
 Players.PlayerRemoving:Connect(function(p)
     restoreHitboxOfChar(p)
 end)
 
 Players.PlayerAdded:Connect(function(p)
     p.CharacterAdded:Connect(function()
-        -- Limpa originals do character antigo desse player
-        restoreHitboxOfChar(p)
+        hitboxOriginals = (function()
+            local clean = {}
+            for part, orig in pairs(hitboxOriginals) do
+                local ok, belongs = pcall(function() return part:IsDescendantOf(p.Character or game) end)
+                if not (ok and belongs) then clean[part] = orig end
+            end
+            return clean
+        end)()
         if hitboxOn then task.wait(1); applyHitboxToChar(p) end
     end)
 end)
@@ -577,7 +567,16 @@ end)
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= player then
         p.CharacterAdded:Connect(function()
-            restoreHitboxOfChar(p)
+            -- Limpa parts antigas desse player do cache
+            local chr = p.Character
+            for part in pairs(hitboxOriginals) do
+                local ok, old = pcall(function() return part:IsDescendantOf(chr) end)
+                -- não restaura (character morreu), só limpa o cache
+                if not (ok and old) then
+                    -- verifica se era desse player pelo ancestry antigo
+                    pcall(function() hitboxOriginals[part] = nil end)
+                end
+            end
             if hitboxOn then task.wait(1); applyHitboxToChar(p) end
         end)
     end

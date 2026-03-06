@@ -1556,6 +1556,6 @@ ui:BuildConfigTab(tabCfg, "ref_mm2v16")
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v9.3  ["..ROLE_LABEL[role].."]",
+        "mm2 v9.4  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

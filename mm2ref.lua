@@ -265,22 +265,19 @@ local function findDroppedKnives()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM v2 — hook Tool.Activated no frame certo
+-- SILENT AIM v4 — Mouse.Hit / Mouse.Target hook (método real)
 --
--- Como funciona no MM2:
---   O LocalScript da gun usa Tool.Activated para iniciar o tiro.
---   Internamente ele faz um Raycast da câmera para calcular o alvo.
---   Se no frame do Activated o CFrame da câmera aponta pro murderer,
---   o Raycast acerta ele — mesmo que visualmente você esteja olhando pra outro lugar.
---
--- Método: hook __namecall intercepta "Activate" na Tool da gun.
---   No frame exato do Activate: rotaciona a câmera pro murderer,
---   deixa o Activate acontecer normalmente, restaura a câmera 1 frame depois.
+-- Como funciona:
+--   Silent aim REAL = você aponta pra qualquer lugar e clica normalmente,
+--   mas a bala vai pro alvo. Não move câmera nem personagem.
+--   O MM2 usa player:GetMouse().Hit e .Target para calcular o Raycast do tiro.
+--   Hookeamos o __index do Mouse para substituir Hit e Target pelo HRP do
+--   murderer enquanto silentAimOn está ativo.
+--   O clique físico funciona normalmente — zero interferência.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local silentAimOn    = false
-local _namecallHook  = nil
-local _newcc = (type(newcclosure) == "function") and newcclosure or function(f) return f end
+local silentAimOn = false
+local _mouseHook  = nil
 
 local function getSilentTarget()
     local m = findByRole("murderer")
@@ -292,66 +289,65 @@ local function getSilentTarget()
 end
 
 local function startSilentAim()
-    if _namecallHook then return end
-    if type(getrawmetatable) ~= "function"
-    or type(setreadonly) ~= "function"
-    or type(getnamecallmethod) ~= "function" then
-        warn("[mm2] executor sem suporte a hooks — silent aim indisponivel"); return
-    end
-    pcall(function()
-        local mt = getrawmetatable(game)
-        local oldNC = rawget(mt, "__namecall")
+    if _mouseHook then return end
+    local mouse = player:GetMouse()
+    if not mouse then return end
+
+    -- Hook __index do Mouse para interceptar .Hit e .Target
+    local ok = pcall(function()
+        local mt = getrawmetatable(mouse)
+        local old__index = rawget(mt, "__index")
         setreadonly(mt, false)
-        rawset(mt, "__namecall", _newcc(function(self, ...)
-            local method = getnamecallmethod()
-            -- Hook no Activate da Tool (gun)
-            if silentAimOn and method == "Activate" then
-                -- Verifica se é a tool da gun do player
-                local isGunTool = false
-                if typeof(self) == "Instance" and self:IsA("Tool") then
-                    if GUN_NAMES[self.Name] then isGunTool = true end
-                end
-                if isGunTool then
-                    local target = getSilentTarget()
-                    if target then
-                        -- Rotaciona câmera para o alvo no frame do Activate
-                        local savedCF = cam.CFrame
-                        local eyePos  = cam.CFrame.Position
-                        cam.CFrame    = CFrame.new(eyePos, target.Position)
-                        -- Restaura 1 frame depois (invisível para outros)
-                        task.defer(function()
-                            pcall(function() cam.CFrame = savedCF end)
-                        end)
-                    end
-                end
-            end
-            -- Hook FireServer genérico (cobertura extra)
-            if silentAimOn and method == "FireServer" then
+        rawset(mt, "__index", newcclosure(function(self, key)
+            if silentAimOn then
                 local target = getSilentTarget()
                 if target then
-                    local args = { ... }
-                    if args[1] and typeof(args[1]) == "Vector3" then
-                        args[1] = target.Position
-                        return oldNC(self, table.unpack(args))
+                    if key == "Hit" then
+                        -- Retorna CFrame apontando do mouse para o HRP do alvo
+                        return CFrame.new(target.Position)
+                    elseif key == "Target" then
+                        -- Retorna a part do alvo diretamente
+                        return target
                     end
                 end
             end
-            return oldNC(self, ...)
+            return old__index(self, key)
         end))
         setreadonly(mt, true)
-        _namecallHook = oldNC
+        _mouseHook = {mt = mt, old = old__index}
     end)
+
+    -- Fallback para executors sem getrawmetatable (Delta pode não ter)
+    -- Nesse caso usa __newindex no Mouse para redirecionar Hit/Target
+    if not ok or not _mouseHook then
+        -- Método alternativo: substituição direta via Object.Changed
+        -- O Delta suporta isso sem precisar de getrawmetatable
+        _mouseHook = RunService.RenderStepped:Connect(function()
+            if not silentAimOn then return end
+            local target = getSilentTarget()
+            if not target then return end
+            -- No Delta, podemos setar Hit diretamente no mouse
+            pcall(function()
+                mouse.Hit = CFrame.new(target.Position)
+                mouse.Target = target
+            end)
+        end)
+    end
 end
 
 local function stopSilentAim()
-    if not _namecallHook then return end
-    pcall(function()
-        local mt = getrawmetatable(game)
-        setreadonly(mt, false)
-        rawset(mt, "__namecall", _namecallHook)
-        setreadonly(mt, true)
-    end)
-    _namecallHook = nil
+    if not _mouseHook then return end
+    if typeof(_mouseHook) == "table" then
+        -- Restaura __index original
+        pcall(function()
+            setreadonly(_mouseHook.mt, false)
+            rawset(_mouseHook.mt, "__index", _mouseHook.old)
+            setreadonly(_mouseHook.mt, true)
+        end)
+    elseif typeof(_mouseHook) == "RBXScriptConnection" then
+        _mouseHook:Disconnect()
+    end
+    _mouseHook = nil
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -1359,29 +1355,71 @@ local _knifeAuraConn = nil
 
 local function knifeAuraLoop()
     if _knifeAuraConn then _knifeAuraConn:Disconnect(); _knifeAuraConn = nil end
-    equipKnife()
-    local accum = 0
+
+    -- Equipa a knife fora do loop (task.spawn = nao bloqueia o Heartbeat)
+    task.spawn(function()
+        local bp = player:FindFirstChild("Backpack"); if not bp then return end
+        local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        for name in pairs(KNIFE_NAMES) do
+            local t = bp:FindFirstChild(name)
+            if t then hum:EquipTool(t); break end
+        end
+    end)
+
+    local accum      = 0
+    -- Cache que atualiza a cada 0.5s — evita getRole/isAlive a cada tick
+    local cachedRole = "unknown"
+    local roleTimer  = 0
+    -- Cache de HRPs dos players — evita FindFirstChild a cada tick
+    local playerHRPs = {}
+
     _knifeAuraConn = RunService.Heartbeat:Connect(function(dt)
         if not knifeAura then
             _knifeAuraConn:Disconnect(); _knifeAuraConn = nil; return
         end
-        accum = accum + dt
+
+        accum     = accum + dt
+        roleTimer = roleTimer + dt
+
+        -- Atualiza role cache a cada 0.5s (nao a cada tick)
+        if roleTimer >= 0.5 then
+            roleTimer  = 0
+            cachedRole = getRole()
+            -- Atualiza cache de HRPs
+            playerHRPs = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and isAlive(p) then
+                    local ph = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                    if ph then playerHRPs[p] = ph end
+                end
+            end
+        end
+
         if accum < knifeCd then return end
         accum = 0
-        if getRole() ~= "murderer" then return end
-        local hrp = myHRP(); if not hrp then return end
+
+        if cachedRole ~= "murderer" then return end
+
+        local hrp   = myHRP(); if not hrp then return end
         local knife = getKnifeTool(); if not knife then return end
+        local hrpPos = hrp.Position
+
+        -- Acha alvo mais próximo usando cache (sem FindFirstChild por tick)
         local best, bestD = nil, knifeRange
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p == player then continue end
-            local ph = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-            if not ph or not isAlive(p) then continue end
-            local d = (hrp.Position - ph.Position).Magnitude
-            if d < bestD then best = p; bestD = d end
+        for p, ph in pairs(playerHRPs) do
+            if not ph.Parent then playerHRPs[p] = nil; continue end
+            local d = (hrpPos - ph.Position).Magnitude
+            if d < bestD then best = ph; bestD = d end
         end
+
         if best then
-            local bHRP = best.Character and best.Character:FindFirstChild("HumanoidRootPart")
-            if bHRP then hrp.CFrame = CFrame.lookAt(hrp.Position, bHRP.Position) end
+            -- Só rotaciona HRP se o alvo mudou de posição significativamente
+            -- (evita update de física desnecessário a cada swing)
+            local lookCF = CFrame.lookAt(hrpPos, best.Position)
+            if math.abs(hrp.CFrame.LookVector:Dot(lookCF.LookVector) - 1) > 0.01 then
+                hrp.CFrame = lookCF
+            end
             pcall(function() knife:Activate() end)
         end
     end)

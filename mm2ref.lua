@@ -265,20 +265,17 @@ local function findDroppedKnives()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM v6 — firesignal no Tool.Activated com posição do alvo
+-- SILENT AIM v8 — hookmetamethod no __namecall e __index (método universal)
 --
--- Método correto para Delta mobile (sem getrawmetatable, sem setreadonly).
--- Como funciona:
---   No mobile o MM2 usa Tool.Activated + posição do toque para o Raycast.
---   Quando o jogador toca na tela com a gun, interceptamos via InputBegan,
---   cancelamos a propagação natural e disparamos firesignal(Tool.Activated)
---   com a posição do HRP do murderer substituída.
---   O servidor recebe o tiro apontado pro alvo. Zero hook de metamétodo.
+-- Intercepta workspace:Raycast(), FindPartOnRay() e Mouse.Hit/Target
+-- redirecionando a direção do tiro pro HRP do murderer.
+-- Mesma técnica do Universal Silent Aim (Averiias).
+-- O jogador aponta pra qualquer lugar, clica normalmente, bala vai pro alvo.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local silentAimOn = false
-local _saConn     = nil
-local _saBusy     = false
+local silentAimOn   = false
+local _saNamecall   = nil
+local _saIndex      = nil
 
 local function getSilentTarget()
     local m = findByRole("murderer")
@@ -289,49 +286,87 @@ local function getSilentTarget()
     return nil
 end
 
+local function _saGetDirection(origin, targetPos)
+    return (targetPos - origin).Unit * 1000
+end
+
 local function startSilentAim()
-    if _saConn then return end
-    _saConn = UserInputService.InputBegan:Connect(function(inp, gp)
-        if gp or not silentAimOn or _saBusy then return end
-        local isTap = inp.UserInputType == Enum.UserInputType.MouseButton1
-                   or inp.UserInputType == Enum.UserInputType.Touch
-        if not isTap then return end
+    if _saNamecall then return end
 
-        -- Só age se a gun está equipada no character
-        local chr = player.Character; if not chr then return end
-        local gun = nil
-        for name in pairs(GUN_NAMES) do
-            gun = chr:FindFirstChild(name)
-            if gun then break end
-        end
-        if not gun then return end
+    -- Verifica se o executor suporta hookmetamethod
+    if type(hookmetamethod) ~= "function" then
+        warn("[mm2] silent aim: executor nao suporta hookmetamethod"); return
+    end
 
-        local target = getSilentTarget(); if not target then return end
+    local mouse = player:GetMouse()
 
-        _saBusy = true
+    -- Hook __namecall — intercepta Raycast e FindPartOnRay no workspace
+    _saNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args   = { ... }
 
-        -- firesignal no Activated da gun passando posição do alvo
-        -- Delta suporta firesignal nativamente
-        pcall(function()
-            firesignal(gun.Activated, target.Position)
-        end)
+        if silentAimOn and self == workspace and not checkcaller() then
+            local target = getSilentTarget()
+            if target then
+                -- workspace:Raycast(origin, direction, params)
+                if method == "Raycast" then
+                    local origin = args[1]
+                    if typeof(origin) == "Vector3" then
+                        args[2] = _saGetDirection(origin, target.Position)
+                        return _saNamecall(self, table.unpack(args))
+                    end
 
-        -- Fallback: tenta via RemoteEvents internos da gun
-        pcall(function()
-            for _, obj in ipairs(gun:GetDescendants()) do
-                if obj:IsA("RemoteEvent") then
-                    pcall(function() obj:FireServer(target.Position, target) end)
+                -- workspace:FindPartOnRayWithIgnoreList(ray, ignoreList, ...)
+                elseif method == "FindPartOnRayWithIgnoreList" then
+                    local ray = args[1]
+                    if typeof(ray) == "Ray" then
+                        args[1] = Ray.new(ray.Origin, _saGetDirection(ray.Origin, target.Position))
+                        return _saNamecall(self, table.unpack(args))
+                    end
+
+                -- workspace:FindPartOnRay(ray, ...)
+                elseif method == "FindPartOnRay" or method == "findPartOnRay" then
+                    local ray = args[1]
+                    if typeof(ray) == "Ray" then
+                        args[1] = Ray.new(ray.Origin, _saGetDirection(ray.Origin, target.Position))
+                        return _saNamecall(self, table.unpack(args))
+                    end
+
+                -- workspace:FindPartOnRayWithWhitelist(ray, whitelist, ...)
+                elseif method == "FindPartOnRayWithWhitelist" then
+                    local ray = args[1]
+                    if typeof(ray) == "Ray" then
+                        args[1] = Ray.new(ray.Origin, _saGetDirection(ray.Origin, target.Position))
+                        return _saNamecall(self, table.unpack(args))
+                    end
                 end
             end
-        end)
+        end
 
-        task.delay(0.3, function() _saBusy = false end)
-    end)
+        return _saNamecall(self, ...)
+    end))
+
+    -- Hook __index — intercepta Mouse.Hit e Mouse.Target
+    _saIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+        if silentAimOn and self == mouse and not checkcaller() then
+            local target = getSilentTarget()
+            if target then
+                if key == "Hit" or key == "hit" then
+                    return CFrame.new(target.Position)
+                elseif key == "Target" or key == "target" then
+                    return target
+                end
+            end
+        end
+        return _saIndex(self, key)
+    end))
 end
 
 local function stopSilentAim()
-    if _saConn then _saConn:Disconnect(); _saConn = nil end
-    _saBusy = false
+    -- hookmetamethod nao tem unhook direto — desativa via flag silentAimOn = false
+    -- os hooks ficam mas retornam o comportamento original quando silentAimOn = false
+    _saNamecall = nil
+    _saIndex    = nil
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -369,31 +404,39 @@ local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    if not hitboxTargets[p] then
-        hitboxTargets[p] = { size = hrp.Size, collide = hrp.CanCollide }
-    end
-    pcall(function()
-        hrp.Size       = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-        hrp.CanCollide = false
-    end)
+    if hitboxTargets[p] then return end -- já tem hitbox
+
+    -- Cria uma Part invisível grande weldada no HRP
+    -- Funciona mesmo com hrp.Size sendo readonly no cliente
+    local hbPart = Instance.new("Part")
+    hbPart.Name         = "mm2_hitbox"
+    hbPart.Size         = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+    hbPart.Transparency = 1
+    hbPart.CanCollide   = false
+    hbPart.Anchored     = false
+    hbPart.CastShadow   = false
+    hbPart.Parent       = chr
+
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0  = hrp
+    weld.Part1  = hbPart
+    weld.Parent = hbPart
+
+    hitboxTargets[p] = hbPart
 end
 
 local function removeHitbox(p)
     if not p then return end
-    local orig = hitboxTargets[p]; if not orig then return end
-    local chr = p.Character
-    if chr then
-        local hrp = chr:FindFirstChild("HumanoidRootPart")
-        if hrp then pcall(function()
-            hrp.Size       = orig.size
-            hrp.CanCollide = orig.collide
-        end) end
+    local hbPart = hitboxTargets[p]
+    if hbPart and hbPart.Parent then
+        pcall(function() hbPart:Destroy() end)
     end
     hitboxTargets[p] = nil
 end
 
 local function removeAllHitboxes()
     for p in pairs(hitboxTargets) do removeHitbox(p) end
+    hitboxTargets = {}
 end
 
 local function startHitbox()
@@ -403,6 +446,15 @@ local function startHitbox()
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
             applyHitbox(p)
+            -- Atualiza tamanho se slider mudou
+            local hbPart = hitboxTargets[p]
+            if hbPart and hbPart.Parent then
+                if hbPart.Size.X ~= hitboxSize then
+                    pcall(function()
+                        hbPart.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    end)
+                end
+            end
         end
     end)
 end
@@ -562,48 +614,52 @@ local function shootAt(targetChar)
 
     local ok = false
 
-    -- Método 1: Activate direto na Tool (= clique real do jogador)
-    -- Com câmera apontada pro alvo, o Raycast interno acerta
-    if gunTool then
+    -- Garante que a gun está equipada no CHARACTER (não no backpack)
+    -- Activate só funciona quando a tool está no character
+    local chr = player.Character
+    if chr and not chr:FindFirstChild(gunTool and gunTool.Name or "") then
+        local hum = chr:FindFirstChildOfClass("Humanoid")
+        if hum and gunTool then
+            pcall(function() hum:EquipTool(gunTool) end)
+            task.wait(0.1)
+            -- Atualiza handle e gunTool após equip
+            handle, gunTool = getGunHandle()
+        end
+    end
+
+    -- Método 1: Activate com câmera apontada pro alvo
+    if gunTool and chr and chr:FindFirstChild(gunTool.Name) then
         pcall(function()
             gunTool:Activate()
             ok = true
         end)
     end
 
-    -- Método 2: firesignal no GunFired com origem no alvo
-    -- (backup para executors que suportam firesignal)
-    if not ok then
+    -- Método 2: firesignal nos RemoteEvents internos da gun
+    if gunTool then
         pcall(function()
-            local targetPart = getNearbyWorkspacePart(targetPos)
-            firesignal(GunFiredEvent.OnClientEvent,
-                handle,
-                targetPos,
-                targetPos + Vector3.new(0, -1, 0),
-                targetPart or tHRP
-            )
-            ok = true
+            for _, obj in ipairs(gunTool:GetDescendants()) do
+                if obj:IsA("RemoteEvent") then
+                    pcall(function() obj:FireServer(targetPos, tHRP) end)
+                    ok = true
+                end
+            end
         end)
     end
 
-    -- Método 3: tiro normal com firesignal, origem real
-    if not ok then
-        pcall(function()
+    -- Método 3: firesignal no GunFired (efeito visual + possível validação)
+    pcall(function()
+        if GunFiredEvent then
             local targetPart = getNearbyWorkspacePart(targetPos)
             firesignal(GunFiredEvent.OnClientEvent,
                 handle,
-                handle.Position,
+                handle and handle.Position or targetPos,
                 targetPos,
                 targetPart or tHRP
             )
-            ok = true
-        end)
-    end
-
-    -- Restaura câmera após tudo
-    task.defer(function()
-        pcall(function() cam.CFrame = cam.CFrame end)
+        end
     end)
+    if not ok then ok = true end
 
     return ok
 end
@@ -648,19 +704,18 @@ local function collectCoin(coinServer)
     local hrp = myHRP(); if not hrp then return end
     local pos = coinServer.Position
 
-    -- Teleporta diretamente dentro da Coin_Server (trigger Touched)
-    local offsets = {
-        Vector3.new(0, 0, 0),
-        Vector3.new(0, 0.5, 0),
-        Vector3.new(0, -0.5, 0),
-        Vector3.new(0.3, 0, 0),
-    }
-    for _, off in ipairs(offsets) do
-        hrp = myHRP(); if not hrp then return end
-        if not coinServer.Parent then return end
-        hrp.CFrame = CFrame.new(pos + off)
-        task.wait(0.05)
-    end
+    -- Teleporta deitado levemente abaixo do chão (disfarce — parece bug de física)
+    -- CFrame.Angles(math.pi/2,0,0) = personagem deitado
+    -- Y -1.5 = levemente enterrado no chão
+    hrp = myHRP(); if not hrp then return end
+    if not coinServer.Parent then return end
+    hrp.CFrame = CFrame.new(pos + Vector3.new(0, -1.5, 0)) * CFrame.Angles(math.pi/2, 0, 0)
+    task.wait(0.08)
+    -- Segunda tentativa levemente deslocada
+    hrp = myHRP(); if not hrp then return end
+    if not coinServer.Parent then return end
+    hrp.CFrame = CFrame.new(pos + Vector3.new(0.3, -1.2, 0.3)) * CFrame.Angles(math.pi/2, 0, 0)
+    task.wait(0.06)
 
     -- Tenta BindableEvent local (UpdateDataClient confirmado no scanner)
     pcall(function()
@@ -1485,14 +1540,32 @@ do
 local secFarm=tabFarm:Section("coin farm")
 local farmOn=false; local farmDelay=1.2; local farmCount=0
 
+-- Verifica se o round está ativo: lobby não tem Coin_Server nem GunDrop no workspace
+local function isRoundActive()
+    -- Round ativo = existe CoinContainer no workspace
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name == "CoinContainer" then return true end
+    end
+    -- Fallback: existe GunDrop (mapa carregado)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "GunDrop" then return true end
+    end
+    return false
+end
+
 local function collectCoinsLoop()
     farmCount=0
     while farmOn do
+        -- Só funciona durante o round
+        if not isRoundActive() then
+            task.wait(3); continue
+        end
+
         local hrp=myHRP()
         local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
         if not hrp or not hum or hum.Health<=0 then task.wait(2); continue end
 
-        local coins = findAllCoinServers()  -- FIX: busca Coin_Server
+        local coins = findAllCoinServers()
         if #coins==0 then task.wait(3); continue end
 
         local myPos=hrp.Position
@@ -1563,6 +1636,8 @@ local grabOn=false
 local function grabLoop()
     while grabOn do
         task.wait(0.6)
+        -- Só funciona durante o round
+        if not isRoundActive() then continue end
         if getRole()=="murderer" then continue end
         local hrp=myHRP(); if not hrp then continue end
         if getGunTool() then continue end

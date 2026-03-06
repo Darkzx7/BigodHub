@@ -229,77 +229,65 @@ local function findAllCoinServers()
     return coins
 end
 
-local FARM_FLY_SPEED = 28
+local FARM_FLY_SPEED = 16  -- studs/s — valor baixo = mais lento = menos suspeito
 
--- Move o personagem usando BodyPosition (força física real).
--- BodyPosition move o HRP via simulação de física, o que garante que
--- o Touched server-side dispara ao passar pela Coin_Server.
-local function flyTo(destination, speedOverride)
-    local speed = speedOverride or FARM_FLY_SPEED
+-- Move o personagem em passos de CFrame, devagar o suficiente pra
+-- o servidor aceitar o Touched sem detectar velocidade anormal.
+local function flyTo(destination)
     local hrp = myHRP(); if not hrp then return end
-
     local chr = player.Character; if not chr then return end
 
-    -- Desativa colisão do personagem pra não travar em paredes
+    -- Desativa colisão pra não travar em paredes/objetos
     for _, p in ipairs(chr:GetDescendants()) do
-        if p:IsA("BasePart") then p.CanCollide = false end
+        if p:IsA("BasePart") then pcall(function() p.CanCollide = false end) end
     end
 
-    -- Remove BodyPosition anterior se existir
-    local oldBP = hrp:FindFirstChild("mm2_BodyPos")
-    if oldBP then oldBP:Destroy() end
+    local startPos = hrp.Position
+    local dist     = (destination - startPos).Magnitude
+    if dist < 0.5 then return end
 
-    local bp = Instance.new("BodyPosition")
-    bp.Name         = "mm2_BodyPos"
-    bp.MaxForce     = Vector3.new(1e5, 1e5, 1e5)
-    bp.D            = 500
-    bp.P            = 1e4
-    bp.Position     = destination
-    bp.Parent       = hrp
+    -- Quantos passos: 1 passo por stud, mínimo 3
+    local steps    = math.max(3, math.ceil(dist))
+    local stepTime = 1 / FARM_FLY_SPEED  -- segundos por stud
 
-    -- Espera chegar (timeout = distancia/speed + margem)
-    local dist    = (destination - hrp.Position).Magnitude
-    local timeout = (dist / speed) + 1.5
-    local elapsed = 0
+    for i = 1, steps do
+        hrp = myHRP(); if not hrp then return end
+        local t   = i / steps
+        local pos = startPos:Lerp(destination, t)
+        hrp.CFrame = CFrame.new(pos)
+        task.wait(stepTime)
+    end
 
-    repeat
-        task.wait(0.05)
-        elapsed = elapsed + 0.05
-        hrp = myHRP(); if not hrp then break end
-    until (hrp.Position - destination).Magnitude < 1.5 or elapsed >= timeout
-
-    -- Remove BodyPosition e zera velocidade
     hrp = myHRP()
-    if hrp then
-        local bpObj = hrp:FindFirstChild("mm2_BodyPos")
-        if bpObj then bpObj:Destroy() end
-        hrp.AssemblyLinearVelocity = Vector3.zero
-    end
+    if hrp then hrp.CFrame = CFrame.new(destination) end
 end
+
+local farmPauseBetween = 0.8  -- pausa em segundos entre uma coin e outra
 
 local function collectCoin(coinServer)
     if not coinServer or not coinServer.Parent then return end
-    local hrp = myHRP(); if not hrp then return end
 
-    -- Voa até o centro exato da Coin_Server
+    -- Voa até a coin devagar
     flyTo(coinServer.Position)
 
-    -- Micro-oscilação pra garantir Touched (caso chegou no limite da hitbox)
-    hrp = myHRP()
+    -- Pequena oscilação pra garantir Touched
+    local hrp = myHRP()
     if hrp and coinServer.Parent then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.CFrame = CFrame.new(coinServer.Position + Vector3.new(0.3, 0, 0.3))
-        task.wait(0.04)
+        hrp.CFrame = CFrame.new(coinServer.Position + Vector3.new(0.3, 0, 0))
+        task.wait(0.05)
         hrp = myHRP()
         if hrp and coinServer.Parent then
             hrp.CFrame = CFrame.new(coinServer.Position)
-            task.wait(0.04)
         end
     end
 
+    -- Reforço via RemoteEvent
     if GetCoinEvent then
         pcall(function() GetCoinEvent:FireServer() end)
     end
+
+    -- Pausa entre coins pra não parecer bot
+    task.wait(farmPauseBetween)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -409,60 +397,58 @@ local function stopAimAssist()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- HITBOX EXPANDER — para FACA (Touched server-side)
---
--- hrp.Size no cliente NÃO afeta o servidor — é só visual.
--- O servidor do MM2 valida faca via Touched na Handle da knife.
--- A solução real: criar uma Part invisível grande weldada no character
--- de CADA PLAYER. Quando a faca do murderer toca essa Part, o servidor
--- registra o hit normalmente (porque a Part é filha do character).
---
--- Para GUN: o servidor faz raycast — hitbox de Part não ajuda.
--- O que ajuda na gun é o aim snap acima.
+-- HITBOX EXPANDER
+-- Expande o HRP dos outros jogadores NO SEU CLIENTE.
+-- Sem Part extra, sem WeldConstraint, sem física — só muda Size do HRP.
+-- Quando você atira/esfaqueia, seu cliente vê um alvo maior e acerta.
+-- Funciona pra faca (Touched client-side) e pra gun (raycast client-side).
+-- Não empurra ninguém, não dá lag.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
 local hitboxSize    = 20
 local hitboxVisible = false
 local _hbConn       = nil
-local hitboxParts   = {}  -- [player] = Part
+local hitboxOriginals = {}  -- [player] = Vector3 tamanho original
 
 local function applyHitbox(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    -- Não recria se já existe e está no lugar
-    local existing = hitboxParts[p]
-    if existing and existing.Parent == chr then return end
 
-    local hb = Instance.new("Part")
-    hb.Name          = "mm2_hb"
-    hb.Size          = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-    hb.Transparency  = hitboxVisible and 0.5 or 1
-    hb.BrickColor    = BrickColor.new("Really red")
-    hb.Material      = hitboxVisible and Enum.Material.Neon or Enum.Material.Plastic
-    hb.CanCollide    = false
-    hb.CanTouch      = true   -- ESSENCIAL: servidor detecta Touched nessa Part
-    hb.Anchored      = false
-    hb.CastShadow    = false
-    hb.Parent        = chr   -- filho do character, não do HRP
+    if not hitboxOriginals[p] then
+        hitboxOriginals[p] = hrp.Size
+    end
 
-    local w = Instance.new("WeldConstraint")
-    w.Part0  = hrp
-    w.Part1  = hb
-    w.Parent = hb
-
-    hitboxParts[p] = hb
+    pcall(function()
+        hrp.Size         = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+        hrp.CanCollide   = false
+        hrp.Transparency = hitboxVisible and 0.5 or 1
+        if hitboxVisible then
+            hrp.BrickColor = BrickColor.new("Really red")
+            hrp.Material   = Enum.Material.Neon
+        end
+    end)
 end
 
-local function removeHitbox(p)
-    local hb = hitboxParts[p]
-    if hb and hb.Parent then pcall(function() hb:Destroy() end) end
-    hitboxParts[p] = nil
+local function restoreHitbox(p)
+    if not p then return end
+    local orig = hitboxOriginals[p]; if not orig then return end
+    local chr = p.Character
+    local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pcall(function()
+            hrp.Size         = orig
+            hrp.Transparency = 1
+            hrp.BrickColor   = BrickColor.new("Medium stone grey")
+            hrp.Material     = Enum.Material.Plastic
+        end)
+    end
+    hitboxOriginals[p] = nil
 end
 
-local function removeAllHitboxes()
-    for p in pairs(hitboxParts) do removeHitbox(p) end
+local function restoreAllHitboxes()
+    for p in pairs(hitboxOriginals) do restoreHitbox(p) end
 end
 
 local function startHitbox()
@@ -472,33 +458,21 @@ local function startHitbox()
         for _, p in ipairs(Players:GetPlayers()) do
             if p == player then continue end
             applyHitbox(p)
-            -- Atualiza tamanho e visibilidade se slider mudou
-            local hb = hitboxParts[p]
-            if hb and hb.Parent then
-                if hb.Size.X ~= hitboxSize then
-                    pcall(function() hb.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize) end)
-                end
-                local wantTrans = hitboxVisible and 0.5 or 1
-                if hb.Transparency ~= wantTrans then
-                    pcall(function()
-                        hb.Transparency = wantTrans
-                        hb.Material = hitboxVisible and Enum.Material.Neon or Enum.Material.Plastic
-                    end)
-                end
-            end
         end
     end)
 end
 
 local function stopHitbox()
     if _hbConn then _hbConn:Disconnect(); _hbConn = nil end
-    removeAllHitboxes()
+    restoreAllHitboxes()
 end
 
-Players.PlayerRemoving:Connect(function(p) hitboxParts[p] = nil end)
+Players.PlayerRemoving:Connect(function(p)
+    hitboxOriginals[p] = nil
+end)
 for _, p in ipairs(Players:GetPlayers()) do
     p.CharacterAdded:Connect(function()
-        hitboxParts[p] = nil
+        hitboxOriginals[p] = nil
         if hitboxOn then task.wait(1); applyHitbox(p) end
     end)
 end
@@ -1007,12 +981,12 @@ local t_sa = secSheriff:Toggle("aim snap (snapa camera no tiro)", false, functio
 end)
 ui:CfgRegister("mm2_silentaim", function() return aimAssistOn end, function(v) t_sa.Set(v) end)
 
-secSheriff:Divider("hitbox expander (faca)")
-local t_hb = secSheriff:Toggle("hitbox expander (aumenta area de hit da faca)", false, function(v)
+secSheriff:Divider("hitbox expander")
+local t_hb = secSheriff:Toggle("hitbox expander (faca + gun)", false, function(v)
     hitboxOn = v
     if v then
         startHitbox()
-        ui:Toast("rbxassetid://131165537896572","[Hitbox]","ativo — "..hitboxSize.." studs (faca)",ROLE_COLOR.murderer)
+        ui:Toast("rbxassetid://131165537896572","[Hitbox]","ativo — "..hitboxSize.." studs",ROLE_COLOR.sheriff)
     else
         stopHitbox()
         ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado",ROLE_COLOR.unknown)
@@ -1351,14 +1325,14 @@ local function collectCoinsLoop()
     while farmOn do
         if not isRoundActive() then task.wait(3); continue end
 
-        local hrp=myHRP()
         local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum or hum.Health<=0 then task.wait(2); continue end
+        if not myHRP() or not hum or hum.Health<=0 then task.wait(2); continue end
 
         local coins = findAllCoinServers()
         if #coins==0 then task.wait(3); continue end
 
-        local myPos=hrp.Position
+        -- Ordena pelas mais próximas primeiro
+        local myPos = myHRP() and myHRP().Position or Vector3.zero
         table.sort(coins, function(a,b)
             if not(a and a.Parent) then return false end
             if not(b and b.Parent) then return true end
@@ -1368,25 +1342,35 @@ local function collectCoinsLoop()
         for _, coinPart in ipairs(coins) do
             if not farmOn then break end
             if not coinPart or not coinPart.Parent then continue end
-            hrp=myHRP(); if not hrp then break end
+            if not myHRP() then break end
             collectCoin(coinPart)
             farmCount=farmCount+1
-            task.wait(0.1)
         end
-        task.wait(1.5)
+        -- Após varrer todas as coins, espera um pouco antes de checar de novo
+        task.wait(2)
     end
 end
 
 local t_farm=secFarm:Toggle("auto farm coins", false, function(v)
     farmOn=v
-    if v then task.spawn(collectCoinsLoop)
-        ui:Toast("rbxassetid://131165537896572","[Farm] iniciado","voando pelas coins...",Color3.fromRGB(255,210,50))
-    else ui:Toast("rbxassetid://131165537896572","[Farm] parado","coletadas: "..farmCount,Color3.fromRGB(255,210,50)) end
+    if v then
+        task.spawn(collectCoinsLoop)
+        ui:Toast("rbxassetid://131165537896572","[Farm] iniciado","velocidade: "..FARM_FLY_SPEED.." studs/s",Color3.fromRGB(255,210,50))
+    else
+        ui:Toast("rbxassetid://131165537896572","[Farm] parado","coletadas: "..farmCount,Color3.fromRGB(255,210,50))
+    end
 end)
 ui:CfgRegister("mm2_farm", function() return farmOn end, function(v) t_farm.Set(v) end)
 
-local s_fspd=secFarm:Slider("velocidade de voo (studs/s)", 8, 80, 28, function(v) FARM_FLY_SPEED=v end)
+local s_fspd=secFarm:Slider("velocidade (studs/s) — menor = mais seguro", 4, 40, 16, function(v)
+    FARM_FLY_SPEED=v
+end)
 ui:CfgRegister("mm2_farm_speed", function() return FARM_FLY_SPEED end, function(v) s_fspd.Set(v) end)
+
+local s_fpause=secFarm:Slider("pausa entre coins (x0.1s)", 2, 30, 8, function(v)
+    farmPauseBetween = v / 10
+end)
+ui:CfgRegister("mm2_farm_pause", function() return farmPauseBetween*10 end, function(v) s_fpause.Set(v) end)
 
 secFarm:Button("status do farm", function()
     local coins = findAllCoinServers()
@@ -1396,13 +1380,14 @@ secFarm:Button("status do farm", function()
 end)
 
 secFarm:Button("collect coins (1x)", function()
-    local hrp=myHRP(); if not hrp then return end
+    if not myHRP() then return end
     local coins = findAllCoinServers()
     if #coins==0 then
-        ui:Toast("rbxassetid://131165537896572","coins","nenhuma Coin_Server encontrada",ROLE_COLOR.unknown); return end
+        ui:Toast("rbxassetid://131165537896572","coins","nenhuma Coin_Server encontrada",ROLE_COLOR.unknown); return
+    end
     ui:Toast("rbxassetid://131165537896572","[Coins]","coletando "..#coins.."...",Color3.fromRGB(255,210,50))
     task.spawn(function()
-        local myPos=hrp.Position
+        local myPos = myHRP() and myHRP().Position or Vector3.zero
         table.sort(coins, function(a,b)
             if not(a and a.Parent) then return false end
             if not(b and b.Parent) then return true end
@@ -1411,7 +1396,7 @@ secFarm:Button("collect coins (1x)", function()
         local count=0
         for _, coinPart in ipairs(coins) do
             if not coinPart or not coinPart.Parent then continue end
-            collectCoin(coinPart); count=count+1; task.wait(0.1)
+            collectCoin(coinPart); count=count+1
         end
         ui:Toast("rbxassetid://131165537896572","[Coins] feito!","coletadas: "..count,Color3.fromRGB(255,210,50))
     end)

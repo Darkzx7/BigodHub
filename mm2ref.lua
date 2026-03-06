@@ -607,9 +607,6 @@ local function shootAt(targetChar)
     -- Aponta HRP e câmera para o alvo (necessário para Raycast interno da gun)
     local targetPos = tHRP.Position
     hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
-    pcall(function()
-        cam.CFrame = CFrame.new(cam.CFrame.Position, targetPos)
-    end)
     task.wait(0.02)
 
     local ok = false
@@ -1228,11 +1225,6 @@ local function buildShootBtn()
         setBtnState("...", Color3.fromRGB(80,80,80))
 
         local mHRP = m.Character and (m.Character:FindFirstChild("HumanoidRootPart") or m.Character:FindFirstChild("Head"))
-        if mHRP then
-            pcall(function()
-                cam.CFrame = CFrame.new(cam.CFrame.Position, mHRP.Position)
-            end)
-        end
 
         local ok = shootAt(m.Character)
         setBtnState(ok and "FIRED!" or "FALHOU", ok and T.ok or T.err)
@@ -1280,9 +1272,6 @@ local function gunAuraLoop()
 
         local targetPos = mHRP.Position
         hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
-        pcall(function()
-            cam.CFrame = CFrame.new(cam.CFrame.Position, targetPos)
-        end)
         task.wait(0.04)
 
         lastGunAura = tick()
@@ -1322,9 +1311,6 @@ local function autoShootLoop()
         if not mHrp or not hrp then continue end
         if (hrp.Position-mHrp.Position).Magnitude>300 then continue end
         lastShot=tick()
-        pcall(function()
-            cam.CFrame = CFrame.new(cam.CFrame.Position, mHrp.Position)
-        end)
         shootAt(m.Character)
     end
 end
@@ -1346,10 +1332,6 @@ secSheriff:Button("atirar no murderer (1x)", function()
     local m=findByRole("murderer")
     if not m then
         ui:Toast("rbxassetid://131165537896572","[Shoot]","murderer nao detectado",ROLE_COLOR.unknown); return end
-    local mH = m.Character and m.Character:FindFirstChild("HumanoidRootPart")
-    if mH then pcall(function()
-        cam.CFrame = CFrame.new(cam.CFrame.Position, mH.Position)
-    end) end
     local ok=shootAt(m.Character)
     ui:Toast("rbxassetid://131165537896572","[Shoot]",
         (ok and "disparado" or "falhou").." -> "..m.DisplayName, ROLE_COLOR.sheriff)

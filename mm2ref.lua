@@ -1061,15 +1061,12 @@ secSheriff:Button("checar gun remote", function()
         end
         ui:Toast("rbxassetid://131165537896572","[Gun Remote]",
             #remotes > 0 and ("Remotes: "..table.concat(remotes,", ")) or "nenhum remote encontrado",
-            ROLE_COLOR.warn)
+            ROLE_COLOR.unknown)
     end
 end)
 
 -- ── HITBOX EXPANDER ──────────────────────────────────────────────────────────
-secSheriff:Divider("hitbox expander (character parts)")
-
-secSheriff:Label("expande TODAS as parts do character (faca + gun)")
-secSheriff:Label("CanCollide=true nas parts pra TouchTransmitter funcionar")
+secSheriff:Divider("hitbox expander — expande todas as parts do character")
 
 local t_hb = secSheriff:Toggle("hitbox expander", false, function(v)
     hitboxOn = v
@@ -1141,7 +1138,7 @@ local function buildShootBtn()
         end
         local m = findByRole("murderer")
         if not m then
-            setBtnState("?", T.warn)
+            setBtnState("?", Color3.fromRGB(195, 160, 38))
             task.delay(1.2, function() setBtnState("ATIRAR", ROLE_COLOR.sheriff) end); return
         end
         shootCd = true

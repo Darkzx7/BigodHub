@@ -13,8 +13,55 @@
 
 local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 local RefLib
-pcall(function() RefLib = loadstring(game:HttpGet(LIB_URL, true))() end)
-if not RefLib then error("[mm2] nao foi possivel carregar a UI lib") end
+
+-- Loader compatível com Delta e outros executors mobile
+-- Tenta HttpGet primeiro, depois request() como fallback
+local function fetchUrl(url)
+    -- Método 1: game:HttpGet (Synapse, Script-Ware, Delta padrão)
+    local ok, result = pcall(function()
+        return game:HttpGet(url, true)
+    end)
+    if ok and result and #result > 10 then return result end
+
+    -- Método 2: request() global (Delta, Fluxus, Arceus)
+    ok, result = pcall(function()
+        local res = request({ Url = url, Method = "GET" })
+        return res and res.Body
+    end)
+    if ok and result and #result > 10 then return result end
+
+    -- Método 3: syn.request (Synapse legado)
+    ok, result = pcall(function()
+        local res = syn.request({ Url = url, Method = "GET" })
+        return res and res.Body
+    end)
+    if ok and result and #result > 10 then return result end
+
+    -- Método 4: http.request (alguns forks)
+    ok, result = pcall(function()
+        local res = http.request({ Url = url, Method = "GET" })
+        return res and res.Body
+    end)
+    if ok and result and #result > 10 then return result end
+
+    return nil
+end
+
+local libSource = fetchUrl(LIB_URL)
+if not libSource then
+    error("[mm2] ERRO: nao foi possivel baixar a RefLib. Verifique sua conexao ou executor.")
+end
+
+local libFn, loadErr = loadstring(libSource)
+if not libFn then
+    error("[mm2] ERRO ao compilar RefLib: " .. tostring(loadErr))
+end
+
+local ok, result = pcall(libFn)
+if not ok or not result then
+    error("[mm2] ERRO ao inicializar RefLib: " .. tostring(result))
+end
+RefLib = result
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")

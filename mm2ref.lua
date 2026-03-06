@@ -14,42 +14,30 @@
 local LIB_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"
 local RefLib
 
--- Loader compatível com Delta e outros executors mobile
--- Tenta HttpGet primeiro, depois request() como fallback
+-- Loader robusto para Delta e outros executors mobile
 local function fetchUrl(url)
-    -- Método 1: game:HttpGet (Synapse, Script-Ware, Delta padrão)
-    local ok, result = pcall(function()
-        return game:HttpGet(url, true)
-    end)
-    if ok and result and #result > 10 then return result end
-
+    local ok, result
+    -- Método 1: game:HttpGet
+    ok, result = pcall(function() return game:HttpGet(url, true) end)
+    if ok and type(result) == "string" and #result > 10 then return result end
     -- Método 2: request() global (Delta, Fluxus, Arceus)
     ok, result = pcall(function()
         local res = request({ Url = url, Method = "GET" })
         return res and res.Body
     end)
-    if ok and result and #result > 10 then return result end
-
-    -- Método 3: syn.request (Synapse legado)
+    if ok and type(result) == "string" and #result > 10 then return result end
+    -- Método 3: syn.request
     ok, result = pcall(function()
         local res = syn.request({ Url = url, Method = "GET" })
         return res and res.Body
     end)
-    if ok and result and #result > 10 then return result end
-
-    -- Método 4: http.request (alguns forks)
-    ok, result = pcall(function()
-        local res = http.request({ Url = url, Method = "GET" })
-        return res and res.Body
-    end)
-    if ok and result and #result > 10 then return result end
-
+    if ok and type(result) == "string" and #result > 10 then return result end
     return nil
 end
 
 local libSource = fetchUrl(LIB_URL)
 if not libSource then
-    error("[mm2] ERRO: nao foi possivel baixar a RefLib. Verifique sua conexao ou executor.")
+    error("[mm2] ERRO: nao foi possivel baixar a RefLib. Verifique sua conexao.")
 end
 
 local libFn, loadErr = loadstring(libSource)
@@ -57,11 +45,38 @@ if not libFn then
     error("[mm2] ERRO ao compilar RefLib: " .. tostring(loadErr))
 end
 
+-- Muitas libs de executor registram no _G em vez de dar return
+-- Tenta capturar das duas formas
 local ok, result = pcall(libFn)
-if not ok or not result then
-    error("[mm2] ERRO ao inicializar RefLib: " .. tostring(result))
+
+-- Forma 1: lib retornou a tabela direto
+if ok and type(result) == "table" and result.new then
+    RefLib = result
 end
-RefLib = result
+
+-- Forma 2: lib se registrou no _G com nome comum
+if not RefLib then
+    local globalNames = {"RefLib", "reflib", "Library", "library", "Lib", "lib", "UI", "ui"}
+    for _, name in ipairs(globalNames) do
+        local g = rawget(_G, name)
+        if type(g) == "table" and g.new then
+            RefLib = g; break
+        end
+    end
+end
+
+-- Forma 3: escaneia _G inteiro por tabela com método .new
+if not RefLib then
+    for key, val in pairs(_G) do
+        if type(val) == "table" and type(rawget(val, "new")) == "function" then
+            RefLib = val; break
+        end
+    end
+end
+
+if not RefLib then
+    error("[mm2] ERRO: RefLib carregou mas nao retornou tabela valida. Verifique a URL da lib.")
+end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")

@@ -587,6 +587,18 @@ local function fireSilentShot()
     task.delay(0.7, function() _shootCooldown = false end)
 end
 
+-- Retorna o WorldCFrame do GunRaycastAttachment do player local
+-- arg1 do FireServer: de onde o raio parte
+local function getGunAttachmentCFrame()
+    local chr = player.Character; if not chr then return nil end
+    local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return nil end
+    local att = hrp:FindFirstChild("GunRaycastAttachment")
+        or hrp:FindFirstChild("GunShoulderAttachment")
+    if att then return att.WorldCFrame end
+    -- Fallback: CFrame do HRP
+    return hrp.CFrame
+end
+
 local function hookSilentAim()
     if _namecallHooked then return end
     _namecallHooked = true
@@ -598,7 +610,7 @@ local function hookSilentAim()
     mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
 
-        -- Captura dump: registra FireServer da gun independente do silentAim
+        -- Captura dump
         if _dumpCapturing and method == "FireServer" and self:IsA("RemoteEvent") then
             local par = self.Parent
             if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
@@ -607,29 +619,35 @@ local function hookSilentAim()
             end
         end
 
-        -- Silent aim: intercepta FireServer(CFrame aimCF, CFrame targetCF)
-        -- Assinatura confirmada pelo dump: dois CFrames
+        -- Silent aim
+        -- Assinatura confirmada: Shoot:FireServer(attachCF, targetCF)
+        --   attachCF  = GunRaycastAttachment.WorldCFrame (de onde o raio sai)
+        --   targetCF  = CFrame do ponto de impacto
         if silentAimOn and method == "FireServer" and self:IsA("RemoteEvent") then
             local par = self.Parent
             if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
-                local target = getSilentTarget()
-                local hitPos = target and getTargetHitPos(target)
-                if hitPos then
-                    -- arg1: CFrame de mira (de onde o raio sai — posição do GunRaycastAttachment1)
-                    -- arg2: CFrame do alvo (onde o tiro deve acertar — só posição, rotação identidade)
-                    local aimCF   = CFrame.new(hitPos)   -- servidor usa só a posição
+                local target    = getSilentTarget()
+                local hitPos    = target and getTargetHitPos(target)
+                local attachCF  = getGunAttachmentCFrame()
+                if hitPos and attachCF then
                     local targetCF = CFrame.new(hitPos)
-                    return old_namecall(self, aimCF, targetCF)
+                    return old_namecall(self, attachCF, targetCF)
                 end
             end
         end
 
-        -- Hook WeaponService:GetMouseTargetCFrame — redireciona mira pro alvo
-        if silentAimOn and method == "GetMouseTargetCFrame" then
-            local target = getSilentTarget()
-            local hitPos = target and getTargetHitPos(target)
-            if hitPos then
-                return CFrame.new(hitPos)
+        -- Hook WeaponService:GetMouseTargetCFrame e GetTargetPosition
+        -- Redireciona mira pro alvo quando silent aim ativo
+        if silentAimOn then
+            if method == "GetMouseTargetCFrame" then
+                local target = getSilentTarget()
+                local hitPos = target and getTargetHitPos(target)
+                if hitPos then return CFrame.new(hitPos) end
+            elseif method == "GetTargetPosition" then
+                -- Usado no mobile sem MouseLock: GetTargetPosition(screenX, screenY)
+                local target = getSilentTarget()
+                local hitPos = target and getTargetHitPos(target)
+                if hitPos then return hitPos end
             end
         end
 
@@ -655,43 +673,12 @@ local function hookPreferredInput()
     end)
 end
 
--- Listener de toque para MOBILE — usa Activate() igual ao PC agora
+-- No mobile o GunClient já processa TouchTapInWorld sozinho e chama
+-- GetTargetPosition(x,y) → FireServer. O hook __namecall já intercepta tudo.
+-- startMobileSilentAim só garante que o hook está ativo.
 local function startMobileSilentAim()
-    if _mobileShootConn then _mobileShootConn:Disconnect() end
-
-    local function tryShoot()
-        if not silentAimOn then return end
-        local chr = player.Character; if not chr then return end
-        for name in pairs(GUN_NAMES) do
-            if chr:FindFirstChild(name) then
-                fireSilentShot()
-                return
-            end
-        end
-        -- Gun no backpack também tenta
-        local bp = player:FindFirstChild("Backpack")
-        if bp then
-            for name in pairs(GUN_NAMES) do
-                if bp:FindFirstChild(name) then fireSilentShot(); return end
-            end
-        end
-    end
-
-    pcall(function()
-        _mobileShootConn = UserInputService.TouchTap:Connect(function(_, gameProcessed)
-            if gameProcessed then return end
-            tryShoot()
-        end)
-    end)
-
-    if not _mobileShootConn then
-        _mobileShootConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
-            if input.UserInputType == Enum.UserInputType.Touch then
-                tryShoot()
-            end
-        end)
-    end
+    -- Nada a fazer — o hook __namecall já cobre GetTargetPosition e FireServer
+    -- O GunClient processa o toque via TouchTapInWorld nativamente
 end
 
 local function stopMobileSilentAim()

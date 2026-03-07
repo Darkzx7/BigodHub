@@ -1374,26 +1374,83 @@ local t_sa = secSheriff:Toggle("silent aim (sem mover camera)", false, function(
 end)
 ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t_sa.Set(v) end)
 
--- Botão pra checar se o hook pegou o remote certo
-secSheriff:Button("checar gun remote", function()
+-- Botão de dump do GunClient — lê o source real e printa no console
+-- Assim dá pra ver a assinatura EXATA do FireServer que o jogo usa
+secSheriff:Button("DUMP GunClient (ver console)", function()
     local gunTool = getGunTool()
     if not gunTool then
-        ui:Toast("rbxassetid://131165537896572","Gun","sem gun equipada/backpack",ROLE_COLOR.unknown); return
+        ui:Toast("rbxassetid://131165537896572","Dump","equipa a gun primeiro",ROLE_COLOR.unknown)
+        return
     end
-    local shootR = gunTool:FindFirstChild("Shoot")
-    if shootR then
-        ui:Toast("rbxassetid://131165537896572","[Gun Remote]",
-            "Shoot encontrado em: "..gunTool.Name, ROLE_COLOR.sheriff)
-    else
-        -- Lista todos remotes encontrados
-        local remotes = {}
-        for _, obj in ipairs(gunTool:GetDescendants()) do
-            if obj:IsA("RemoteEvent") then table.insert(remotes, obj.Name) end
+
+    print("=== MM2 GUN DUMP ===")
+    print("Tool name:", gunTool.Name)
+
+    -- Lista todos os objetos dentro da gun
+    print("--- Descendants ---")
+    for _, obj in ipairs(gunTool:GetDescendants()) do
+        print(obj.ClassName, obj.Name, "| parent:", obj.Parent.Name)
+    end
+
+    -- Tenta ler o source do GunClient
+    local gc = gunTool:FindFirstChild("GunClient")
+        or gunTool:FindFirstChildWhichIsA("LocalScript")
+        or gunTool:FindFirstChildWhichIsA("Script")
+
+    if gc then
+        print("--- GunClient source ---")
+        local ok, src = pcall(function() return game:GetService("ScriptEditorService") end)
+        -- Método 1: decompile via executor
+        if decompile then
+            local s = pcall(function()
+                local d = decompile(gc)
+                print(d)
+            end)
         end
-        ui:Toast("rbxassetid://131165537896572","[Gun Remote]",
-            #remotes > 0 and ("Remotes: "..table.concat(remotes,", ")) or "nenhum remote encontrado",
-            ROLE_COLOR.unknown)
+        -- Método 2: getscriptbytecode
+        if getscriptbytecode then
+            pcall(function() print("bytecode len:", #getscriptbytecode(gc)) end)
+        end
+        -- Método 3: Source property (só funciona em Studio)
+        pcall(function()
+            if gc.Source and #gc.Source > 0 then print(gc.Source) end
+        end)
+        print("GunClient encontrado:", gc.ClassName, gc.Name)
+    else
+        print("GunClient NAO encontrado na gun")
     end
+
+    -- Hook temporário pra capturar os args reais do próximo FireServer
+    -- Isso vai mostrar EXATAMENTE o que o GunClient manda
+    print("--- Instalando capturador de args ---")
+    print("Agora ATIRE normalmente uma vez. Os args vao aparecer no console.")
+    local mt = getrawmetatable(game)
+    local old_nc = mt.__namecall
+    local captured = false
+    pcall(function() setreadonly(mt, false) end)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if not captured and method == "FireServer" and self:IsA("RemoteEvent") then
+            local par = self.Parent
+            if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
+                captured = true
+                local args = {...}
+                print("=== FireServer capturado! Remote:", self.Name, "| Tool:", par.Name)
+                print("Numero de args:", #args)
+                for i, v in ipairs(args) do
+                    print("  arg["..i.."] =", typeof(v), tostring(v))
+                end
+                print("=== FIM CAPTURE ===")
+                -- Restaura o namecall original após capturar
+                task.delay(0.1, function()
+                    pcall(function() mt.__namecall = old_nc end)
+                end)
+            end
+        end
+        return old_nc(self, ...)
+    end)
+
+    ui:Toast("rbxassetid://131165537896572","[Dump]","abra o console e atire uma vez",ROLE_COLOR.sheriff)
 end)
 
 -- ── HITBOX EXPANDER ──────────────────────────────────────────────────────────

@@ -481,6 +481,8 @@ local silentAimTarget = nil
 local _namecallHooked  = false
 local _mobileShootConn = nil
 local _shootCooldown   = false
+local _dumpCapturing   = false
+local _dumpCallback    = nil
 
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
@@ -1452,15 +1454,28 @@ local function showDumpGui(text)
     copyBtn.Font = Enum.Font.GothamBold
     copyBtn.TextSize = 13
     copyBtn.Parent = frame
+    local copyReady = false
+    copyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+    copyBtn.Text = "⏳  aguarde 5s..."
+
+    -- Habilita o botão após 5s
+    task.delay(5, function()
+        pcall(function()
+            copyReady = true
+            copyBtn.BackgroundColor3 = Color3.fromRGB(55, 180, 100)
+            copyBtn.Text = "📋  COPIAR TUDO"
+        end)
+    end)
+
     Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
     copyBtn.MouseButton1Click:Connect(function()
+        if not copyReady then return end
         pcall(function() setclipboard(text) end)
         copyBtn.Text = "✔  COPIADO!"
         copyBtn.BackgroundColor3 = Color3.fromRGB(40, 130, 70)
         task.delay(2, function()
             pcall(function()
-                copyBtn.Text = "📋  COPIAR TUDO"
-                copyBtn.BackgroundColor3 = Color3.fromRGB(55, 180, 100)
+                if sg and sg.Parent then sg:Destroy() end
             end)
         end)
     end)
@@ -1511,39 +1526,35 @@ secSheriff:Button("DUMP gun (equipa gun e clica)", function()
     end
 
     -- Hook temporário — captura args do próximo tiro real
+    -- Usa uma flag global pra se encaixar no hook __namecall já existente
     ln("")
     ln("=== aguardando tiro... ===")
     local resultText = table.concat(lines, "\n")
     showDumpGui(resultText .. "\n\n[Atire uma vez pra capturar os args do FireServer]")
 
-    local mt = getrawmetatable(game)
-    local old_nc = mt.__namecall
-    local captured = false
-    pcall(function() setreadonly(mt, false) end)
-
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if not captured and method == "FireServer" and self:IsA("RemoteEvent") then
-            local par = self.Parent
-            if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
-                captured = true
-                local args = {...}
-                local capLines = {}
-                table.insert(capLines, "=== FireServer CAPTURADO ===")
-                table.insert(capLines, "Remote: " .. self.Name .. " | Tool: " .. par.Name)
-                table.insert(capLines, "Qtd args: " .. #args)
-                for i, v in ipairs(args) do
-                    table.insert(capLines, "arg["..i.."] = "..typeof(v).." -> "..tostring(v))
-                end
-                table.insert(capLines, "=== FIM ===")
-                local full = resultText .. "\n\n" .. table.concat(capLines, "\n")
-                task.defer(function() showDumpGui(full) end)
-                task.delay(0.1, function()
-                    pcall(function() mt.__namecall = old_nc end)
-                end)
-            end
+    -- Flag global lida pelo hook __namecall principal
+    _dumpCapturing = true
+    _dumpCallback = function(remoteName, toolName, args)
+        _dumpCapturing = false
+        _dumpCallback = nil
+        local capLines = {}
+        table.insert(capLines, "=== FireServer CAPTURADO ===")
+        table.insert(capLines, "Remote: " .. remoteName .. " | Tool: " .. toolName)
+        table.insert(capLines, "Qtd args: " .. #args)
+        for i, v in ipairs(args) do
+            table.insert(capLines, "arg["..i.."] = "..typeof(v).." -> "..tostring(v))
         end
-        return old_nc(self, ...)
+        table.insert(capLines, "=== FIM ===")
+        local full = resultText .. "\n\n" .. table.concat(capLines, "\n")
+        task.defer(function() showDumpGui(full) end)
+    end
+
+    -- Timeout de 30s
+    task.delay(30, function()
+        if _dumpCapturing then
+            _dumpCapturing = false
+            _dumpCallback = nil
+        end
     end)
 
     ui:Toast("rbxassetid://131165537896572","[Dump]","atire uma vez — GUI vai atualizar",ROLE_COLOR.sheriff)

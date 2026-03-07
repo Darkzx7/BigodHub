@@ -71,8 +71,44 @@ pcall(function() EliminatePlayerRemote = ReplicatedStorage.Remotes.Gameplay.Elim
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local KNIFE_NAMES   = { Knife = true }
-local GUN_NAMES     = { Gun = true, ["Sheriff's Gun"] = true, Revolver = true, SheriffGun = true }
+local GUN_NAMES     = { Gun = true, ["Sheriff's Gun"] = true, Revolver = true, SheriffGun = true, GunDrop = true }
 local GUNDROP_NAMES = { GunDrop = true }
+
+-- Quando GunDrop some do workspace, alguém pegou — detecta quem
+local function watchGunDropPickup()
+    workspace.DescendantRemoving:Connect(function(obj)
+        if not GUNDROP_NAMES[obj.Name] then return end
+        -- Pequena espera pra gun aparecer no backpack/character do herói
+        task.wait(0.15)
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p == player then continue end
+            local bp  = p:FindFirstChild("Backpack")
+            local chr = p.Character
+            for n in pairs(GUN_NAMES) do
+                if (bp  and bp:FindFirstChild(n))
+                or (chr and chr:FindFirstChild(n)) then
+                    if roleCache[p] ~= "murderer" then
+                        roleCache[p] = "hero"
+                    end
+                    break
+                end
+            end
+        end
+        -- Também checa o próprio player
+        task.spawn(function()
+            local bp  = player:FindFirstChild("Backpack")
+            local chr = player.Character
+            for n in pairs(GUN_NAMES) do
+                if (bp  and bp:FindFirstChild(n))
+                or (chr and chr:FindFirstChild(n)) then
+                    roleCache[player] = "hero"
+                    break
+                end
+            end
+        end)
+    end)
+end
+watchGunDropPickup()
 
 -- Parts do character que o TouchTransmitter da faca verifica (confirmado: Handle toca character)
 -- Expandir essas parts aumenta a área de colisão real que o servidor valida
@@ -88,12 +124,13 @@ local CHARACTER_HIT_PARTS = {
 local ROLE_COLOR = {
     murderer = Color3.fromRGB(220, 55, 55),
     sheriff  = Color3.fromRGB(55, 180, 220),
+    hero     = Color3.fromRGB(255, 165, 0),
     innocent = Color3.fromRGB(80, 210, 80),
     unknown  = Color3.fromRGB(150, 150, 160),
 }
 local ROLE_LABEL = {
     murderer = "Murderer", sheriff = "Sheriff",
-    innocent = "Innocent", unknown = "?"
+    hero     = "Hero",     innocent = "Innocent", unknown = "?"
 }
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -220,6 +257,7 @@ player.CharacterAdded:Connect(function()
     local bp = player:FindFirstChild("Backpack") or player:WaitForChild("Backpack", 5)
     if bp then bp.ChildAdded:Connect(function(child)
         if KNIFE_NAMES[child.Name] then roleCache[player] = "murderer"
+        elseif GUNDROP_NAMES[child.Name] then roleCache[player] = "hero"
         elseif GUN_NAMES[child.Name] then roleCache[player] = "sheriff" end
     end) end
 end)
@@ -227,22 +265,20 @@ end)
 -- Monitora backpack de TODOS os players pra detectar papel antes do round
 local function watchPlayerBackpack(p)
     if p == player then return end
-    -- Backpack
+    local function onChildAdded(child)
+        if KNIFE_NAMES[child.Name] then
+            roleCache[p] = "murderer"
+        elseif GUNDROP_NAMES[child.Name] then
+            roleCache[p] = "hero"    -- inocente pegou gun do chão
+        elseif child.Name == "Gun" or child.Name == "Sheriff's Gun"
+            or child.Name == "Revolver" or child.Name == "SheriffGun" then
+            roleCache[p] = "sheriff" -- sheriff original
+        end
+    end
     local bp = p:FindFirstChild("Backpack")
-    if bp then
-        bp.ChildAdded:Connect(function(child)
-            if KNIFE_NAMES[child.Name] then roleCache[p] = "murderer"
-            elseif GUN_NAMES[child.Name] then roleCache[p] = "sheriff" end
-        end)
-    end
-    -- Character (arma equipada)
+    if bp  then bp.ChildAdded:Connect(onChildAdded) end
     local chr = p.Character
-    if chr then
-        chr.ChildAdded:Connect(function(child)
-            if KNIFE_NAMES[child.Name] then roleCache[p] = "murderer"
-            elseif GUN_NAMES[child.Name] then roleCache[p] = "sheriff" end
-        end)
-    end
+    if chr then chr.ChildAdded:Connect(onChildAdded) end
 end
 
 -- Reconecta ao respawnar
@@ -264,8 +300,11 @@ end)
 
 task.defer(function()
     local bp = player:FindFirstChild("Backpack"); if not bp then return end
-    for n in pairs(KNIFE_NAMES) do if bp:FindFirstChild(n) then roleCache[player] = "murderer" end end
-    for n in pairs(GUN_NAMES)   do if bp:FindFirstChild(n) then roleCache[player] = "sheriff"  end end
+    for n in pairs(KNIFE_NAMES)  do if bp:FindFirstChild(n) then roleCache[player] = "murderer" end end
+    for n in pairs(GUNDROP_NAMES) do if bp:FindFirstChild(n) then roleCache[player] = "hero"     end end
+    for _, n in ipairs({"Gun","Sheriff's Gun","Revolver","SheriffGun"}) do
+        if bp:FindFirstChild(n) then roleCache[player] = "sheriff" end
+    end
 end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -289,6 +328,7 @@ local function getRole(p)
         local low = data.Role:lower()
         if low == "murderer" then return "murderer" end
         if low == "sheriff"  then return "sheriff"  end
+        if low == "hero"     then return "hero"     end
         if low == "innocent" then return "innocent" end
     end
     if roleCache[p] then return roleCache[p] end
@@ -297,6 +337,7 @@ local function getRole(p)
         local low = attr:lower()
         if low:find("murder") then return "murderer" end
         if low:find("sheriff") then return "sheriff" end
+        if low:find("hero")   then return "hero"    end
         if low:find("innocent") then return "innocent" end
     end
     local bp  = p:FindFirstChild("Backpack")
@@ -307,13 +348,43 @@ local function getRole(p)
         return false
     end
     if hasIn(chr, KNIFE_NAMES) or hasIn(bp, KNIFE_NAMES) then return "murderer" end
-    if hasIn(chr, GUN_NAMES)   or hasIn(bp, GUN_NAMES)   then return "sheriff"  end
+    -- GunDrop no inventário = herói (inocente que pegou a gun do chão)
+    -- Gun normal = sheriff original
+    local function hasGunDrop(c)
+        if not c then return false end
+        for n in pairs(GUNDROP_NAMES) do if c:FindFirstChild(n) then return true end end
+        return false
+    end
+    local function hasGunOriginal(c)
+        if not c then return false end
+        local GUN_ORIG = { Gun = true, ["Sheriff's Gun"] = true, Revolver = true, SheriffGun = true }
+        for n in pairs(GUN_ORIG) do if c:FindFirstChild(n) then return true end end
+        return false
+    end
+    if hasGunDrop(chr) or hasGunDrop(bp) then return "hero" end
+    if hasGunOriginal(chr) or hasGunOriginal(bp) then return "sheriff" end
     return "innocent"
+end
+
+local function isArmed(p)
+    local r = getRole(p)
+    return r == "sheriff" or r == "hero" or r == "murderer"
 end
 
 local function findByRole(role)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and isAlive(p) and getRole(p) == role then return p end
+    end
+    return nil
+end
+
+-- Retorna qualquer player armado com gun (sheriff ou hero)
+local function findArmedWithGun()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and isAlive(p) then
+            local r = getRole(p)
+            if r == "sheriff" or r == "hero" then return p end
+        end
     end
     return nil
 end
@@ -418,7 +489,7 @@ local function getSilentTarget()
         return silentAimTarget
     end
     local myRole = getRole()
-    if myRole == "sheriff" then
+    if myRole == "sheriff" or myRole == "hero" then
         return findByRole("murderer")
     elseif myRole == "murderer" then
         local hrp = myHRP(); if not hrp then return nil end
@@ -571,32 +642,56 @@ end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- HITBOX EXPANDER
--- Cache por player (não por part) — restore simples e garantido.
--- Aplica uma vez ao ativar, restaura exatamente o que foi salvo.
+-- Expande parts dos outros jogadores e adiciona NoCollisionConstraint entre
+-- cada part expandida e as parts do SEU character — sem colisão física com
+-- você, mas Touched continua funcionando normalmente.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
 local hitboxSize    = 12
 local hitboxVisible = false
 
--- Cache: { [player] = { {part, origSize, origTransp}, ... } }
+-- Cache: { [player] = { {part, origSize, origTransp, noCollConstraints={}}, ... } }
 local hitboxCache = {}
+
+-- Retorna lista de BaseParts do character do player local
+local function getMyParts()
+    local chr = player.Character
+    if not chr then return {} end
+    local parts = {}
+    for _, p in ipairs(chr:GetDescendants()) do
+        if p:IsA("BasePart") then table.insert(parts, p) end
+    end
+    return parts
+end
+
+-- Cria NoCollisionConstraint entre duas parts (sem colisão física, Touched intacto)
+local function noCollide(partA, partB)
+    local nc = Instance.new("NoCollisionConstraint")
+    nc.Part0 = partA
+    nc.Part1 = partB
+    nc.Parent = partA  -- pai na part expandida — some junto quando restaurar
+    return nc
+end
 
 local function applyHitboxToChar(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
-    if hitboxCache[p] then return end  -- já aplicado
+    if hitboxCache[p] then return end
 
-    local saved = {}
+    local myParts = getMyParts()
+    local saved   = {}
+
     for _, part in ipairs(chr:GetDescendants()) do
-        if not part:IsA("BasePart")        then continue end
-        if part.Parent:IsA("Accessory")    then continue end
-        if part.Parent:IsA("Tool")         then continue end
+        if not part:IsA("BasePart")     then continue end
+        if part.Parent:IsA("Accessory") then continue end
+        if part.Parent:IsA("Tool")      then continue end
 
         local origSize   = part.Size
         local origTransp = part.Transparency
         local maxDim     = math.max(origSize.X, origSize.Y, origSize.Z, 0.1)
         local scale      = hitboxSize / maxDim
+        local constraints = {}
 
         if scale > 1 then
             pcall(function() part.Size = origSize * scale end)
@@ -605,8 +700,21 @@ local function applyHitboxToChar(p)
             pcall(function() part.Transparency = 0.5 end)
         end
 
-        table.insert(saved, { part = part, size = origSize, transp = origTransp })
+        -- NoCollisionConstraint com cada part do SEU character
+        for _, myPart in ipairs(myParts) do
+            pcall(function()
+                table.insert(constraints, noCollide(part, myPart))
+            end)
+        end
+
+        table.insert(saved, {
+            part        = part,
+            size        = origSize,
+            transp      = origTransp,
+            constraints = constraints,
+        })
     end
+
     hitboxCache[p] = saved
 end
 
@@ -618,6 +726,10 @@ local function restoreHitboxOfPlayer(p)
             data.part.Size         = data.size
             data.part.Transparency = data.transp
         end)
+        -- Remove todos os NoCollisionConstraints criados
+        for _, nc in ipairs(data.constraints) do
+            pcall(function() nc:Destroy() end)
+        end
     end
     hitboxCache[p] = nil
 end
@@ -640,13 +752,33 @@ local function stopHitbox()
     restoreAllHitboxes()
 end
 
+-- Quando o SEU character muda, os NoCollisionConstraints antigos ficam inválidos
+-- Reaplica hitbox em todos pra recriar os constraints com as novas parts
+player.CharacterAdded:Connect(function()
+    if not hitboxOn then return end
+    task.wait(1)
+    -- Restaura sem resetar o hitboxOn, e reaplica com as novas parts do player
+    for p, saved in pairs(hitboxCache) do
+        for _, data in ipairs(saved) do
+            for _, nc in ipairs(data.constraints) do
+                pcall(function() nc:Destroy() end)
+            end
+            data.constraints = {}
+        end
+        hitboxCache[p] = nil
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        applyHitboxToChar(p)
+    end
+end)
+
 Players.PlayerRemoving:Connect(function(p)
-    hitboxCache[p] = nil  -- player saiu, parts já destruídas
+    hitboxCache[p] = nil
 end)
 
 Players.PlayerAdded:Connect(function(p)
     p.CharacterAdded:Connect(function()
-        hitboxCache[p] = nil  -- reseta cache do character antigo
+        hitboxCache[p] = nil
         if hitboxOn then task.wait(1); applyHitboxToChar(p) end
     end)
 end)
@@ -1277,7 +1409,7 @@ local function buildShootBtn()
     end
     btn.Activated:Connect(function()
         if shootCd then return end
-        if getRole() ~= "sheriff" then
+        if getRole() ~= "sheriff" and getRole() ~= "hero" then
             setBtnState("SEM GUN", T.err)
             task.delay(1.2, function() setBtnState("ATIRAR", ROLE_COLOR.sheriff) end); return
         end
@@ -1317,7 +1449,7 @@ local gunAuraCD   = 0.8
 local function gunAuraLoop()
     while gunAuraOn do
         task.wait(0.1)
-        if getRole() ~= "sheriff" then continue end
+        if getRole() ~= "sheriff" and getRole() ~= "hero" then continue end
         if tick() - lastGunAura < gunAuraCD then continue end
         local m = findByRole("murderer"); if not m then continue end
         local mChr = m.Character; if not mChr then continue end
@@ -1360,7 +1492,7 @@ local autoShootOn=false; local lastShot=0; local shotCD=0.6
 local function autoShootLoop()
     while autoShootOn do
         task.wait(0.15)
-        if getRole()~="sheriff" then continue end
+        if getRole()~="sheriff" and getRole()~="hero" then continue end
         if tick()-lastShot<shotCD then continue end
         local m=findByRole("murderer"); if not m then continue end
         local mHrp=m.Character and m.Character:FindFirstChild("HumanoidRootPart")
@@ -1384,7 +1516,7 @@ ui:CfgRegister("mm2_shot_cd", function() return shotCD*10 end, function(v) s_scd
 
 secSheriff:Divider("manual")
 secSheriff:Button("atirar no murderer (1x)", function()
-    if getRole()~="sheriff" then
+    if getRole()~="sheriff" and getRole()~="hero" then
         ui:Toast("rbxassetid://131165537896572","[Shoot]","voce nao e xerife",ROLE_COLOR.unknown); return end
     local m=findByRole("murderer")
     if not m then

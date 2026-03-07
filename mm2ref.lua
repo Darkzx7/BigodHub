@@ -587,18 +587,7 @@ local function fireSilentShot()
     task.delay(0.7, function() _shootCooldown = false end)
 end
 
--- Retorna o WorldCFrame do GunRaycastAttachment do player local
--- arg1 do FireServer: de onde o raio parte
-local function getGunAttachmentCFrame()
-    local chr = player.Character; if not chr then return nil end
-    local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return nil end
-    local att = hrp:FindFirstChild("GunRaycastAttachment")
-        or hrp:FindFirstChild("GunShoulderAttachment")
-    if att then return att.WorldCFrame end
-    -- Fallback: CFrame do HRP
-    return hrp.CFrame
-end
-
+-- Silent aim hook
 local function hookSilentAim()
     if _namecallHooked then return end
     _namecallHooked = true
@@ -620,31 +609,38 @@ local function hookSilentAim()
         end
 
         -- Silent aim
-        -- Assinatura confirmada: Shoot:FireServer(attachCF, targetCF)
-        --   attachCF  = GunRaycastAttachment.WorldCFrame (de onde o raio sai)
-        --   targetCF  = CFrame do ponto de impacto
+        -- Source confirmado:
+        --   PC/MouseLock: FireServer(attachCF_or_nil, GetMouseTargetCFrame()) -> arg2 = CFrame
+        --   Mobile:       FireServer(attachCF_or_nil, GetTargetPosition(x,y)) -> arg2 = Vector3
+        -- arg1 pode ser nil — GunClient passa nil quando nao acha o attachment no HRP
+        -- Substituimos apenas arg2 pelo hitPos do alvo, deixando arg1 como veio
         if silentAimOn and method == "FireServer" and self:IsA("RemoteEvent") then
             local par = self.Parent
             if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
-                local target    = getSilentTarget()
-                local hitPos    = target and getTargetHitPos(target)
-                local attachCF  = getGunAttachmentCFrame()
-                if hitPos and attachCF then
-                    local targetCF = CFrame.new(hitPos)
-                    return old_namecall(self, attachCF, targetCF)
+                local target = getSilentTarget()
+                local hitPos = target and getTargetHitPos(target)
+                if hitPos then
+                    local args = {...}
+                    local arg1 = args[1]  -- attachCF ou nil, deixa como esta
+                    local arg2orig = args[2]
+                    local arg2new
+                    if typeof(arg2orig) == "CFrame" then
+                        arg2new = CFrame.new(hitPos)
+                    else
+                        arg2new = hitPos  -- Vector3 no mobile
+                    end
+                    return old_namecall(self, arg1, arg2new)
                 end
             end
         end
 
-        -- Hook WeaponService:GetMouseTargetCFrame e GetTargetPosition
-        -- Redireciona mira pro alvo quando silent aim ativo
+        -- Hook WeaponService — redireciona mira antes do FireServer
         if silentAimOn then
             if method == "GetMouseTargetCFrame" then
                 local target = getSilentTarget()
                 local hitPos = target and getTargetHitPos(target)
                 if hitPos then return CFrame.new(hitPos) end
             elseif method == "GetTargetPosition" then
-                -- Usado no mobile sem MouseLock: GetTargetPosition(screenX, screenY)
                 local target = getSilentTarget()
                 local hitPos = target and getTargetHitPos(target)
                 if hitPos then return hitPos end

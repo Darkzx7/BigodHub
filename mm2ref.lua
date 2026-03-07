@@ -139,6 +139,71 @@ pcall(function()
     end)
 end)
 
+-- GiveWeapon: servidor envia arma pro player antes do round começar
+-- Argumento pode ser o nome da tool ou uma instância — detectamos o papel pelo tipo
+pcall(function()
+    ReplicatedStorage.Remotes.Gameplay.GiveWeapon.OnClientEvent:Connect(function(weaponArg)
+        local name = ""
+        if type(weaponArg) == "string" then
+            name = weaponArg:lower()
+        elseif typeof(weaponArg) == "Instance" then
+            name = weaponArg.Name:lower()
+        end
+        if name:find("knife") then
+            roleCache[player] = "murderer"
+        elseif name:find("gun") or name:find("sheriff") or name:find("revolver") then
+            roleCache[player] = "sheriff"
+        end
+    end)
+end)
+
+-- PlayerDataChanged (RemoteEvent): atualiza dados de TODOS os players
+-- Scanner confirmou: RemoteEvent|Remotes.Gameplay.PlayerDataChanged
+-- Dispara antes do round com papéis distribuídos
+pcall(function()
+    ReplicatedStorage.Remotes.Gameplay.PlayerDataChanged.OnClientEvent:Connect(function(data)
+        if type(data) ~= "table" then return end
+        for username, info in pairs(data) do
+            if type(info) == "table" then
+                playerDataCache[username] = info
+                -- Se o servidor mandou o papel explícito, atualiza roleCache
+                if info.Role then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p.Name == username then
+                            local low = info.Role:lower()
+                            if low:find("murder") then roleCache[p] = "murderer"
+                            elseif low:find("sheriff") then roleCache[p] = "sheriff"
+                            else roleCache[p] = "innocent" end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+-- ShowRoleSelectNew: dispara quando o servidor está prestes a distribuir papéis
+-- Bom momento pra checar o backpack de todos (a gun/knife pode já estar lá)
+pcall(function()
+    ReplicatedStorage.Remotes.Gameplay.ShowRoleSelectNew.OnClientEvent:Connect(function()
+        task.wait(0.5)  -- pequena espera pra armas serem distribuídas
+        for _, p in ipairs(Players:GetPlayers()) do
+            local bp  = p:FindFirstChild("Backpack")
+            local chr = p.Character
+            local function hasIn(c, names)
+                if not c then return false end
+                for n in pairs(names) do if c:FindFirstChild(n) then return true end end
+                return false
+            end
+            if hasIn(chr, KNIFE_NAMES) or hasIn(bp, KNIFE_NAMES) then
+                roleCache[p] = "murderer"
+            elseif hasIn(chr, GUN_NAMES) or hasIn(bp, GUN_NAMES) then
+                roleCache[p] = "sheriff"
+            end
+        end
+    end)
+end)
+
 if RoleSelectEvent then
     RoleSelectEvent.OnClientEvent:Connect(function(roleName)
         if not roleName then return end
@@ -157,6 +222,44 @@ player.CharacterAdded:Connect(function()
         if KNIFE_NAMES[child.Name] then roleCache[player] = "murderer"
         elseif GUN_NAMES[child.Name] then roleCache[player] = "sheriff" end
     end) end
+end)
+
+-- Monitora backpack de TODOS os players pra detectar papel antes do round
+local function watchPlayerBackpack(p)
+    if p == player then return end
+    -- Backpack
+    local bp = p:FindFirstChild("Backpack")
+    if bp then
+        bp.ChildAdded:Connect(function(child)
+            if KNIFE_NAMES[child.Name] then roleCache[p] = "murderer"
+            elseif GUN_NAMES[child.Name] then roleCache[p] = "sheriff" end
+        end)
+    end
+    -- Character (arma equipada)
+    local chr = p.Character
+    if chr then
+        chr.ChildAdded:Connect(function(child)
+            if KNIFE_NAMES[child.Name] then roleCache[p] = "murderer"
+            elseif GUN_NAMES[child.Name] then roleCache[p] = "sheriff" end
+        end)
+    end
+end
+
+-- Reconecta ao respawnar
+local function watchPlayerFull(p)
+    watchPlayerBackpack(p)
+    p.CharacterAdded:Connect(function()
+        roleCache[p] = nil  -- reseta papel do round anterior
+        task.wait(0.3)
+        watchPlayerBackpack(p)
+    end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= player then watchPlayerFull(p) end
+end
+Players.PlayerAdded:Connect(function(p)
+    if p ~= player then watchPlayerFull(p) end
 end)
 
 task.defer(function()
@@ -468,75 +571,67 @@ end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- HITBOX EXPANDER
--- Aplica UMA VEZ por character — sem loop no Heartbeat.
--- Reaplica só quando um novo character spawna.
+-- Cache por player (não por part) — restore simples e garantido.
+-- Aplica uma vez ao ativar, restaura exatamente o que foi salvo.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local hitboxOn        = false
-local hitboxSize      = 12
-local hitboxVisible   = false
-local hitboxOriginals = {}  -- [part] = {Size, Transparency}
+local hitboxOn      = false
+local hitboxSize    = 12
+local hitboxVisible = false
+
+-- Cache: { [player] = { {part, origSize, origTransp}, ... } }
+local hitboxCache = {}
 
 local function applyHitboxToChar(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
+    if hitboxCache[p] then return end  -- já aplicado
 
+    local saved = {}
     for _, part in ipairs(chr:GetDescendants()) do
-        if not part:IsA("BasePart") then continue end
-        if part.Parent:IsA("Accessory") then continue end
-        if part.Parent:IsA("Tool")      then continue end
-        if hitboxOriginals[part] then continue end  -- já aplicado, pula
+        if not part:IsA("BasePart")        then continue end
+        if part.Parent:IsA("Accessory")    then continue end
+        if part.Parent:IsA("Tool")         then continue end
 
-        hitboxOriginals[part] = {
-            Size         = part.Size,
-            Transparency = part.Transparency,
-        }
+        local origSize   = part.Size
+        local origTransp = part.Transparency
+        local maxDim     = math.max(origSize.X, origSize.Y, origSize.Z, 0.1)
+        local scale      = hitboxSize / maxDim
 
-        local orig   = part.Size
-        local maxDim = math.max(orig.X, orig.Y, orig.Z, 0.1)
-        local scale  = hitboxSize / maxDim
         if scale > 1 then
-            pcall(function() part.Size = orig * scale end)
+            pcall(function() part.Size = origSize * scale end)
         end
         if hitboxVisible then
             pcall(function() part.Transparency = 0.5 end)
         end
+
+        table.insert(saved, { part = part, size = origSize, transp = origTransp })
     end
+    hitboxCache[p] = saved
 end
 
-local function restoreHitboxOfChar(p)
-    if not p then return end
-    local chr = p.Character
-    for part, orig in pairs(hitboxOriginals) do
-        local ok, belongs = pcall(function()
-            return chr and part:IsDescendantOf(chr)
+local function restoreHitboxOfPlayer(p)
+    local saved = hitboxCache[p]
+    if not saved then return end
+    for _, data in ipairs(saved) do
+        pcall(function()
+            data.part.Size         = data.size
+            data.part.Transparency = data.transp
         end)
-        if ok and belongs then
-            pcall(function()
-                part.Size         = orig.Size
-                part.Transparency = orig.Transparency
-            end)
-            hitboxOriginals[part] = nil
-        end
     end
+    hitboxCache[p] = nil
 end
 
 local function restoreAllHitboxes()
-    for part, orig in pairs(hitboxOriginals) do
-        pcall(function()
-            part.Size         = orig.Size
-            part.Transparency = orig.Transparency
-        end)
+    for p in pairs(hitboxCache) do
+        restoreHitboxOfPlayer(p)
     end
-    hitboxOriginals = {}
+    hitboxCache = {}
 end
 
 local function startHitbox()
-    -- Aplica em todos os players existentes agora (uma vez só)
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player then
-            applyHitboxToChar(p)
-        end
+        applyHitboxToChar(p)
     end
 end
 
@@ -545,21 +640,13 @@ local function stopHitbox()
     restoreAllHitboxes()
 end
 
--- Reaplica quando um player ganha novo character
 Players.PlayerRemoving:Connect(function(p)
-    restoreHitboxOfChar(p)
+    hitboxCache[p] = nil  -- player saiu, parts já destruídas
 end)
 
 Players.PlayerAdded:Connect(function(p)
     p.CharacterAdded:Connect(function()
-        hitboxOriginals = (function()
-            local clean = {}
-            for part, orig in pairs(hitboxOriginals) do
-                local ok, belongs = pcall(function() return part:IsDescendantOf(p.Character or game) end)
-                if not (ok and belongs) then clean[part] = orig end
-            end
-            return clean
-        end)()
+        hitboxCache[p] = nil  -- reseta cache do character antigo
         if hitboxOn then task.wait(1); applyHitboxToChar(p) end
     end)
 end)
@@ -567,16 +654,7 @@ end)
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= player then
         p.CharacterAdded:Connect(function()
-            -- Limpa parts antigas desse player do cache
-            local chr = p.Character
-            for part in pairs(hitboxOriginals) do
-                local ok, old = pcall(function() return part:IsDescendantOf(chr) end)
-                -- não restaura (character morreu), só limpa o cache
-                if not (ok and old) then
-                    -- verifica se era desse player pelo ancestry antigo
-                    pcall(function() hitboxOriginals[part] = nil end)
-                end
-            end
+            hitboxCache[p] = nil
             if hitboxOn then task.wait(1); applyHitboxToChar(p) end
         end)
     end

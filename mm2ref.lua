@@ -565,7 +565,6 @@ local function fireSilentShot()
     local hitPos  = target and getTargetHitPos(target)
     local hitInst = target and getTargetInstance(target)
 
-    -- Se não tem alvo, usa posição da câmera (tiro normal sem desvio)
     if not hitPos then
         hitPos  = cam.CFrame.Position + cam.CFrame.LookVector * 100
         hitInst = workspace.Terrain
@@ -578,9 +577,6 @@ local function fireSilentShot()
     task.delay(0.65, function() _shootCooldown = false end)
 end
 
--- Hook __namecall para PC: intercepta o FireServer que o GunClient já dispara
--- e substitui os argumentos. No mobile isso não chega a rodar pois o GunClient
--- nem dispara — por isso temos o listener de toque separado.
 local function hookSilentAim()
     if _namecallHooked then return end
     _namecallHooked = true
@@ -609,23 +605,39 @@ local function hookSilentAim()
 end
 
 -- Listener de toque para MOBILE
--- TouchTapInWorld dispara em qualquer tap no mundo 3D (não em GUIs)
--- Isso emula o que o GunClient faria ao receber o toque do jogador
+-- Usa TouchTap (toque curto) — evento correto no Roblox mobile
+-- Também conecta InputBegan com Touch pra cobrir todos os executors mobile
 local function startMobileSilentAim()
     if _mobileShootConn then _mobileShootConn:Disconnect() end
-    _mobileShootConn = UserInputService.TouchTapInWorld:Connect(function(position, processedByUI)
-        if processedByUI then return end
+
+    local function tryShoot()
         if not silentAimOn then return end
-        -- Só atira se tiver gun equipada
-        local chr = player.Character
-        if not chr then return end
-        local hasGun = false
+        local chr = player.Character; if not chr then return end
         for name in pairs(GUN_NAMES) do
-            if chr:FindFirstChild(name) then hasGun = true; break end
+            if chr:FindFirstChild(name) then
+                fireSilentShot()
+                return
+            end
         end
-        if not hasGun then return end
-        fireSilentShot()
+    end
+
+    -- TouchTap: toque rápido na tela (principal)
+    pcall(function()
+        _mobileShootConn = UserInputService.TouchTap:Connect(function(touchPositions, gameProcessed)
+            if gameProcessed then return end
+            tryShoot()
+        end)
     end)
+
+    -- Fallback: InputBegan com UserInputType.Touch
+    if not _mobileShootConn then
+        _mobileShootConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType == Enum.UserInputType.Touch then
+                tryShoot()
+            end
+        end)
+    end
 end
 
 local function stopMobileSilentAim()
@@ -1024,7 +1036,7 @@ local function buildRoleEsp(p)
     if roleEspCache[p] then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    local role = getRole(p); local col = ROLE_COLOR[role]
+    local role = getRole(p); local col = ROLE_COLOR[role] or ROLE_COLOR.unknown
     local hl = Instance.new("Highlight")
     hl.FillColor=col; hl.OutlineColor=Color3.new(1,1,1); hl.FillTransparency=0.42
     hl.OutlineTransparency=0; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
@@ -1052,7 +1064,7 @@ RunService.RenderStepped:Connect(function()
         if not isAlive(p) then removeRoleEsp(p); continue end
         if not roleEspCache[p] then buildRoleEsp(p) end
         local d = roleEspCache[p]; if not d then continue end
-        local role = getRole(p); local col = ROLE_COLOR[role]
+        local role = getRole(p); local col = ROLE_COLOR[role] or ROLE_COLOR.unknown
         d.hl.FillColor=col; d.rl.TextColor3=col
         d.rl.Text="["..ROLE_LABEL[role].."]"; d.nm.Text=p.DisplayName
     end
@@ -1148,7 +1160,7 @@ local function buildESP(p)
     if espCache[p] then return end
     local chr=p.Character; if not chr then return end
     local hrp=chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    local role=getRole(p); local col=ROLE_COLOR[role]
+    local role=getRole(p); local col=ROLE_COLOR[role] or ROLE_COLOR.unknown
     local hl=Instance.new("Highlight"); hl.FillColor=col; hl.OutlineColor=Color3.new(1,1,1)
     hl.FillTransparency=0.45; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     hl.Adornee=chr; hl.Parent=chr
@@ -1188,7 +1200,7 @@ RunService.RenderStepped:Connect(function()
         if dist>espMax then removeESP(p); continue end
         if not espCache[p] then buildESP(p) end
         local d=espCache[p]; if not d then continue end
-        local role=getRole(p); local col=ROLE_COLOR[role]
+        local role=getRole(p); local col=ROLE_COLOR[role] or ROLE_COLOR.unknown
         d.hl.FillColor=col; d.rl.TextColor3=col; d.rl.Text="["..ROLE_LABEL[role].."]"
         d.nm.Text=p.DisplayName
         local pct=math.clamp(hum.Health/math.max(hum.MaxHealth,1),0,1)
@@ -1304,15 +1316,10 @@ secSheriff:Divider("silent aim (hook fireserver)")
 local t_sa = secSheriff:Toggle("silent aim (sem mover camera)", false, function(v)
     silentAimOn = v
     if v then
-        hookSilentAim()  -- hook __namecall para PC
-        if isMobile then
-            startMobileSilentAim()  -- listener de toque para mobile
-            ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-                "ativo (MOBILE) — toque na tela pra atirar",ROLE_COLOR.sheriff)
-        else
-            ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-                "ativo (PC) — hook no FireServer da Gun",ROLE_COLOR.sheriff)
-        end
+        hookSilentAim()        -- hook __namecall (PC + executors que suportam)
+        startMobileSilentAim() -- listener de toque (mobile + fallback)
+        ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
+            "ativo — toque/clique na tela pra atirar",ROLE_COLOR.sheriff)
     else
         unhookSilentAim()
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]","desativado",ROLE_COLOR.unknown)

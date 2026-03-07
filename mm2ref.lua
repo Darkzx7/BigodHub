@@ -1374,60 +1374,153 @@ local t_sa = secSheriff:Toggle("silent aim (sem mover camera)", false, function(
 end)
 ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t_sa.Set(v) end)
 
--- Botão de dump do GunClient — lê o source real e printa no console
--- Assim dá pra ver a assinatura EXATA do FireServer que o jogo usa
-secSheriff:Button("DUMP GunClient (ver console)", function()
+-- GUI de resultado do dump — aparece na tela com botão copiar
+local function showDumpGui(text)
+    -- Remove GUI anterior se existir
+    local old = player.PlayerGui:FindFirstChild("MM2DumpGui")
+    if old then old:Destroy() end
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "MM2DumpGui"
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.Parent = player.PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 420, 0, 320)
+    frame.Position = UDim2.new(0.5, -210, 0.5, -160)
+    frame.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+    frame.BorderSizePixel = 0
+    frame.Parent = sg
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -40, 0, 32)
+    title.Position = UDim2.new(0, 8, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "GUN DUMP — copie e mande pro dev"
+    title.TextColor3 = Color3.fromRGB(200, 200, 210)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 32, 0, 32)
+    closeBtn.Position = UDim2.new(1, -34, 0, 0)
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(180, 80, 80)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 16
+    closeBtn.Parent = frame
+    closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
+
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1, -16, 1, -76)
+    scroll.Position = UDim2.new(0, 8, 0, 36)
+    scroll.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+    scroll.BorderSizePixel = 0
+    scroll.ScrollBarThickness = 4
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scroll.Parent = frame
+    Instance.new("UICorner", scroll).CornerRadius = UDim.new(0, 6)
+
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.new(1, -8, 0, 0)
+    txt.AutomaticSize = Enum.AutomaticSize.Y
+    txt.Position = UDim2.new(0, 4, 0, 4)
+    txt.BackgroundTransparency = 1
+    txt.Text = text
+    txt.TextColor3 = Color3.fromRGB(160, 220, 160)
+    txt.Font = Enum.Font.Code
+    txt.TextSize = 11
+    txt.TextXAlignment = Enum.TextXAlignment.Left
+    txt.TextYAlignment = Enum.TextYAlignment.Top
+    txt.TextWrapped = true
+    txt.RichText = false
+    txt.Parent = scroll
+
+    local copyBtn = Instance.new("TextButton")
+    copyBtn.Size = UDim2.new(1, -16, 0, 32)
+    copyBtn.Position = UDim2.new(0, 8, 1, -40)
+    copyBtn.BackgroundColor3 = Color3.fromRGB(55, 180, 100)
+    copyBtn.BorderSizePixel = 0
+    copyBtn.Text = "📋  COPIAR TUDO"
+    copyBtn.TextColor3 = Color3.new(1,1,1)
+    copyBtn.Font = Enum.Font.GothamBold
+    copyBtn.TextSize = 13
+    copyBtn.Parent = frame
+    Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+    copyBtn.MouseButton1Click:Connect(function()
+        pcall(function() setclipboard(text) end)
+        copyBtn.Text = "✔  COPIADO!"
+        copyBtn.BackgroundColor3 = Color3.fromRGB(40, 130, 70)
+        task.delay(2, function()
+            pcall(function()
+                copyBtn.Text = "📋  COPIAR TUDO"
+                copyBtn.BackgroundColor3 = Color3.fromRGB(55, 180, 100)
+            end)
+        end)
+    end)
+end
+
+-- Botão de dump — captura args reais do GunClient
+secSheriff:Button("DUMP gun (equipa gun e clica)", function()
     local gunTool = getGunTool()
     if not gunTool then
         ui:Toast("rbxassetid://131165537896572","Dump","equipa a gun primeiro",ROLE_COLOR.unknown)
         return
     end
 
-    print("=== MM2 GUN DUMP ===")
-    print("Tool name:", gunTool.Name)
+    -- Coleta estrutura da gun
+    local lines = {}
+    local function ln(s) table.insert(lines, tostring(s)) end
 
-    -- Lista todos os objetos dentro da gun
-    print("--- Descendants ---")
+    ln("=== MM2 GUN DUMP ===")
+    ln("Tool: " .. gunTool.Name)
+    ln("--- Descendants ---")
     for _, obj in ipairs(gunTool:GetDescendants()) do
-        print(obj.ClassName, obj.Name, "| parent:", obj.Parent.Name)
+        ln(obj.ClassName .. " | " .. obj.Name .. " | parent: " .. obj.Parent.Name)
     end
 
-    -- Tenta ler o source do GunClient
+    -- Tenta decompile do GunClient
     local gc = gunTool:FindFirstChild("GunClient")
         or gunTool:FindFirstChildWhichIsA("LocalScript")
-        or gunTool:FindFirstChildWhichIsA("Script")
-
     if gc then
-        print("--- GunClient source ---")
-        local ok, src = pcall(function() return game:GetService("ScriptEditorService") end)
-        -- Método 1: decompile via executor
+        ln("--- GunClient: " .. gc.ClassName .. " / " .. gc.Name .. " ---")
         if decompile then
-            local s = pcall(function()
-                local d = decompile(gc)
-                print(d)
+            pcall(function()
+                local src = decompile(gc)
+                if src and #src > 0 then
+                    -- Pega só as primeiras 80 linhas pra não explodir a GUI
+                    local i = 0
+                    for line in src:gmatch("[^\n]+") do
+                        i = i + 1
+                        ln(line)
+                        if i >= 80 then ln("... (truncado)"); break end
+                    end
+                end
             end)
+        else
+            ln("(decompile nao disponivel neste executor)")
         end
-        -- Método 2: getscriptbytecode
-        if getscriptbytecode then
-            pcall(function() print("bytecode len:", #getscriptbytecode(gc)) end)
-        end
-        -- Método 3: Source property (só funciona em Studio)
-        pcall(function()
-            if gc.Source and #gc.Source > 0 then print(gc.Source) end
-        end)
-        print("GunClient encontrado:", gc.ClassName, gc.Name)
     else
-        print("GunClient NAO encontrado na gun")
+        ln("GunClient nao encontrado")
     end
 
-    -- Hook temporário pra capturar os args reais do próximo FireServer
-    -- Isso vai mostrar EXATAMENTE o que o GunClient manda
-    print("--- Instalando capturador de args ---")
-    print("Agora ATIRE normalmente uma vez. Os args vao aparecer no console.")
+    -- Hook temporário — captura args do próximo tiro real
+    ln("")
+    ln("=== aguardando tiro... ===")
+    local resultText = table.concat(lines, "\n")
+    showDumpGui(resultText .. "\n\n[Atire uma vez pra capturar os args do FireServer]")
+
     local mt = getrawmetatable(game)
     local old_nc = mt.__namecall
     local captured = false
     pcall(function() setreadonly(mt, false) end)
+
     mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not captured and method == "FireServer" and self:IsA("RemoteEvent") then
@@ -1435,13 +1528,16 @@ secSheriff:Button("DUMP GunClient (ver console)", function()
             if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
                 captured = true
                 local args = {...}
-                print("=== FireServer capturado! Remote:", self.Name, "| Tool:", par.Name)
-                print("Numero de args:", #args)
+                local capLines = {}
+                table.insert(capLines, "=== FireServer CAPTURADO ===")
+                table.insert(capLines, "Remote: " .. self.Name .. " | Tool: " .. par.Name)
+                table.insert(capLines, "Qtd args: " .. #args)
                 for i, v in ipairs(args) do
-                    print("  arg["..i.."] =", typeof(v), tostring(v))
+                    table.insert(capLines, "arg["..i.."] = "..typeof(v).." -> "..tostring(v))
                 end
-                print("=== FIM CAPTURE ===")
-                -- Restaura o namecall original após capturar
+                table.insert(capLines, "=== FIM ===")
+                local full = resultText .. "\n\n" .. table.concat(capLines, "\n")
+                task.defer(function() showDumpGui(full) end)
                 task.delay(0.1, function()
                     pcall(function() mt.__namecall = old_nc end)
                 end)
@@ -1450,7 +1546,7 @@ secSheriff:Button("DUMP GunClient (ver console)", function()
         return old_nc(self, ...)
     end)
 
-    ui:Toast("rbxassetid://131165537896572","[Dump]","abra o console e atire uma vez",ROLE_COLOR.sheriff)
+    ui:Toast("rbxassetid://131165537896572","[Dump]","atire uma vez — GUI vai atualizar",ROLE_COLOR.sheriff)
 end)
 
 -- ── HITBOX EXPANDER ──────────────────────────────────────────────────────────

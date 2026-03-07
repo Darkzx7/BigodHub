@@ -597,12 +597,17 @@ local function hookSilentAim()
     pcall(function() setreadonly(mt, false) end)
 
     mt.__namecall = newcclosure(function(self, ...)
+        -- Protege contra self nil (algumas chamadas internas podem chegar aqui)
+        if self == nil then return old_namecall(self, ...) end
         local method = getnamecallmethod()
+        local selfOk, selfIsRE  = pcall(function() return self:IsA("RemoteEvent") end)
+        local selfOk2, selfIsTool = pcall(function() return self:IsA("Tool") end)
 
         -- Captura dump
-        if _dumpCapturing and method == "FireServer" and self:IsA("RemoteEvent") then
+        if _dumpCapturing and method == "FireServer" and selfOk and selfIsRE then
             local par = self.Parent
-            if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
+            local parOk, parIsTool = pcall(function() return par and par:IsA("Tool") end)
+            if parOk and parIsTool and GUN_NAMES[par.Name] then
                 local cb = _dumpCallback
                 if cb then cb(self.Name, par.Name, {...}) end
             end
@@ -612,22 +617,21 @@ local function hookSilentAim()
         -- Source confirmado:
         --   PC/MouseLock: FireServer(attachCF_or_nil, GetMouseTargetCFrame()) -> arg2 = CFrame
         --   Mobile:       FireServer(attachCF_or_nil, GetTargetPosition(x,y)) -> arg2 = Vector3
-        -- arg1 pode ser nil — GunClient passa nil quando nao acha o attachment no HRP
-        -- Substituimos apenas arg2 pelo hitPos do alvo, deixando arg1 como veio
-        if silentAimOn and method == "FireServer" and self:IsA("RemoteEvent") then
+        -- arg1 pode ser nil. Substituimos apenas arg2 pelo hitPos do alvo.
+        if silentAimOn and method == "FireServer" and selfOk and selfIsRE then
             local par = self.Parent
-            if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
+            local parOk2, parIsTool2 = pcall(function() return par and par:IsA("Tool") end)
+            if parOk2 and parIsTool2 and GUN_NAMES[par.Name] then
                 local target = getSilentTarget()
                 local hitPos = target and getTargetHitPos(target)
                 if hitPos then
-                    local args = {...}
-                    local arg1 = args[1]  -- attachCF ou nil, deixa como esta
-                    local arg2orig = args[2]
+                    local args    = {...}
+                    local arg1    = args[1]
                     local arg2new
-                    if typeof(arg2orig) == "CFrame" then
+                    if typeof(args[2]) == "CFrame" then
                         arg2new = CFrame.new(hitPos)
                     else
-                        arg2new = hitPos  -- Vector3 no mobile
+                        arg2new = hitPos
                     end
                     return old_namecall(self, arg1, arg2new)
                 end

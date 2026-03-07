@@ -1536,7 +1536,7 @@ secSheriff:Button("DUMP gun (equipa gun e clica)", function()
                     for line in src:gmatch("[^\n]+") do
                         i = i + 1
                         ln(line)
-                        if i >= 80 then ln("... (truncado)"); break end
+                        if i >= 150 then ln("... (truncado)"); break end
                     end
                 end
             end)

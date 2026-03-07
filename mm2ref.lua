@@ -598,6 +598,19 @@ local function hookSilentAim()
     mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
 
+        -- Captura de dump: registra QUALQUER FireServer da gun (silentAim pode estar off)
+        if _dumpCapturing and method == "FireServer" and self:IsA("RemoteEvent") then
+            local par = self.Parent
+            if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
+                local cb = _dumpCallback
+                if cb then
+                    local args = {...}
+                    cb(self.Name, par.Name, args)
+                end
+            end
+        end
+
+        -- Silent aim: intercepta FireServer da gun e redireciona pro alvo
         if silentAimOn and method == "FireServer" and self:IsA("RemoteEvent") then
             local parentTool = self.Parent
             if parentTool and parentTool:IsA("Tool") and GUN_NAMES[parentTool.Name] then
@@ -605,9 +618,7 @@ local function hookSilentAim()
                 local hitPos  = target and getTargetHitPos(target)
                 local hitInst = target and getTargetInstance(target)
                 if hitPos and hitInst then
-                    -- Passa os args originais do GunClient, só substitui pos e inst
                     local args = {...}
-                    -- Detecta quais posições dos args são Vector3/Instance e substitui
                     local newArgs = {}
                     local replacedPos  = false
                     local replacedInst = false
@@ -620,8 +631,6 @@ local function hookSilentAim()
                             newArgs[i] = v
                         end
                     end
-                    -- Se o GunClient não passa Vector3/Instance nos args originais,
-                    -- significa que usa assinatura diferente — passa pos+inst direto
                     if not replacedPos then
                         return old_namecall(self, hitPos, hitInst, table.unpack(args))
                     end
@@ -630,7 +639,36 @@ local function hookSilentAim()
             end
         end
 
+        -- Hook no WeaponService:GetMouseTargetCFrame — usado pelo GunClient pra calcular alvo
+        -- No mobile o GunClient retorna antes de atirar, então hookamos aqui pra redirecionar
+        if silentAimOn and method == "GetMouseTargetCFrame" then
+            local target  = getSilentTarget()
+            local hitPos  = target and getTargetHitPos(target)
+            if hitPos then
+                -- Retorna um CFrame apontando pra posição do alvo
+                return CFrame.new(hitPos)
+            end
+        end
+
         return old_namecall(self, ...)
+    end)
+end
+
+-- No mobile o GunClient detecta Touch e retorna antes de atirar.
+-- Solução: hooka o PreferredInput pra retornar Gamepad em vez de Touch,
+-- enganando o GunClient pra executar o caminho do PC normalmente.
+local _preferredInputHooked = false
+local function hookPreferredInput()
+    if _preferredInputHooked then return end
+    _preferredInputHooked = true
+    local mt = getrawmetatable(UserInputService)
+    pcall(function() setreadonly(mt, false) end)
+    local old_index = mt.__index
+    mt.__index = newcclosure(function(self, key)
+        if silentAimOn and key == "PreferredInput" then
+            return Enum.PreferredInput.Gamepad  -- engana o GunClient
+        end
+        return old_index(self, key)
     end)
 end
 
@@ -1365,8 +1403,9 @@ secSheriff:Divider("silent aim (hook fireserver)")
 local t_sa = secSheriff:Toggle("silent aim (sem mover camera)", false, function(v)
     silentAimOn = v
     if v then
-        hookSilentAim()        -- hook __namecall (PC + executors que suportam)
-        startMobileSilentAim() -- listener de toque (mobile + fallback)
+        hookSilentAim()
+        hookPreferredInput()   -- engana GunClient pra não bloquear no mobile
+        startMobileSilentAim()
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
             "ativo — toque/clique na tela pra atirar",ROLE_COLOR.sheriff)
     else

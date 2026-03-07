@@ -598,54 +598,37 @@ local function hookSilentAim()
     mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
 
-        -- Captura de dump: registra QUALQUER FireServer da gun (silentAim pode estar off)
+        -- Captura dump: registra FireServer da gun independente do silentAim
         if _dumpCapturing and method == "FireServer" and self:IsA("RemoteEvent") then
             local par = self.Parent
             if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
                 local cb = _dumpCallback
-                if cb then
-                    local args = {...}
-                    cb(self.Name, par.Name, args)
-                end
+                if cb then cb(self.Name, par.Name, {...}) end
             end
         end
 
-        -- Silent aim: intercepta FireServer da gun e redireciona pro alvo
+        -- Silent aim: intercepta FireServer(CFrame aimCF, CFrame targetCF)
+        -- Assinatura confirmada pelo dump: dois CFrames
         if silentAimOn and method == "FireServer" and self:IsA("RemoteEvent") then
-            local parentTool = self.Parent
-            if parentTool and parentTool:IsA("Tool") and GUN_NAMES[parentTool.Name] then
-                local target  = getSilentTarget()
-                local hitPos  = target and getTargetHitPos(target)
-                local hitInst = target and getTargetInstance(target)
-                if hitPos and hitInst then
-                    local args = {...}
-                    local newArgs = {}
-                    local replacedPos  = false
-                    local replacedInst = false
-                    for i, v in ipairs(args) do
-                        if typeof(v) == "Vector3" and not replacedPos then
-                            newArgs[i] = hitPos; replacedPos = true
-                        elseif typeof(v) == "Instance" and not replacedInst then
-                            newArgs[i] = hitInst; replacedInst = true
-                        else
-                            newArgs[i] = v
-                        end
-                    end
-                    if not replacedPos then
-                        return old_namecall(self, hitPos, hitInst, table.unpack(args))
-                    end
-                    return old_namecall(self, table.unpack(newArgs))
+            local par = self.Parent
+            if par and par:IsA("Tool") and GUN_NAMES[par.Name] then
+                local target = getSilentTarget()
+                local hitPos = target and getTargetHitPos(target)
+                if hitPos then
+                    -- arg1: CFrame de mira (de onde o raio sai — posição do GunRaycastAttachment1)
+                    -- arg2: CFrame do alvo (onde o tiro deve acertar — só posição, rotação identidade)
+                    local aimCF   = CFrame.new(hitPos)   -- servidor usa só a posição
+                    local targetCF = CFrame.new(hitPos)
+                    return old_namecall(self, aimCF, targetCF)
                 end
             end
         end
 
-        -- Hook no WeaponService:GetMouseTargetCFrame — usado pelo GunClient pra calcular alvo
-        -- No mobile o GunClient retorna antes de atirar, então hookamos aqui pra redirecionar
+        -- Hook WeaponService:GetMouseTargetCFrame — redireciona mira pro alvo
         if silentAimOn and method == "GetMouseTargetCFrame" then
-            local target  = getSilentTarget()
-            local hitPos  = target and getTargetHitPos(target)
+            local target = getSilentTarget()
+            local hitPos = target and getTargetHitPos(target)
             if hitPos then
-                -- Retorna um CFrame apontando pra posição do alvo
                 return CFrame.new(hitPos)
             end
         end

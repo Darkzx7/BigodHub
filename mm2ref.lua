@@ -543,38 +543,46 @@ local function getShootRemote()
     return nil, nil
 end
 
--- Dispara o tiro com silent aim direto no RemoteEvent
+-- Dispara o tiro via tool:Activate() — deixa o GunClient fazer o FireServer
+-- O hook __namecall intercepta e substitui os args pelo alvo correto.
+-- Assim não precisamos conhecer a assinatura exata do remote.
 local function fireSilentShot()
     if _shootCooldown then return end
-    local shootRemote, gunTool = getShootRemote()
-    if not shootRemote then return end
+    local chr = player.Character; if not chr then return end
 
-    -- Gun precisa estar equipada no character (não no backpack)
-    local chr = player.Character
-    if chr and gunTool and not chr:FindFirstChild(gunTool.Name) then
-        local hum = chr:FindFirstChildOfClass("Humanoid")
-        if hum then
-            pcall(function() hum:EquipTool(gunTool) end)
-            task.wait(0.1)
-            shootRemote, gunTool = getShootRemote()
-            if not shootRemote then return end
+    -- Acha a gun no character (precisa estar equipada)
+    local gunTool = nil
+    for name in pairs(GUN_NAMES) do
+        local t = chr:FindFirstChild(name)
+        if t and t:IsA("Tool") then gunTool = t; break end
+    end
+
+    -- Se tiver no backpack, equipa primeiro
+    if not gunTool then
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for name in pairs(GUN_NAMES) do
+                local t = bp:FindFirstChild(name)
+                if t and t:IsA("Tool") then
+                    local hum = chr:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        pcall(function() hum:EquipTool(t) end)
+                        task.wait(0.12)
+                        gunTool = chr:FindFirstChild(name)
+                    end
+                    break
+                end
+            end
         end
     end
 
-    local target  = getSilentTarget()
-    local hitPos  = target and getTargetHitPos(target)
-    local hitInst = target and getTargetInstance(target)
-
-    if not hitPos then
-        hitPos  = cam.CFrame.Position + cam.CFrame.LookVector * 100
-        hitInst = workspace.Terrain
-    end
+    if not gunTool then return end
 
     _shootCooldown = true
-    pcall(function()
-        shootRemote:FireServer(hitPos, hitInst)
-    end)
-    task.delay(0.65, function() _shootCooldown = false end)
+    -- Activate() faz o GunClient disparar o tiro normalmente.
+    -- O hook __namecall vai interceptar o FireServer resultante e redirecionar pro alvo.
+    pcall(function() gunTool:Activate() end)
+    task.delay(0.7, function() _shootCooldown = false end)
 end
 
 local function hookSilentAim()
@@ -595,7 +603,27 @@ local function hookSilentAim()
                 local hitPos  = target and getTargetHitPos(target)
                 local hitInst = target and getTargetInstance(target)
                 if hitPos and hitInst then
-                    return old_namecall(self, hitPos, hitInst)
+                    -- Passa os args originais do GunClient, só substitui pos e inst
+                    local args = {...}
+                    -- Detecta quais posições dos args são Vector3/Instance e substitui
+                    local newArgs = {}
+                    local replacedPos  = false
+                    local replacedInst = false
+                    for i, v in ipairs(args) do
+                        if typeof(v) == "Vector3" and not replacedPos then
+                            newArgs[i] = hitPos; replacedPos = true
+                        elseif typeof(v) == "Instance" and not replacedInst then
+                            newArgs[i] = hitInst; replacedInst = true
+                        else
+                            newArgs[i] = v
+                        end
+                    end
+                    -- Se o GunClient não passa Vector3/Instance nos args originais,
+                    -- significa que usa assinatura diferente — passa pos+inst direto
+                    if not replacedPos then
+                        return old_namecall(self, hitPos, hitInst, table.unpack(args))
+                    end
+                    return old_namecall(self, table.unpack(newArgs))
                 end
             end
         end
@@ -604,9 +632,7 @@ local function hookSilentAim()
     end)
 end
 
--- Listener de toque para MOBILE
--- Usa TouchTap (toque curto) — evento correto no Roblox mobile
--- Também conecta InputBegan com Touch pra cobrir todos os executors mobile
+-- Listener de toque para MOBILE — usa Activate() igual ao PC agora
 local function startMobileSilentAim()
     if _mobileShootConn then _mobileShootConn:Disconnect() end
 
@@ -619,17 +645,22 @@ local function startMobileSilentAim()
                 return
             end
         end
+        -- Gun no backpack também tenta
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for name in pairs(GUN_NAMES) do
+                if bp:FindFirstChild(name) then fireSilentShot(); return end
+            end
+        end
     end
 
-    -- TouchTap: toque rápido na tela (principal)
     pcall(function()
-        _mobileShootConn = UserInputService.TouchTap:Connect(function(touchPositions, gameProcessed)
+        _mobileShootConn = UserInputService.TouchTap:Connect(function(_, gameProcessed)
             if gameProcessed then return end
             tryShoot()
         end)
     end)
 
-    -- Fallback: InputBegan com UserInputType.Touch
     if not _mobileShootConn then
         _mobileShootConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if gameProcessed then return end
@@ -734,23 +765,39 @@ local function restoreHitboxOfPlayer(p)
     local saved = hitboxCache[p]
     if not saved then return end
     for _, data in ipairs(saved) do
-        pcall(function()
-            data.part.Size         = data.size
-            data.part.Transparency = data.transp
-        end)
-        -- Remove todos os NoCollisionConstraints criados
+        -- Só restaura se a part ainda existe no jogo
+        if data.part and data.part.Parent then
+            pcall(function()
+                data.part.Size         = data.size
+                data.part.Transparency = data.transp
+            end)
+        end
         for _, nc in ipairs(data.constraints) do
-            pcall(function() nc:Destroy() end)
+            pcall(function() if nc and nc.Parent then nc:Destroy() end end)
         end
     end
     hitboxCache[p] = nil
 end
 
 local function restoreAllHitboxes()
-    for p in pairs(hitboxCache) do
-        restoreHitboxOfPlayer(p)
-    end
+    -- Copia as chaves antes de iterar pra evitar modificar durante loop
+    local players = {}
+    for p in pairs(hitboxCache) do table.insert(players, p) end
+    for _, p in ipairs(players) do restoreHitboxOfPlayer(p) end
     hitboxCache = {}
+end
+
+-- Aplica/remove transparência sem alterar tamanho (pra toggle de visibilidade)
+local function applyHitboxVisibility(visible)
+    for _, saved in pairs(hitboxCache) do
+        for _, data in ipairs(saved) do
+            if data.part and data.part.Parent then
+                pcall(function()
+                    data.part.Transparency = visible and 0.5 or data.transp
+                end)
+            end
+        end
+    end
 end
 
 local function startHitbox()
@@ -1372,6 +1419,7 @@ ui:CfgRegister("mm2_hitboxsize", function() return hitboxSize end, function(v) s
 
 local t_hbvis = secSheriff:Toggle("mostrar hitbox (debug)", false, function(v)
     hitboxVisible = v
+    applyHitboxVisibility(v)  -- aplica imediatamente nas parts já expandidas
 end)
 ui:CfgRegister("mm2_hitboxvis", function() return hitboxVisible end, function(v) t_hbvis.Set(v) end)
 

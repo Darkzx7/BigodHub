@@ -1,18 +1,5 @@
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM + HITBOX — REWRITE BASEADO NO SCAN
---
--- KNIFE: dano = TouchTransmitter no Handle da faca toca Character do alvo
---   → Hitbox expand no HRP do alvo NÃO resolve (servidor valida Character parts)
---   → Solução real: expandir TODAS as BaseParts do character do alvo (torso, limbs)
---     no cliente, pra que o Handle da sua faca encoste nelas naturalmente
---     enquanto você anda perto. Sem teleporte, sem Remote direto.
---
--- GUN: dano = GunClient dispara RemoteEvent|Shoot (dentro da Tool Gun)
---   com argumentos de posição/alvo → servidor faz raycast do GunRaycastAttachment1
---   → Silent aim real: hook no RemoteEvent.OnClientEvent é impossível direto,
---     mas podemos hookear o :FireServer via __newindex / método de mt no remote,
---     ou mais simples e funcional: usar __namecall hook pra interceptar FireServer
---     e substituir os args pelo alvo desejado.
+-- MM2 v17 — SILENT AIM REESCRITO + ESP SEM HP + SHOOT BUTTON FIXADO
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua", true))()
@@ -28,25 +15,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local cam    = workspace.CurrentCamera
 
-local ui = RefLib.new("mm2 v16", "rbxassetid://131165537896572", "ref_mm2v16")
+local ui = RefLib.new("mm2 v17", "rbxassetid://131165537896572", "ref_mm2v17")
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- REMOTES (confirmados pelo scanner)
+-- REMOTES
 -- ══════════════════════════════════════════════════════════════════════════════
-
-local GunFiredEvent
-pcall(function()
-    GunFiredEvent = ReplicatedStorage
-        :WaitForChild("ClientServices", 5)
-        .WeaponService
-        :WaitForChild("GunFired", 5)
-end)
 
 local GetCoinEvent
 pcall(function() GetCoinEvent = ReplicatedStorage.Remotes.Gameplay.GetCoin end)
-
-local UpdateDataClient
-pcall(function() UpdateDataClient = ReplicatedStorage:WaitForChild("UpdateDataClient", 3) end)
 
 local PlayerDataChangedBind
 pcall(function()
@@ -59,13 +35,6 @@ end)
 local RoleSelectEvent
 pcall(function() RoleSelectEvent = ReplicatedStorage.Remotes.Gameplay.RoleSelect end)
 
-local KnifeKillEvent, GunKillEvent
-pcall(function() KnifeKillEvent = ReplicatedStorage.Remotes.Gameplay.KnifeKill end)
-pcall(function() GunKillEvent   = ReplicatedStorage.Remotes.Gameplay.GunKill   end)
-
-local EliminatePlayerRemote
-pcall(function() EliminatePlayerRemote = ReplicatedStorage.Remotes.Gameplay.EliminatePlayer end)
-
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONSTANTES
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -74,50 +43,11 @@ local KNIFE_NAMES   = { Knife = true }
 local GUN_NAMES     = { Gun = true, ["Sheriff's Gun"] = true, Revolver = true, SheriffGun = true, GunDrop = true }
 local GUNDROP_NAMES = { GunDrop = true }
 
--- Quando GunDrop some do workspace, alguém pegou — detecta quem
-local function watchGunDropPickup()
-    workspace.DescendantRemoving:Connect(function(obj)
-        if not GUNDROP_NAMES[obj.Name] then return end
-        -- Pequena espera pra gun aparecer no backpack/character do herói
-        task.wait(0.15)
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p == player then continue end
-            local bp  = p:FindFirstChild("Backpack")
-            local chr = p.Character
-            for n in pairs(GUN_NAMES) do
-                if (bp  and bp:FindFirstChild(n))
-                or (chr and chr:FindFirstChild(n)) then
-                    if roleCache[p] ~= "murderer" then
-                        roleCache[p] = "hero"
-                    end
-                    break
-                end
-            end
-        end
-        -- Também checa o próprio player
-        task.spawn(function()
-            local bp  = player:FindFirstChild("Backpack")
-            local chr = player.Character
-            for n in pairs(GUN_NAMES) do
-                if (bp  and bp:FindFirstChild(n))
-                or (chr and chr:FindFirstChild(n)) then
-                    roleCache[player] = "hero"
-                    break
-                end
-            end
-        end)
-    end)
-end
-watchGunDropPickup()
-
--- Parts do character que o TouchTransmitter da faca verifica (confirmado: Handle toca character)
--- Expandir essas parts aumenta a área de colisão real que o servidor valida
 local CHARACTER_HIT_PARTS = {
     "HumanoidRootPart", "UpperTorso", "LowerTorso", "Head",
     "RightUpperArm", "LeftUpperArm", "RightUpperLeg", "LeftUpperLeg",
     "RightLowerArm", "LeftLowerArm", "RightLowerLeg", "LeftLowerLeg",
     "RightHand", "LeftHand", "RightFoot", "LeftFoot",
-    -- R6 fallback
     "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg",
 }
 
@@ -134,18 +64,16 @@ local ROLE_LABEL = {
 }
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- CACHE DE DADOS
+-- CACHE
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local playerDataCache = {}
-local roleCache = {}
+local roleCache       = {}
 
 if PlayerDataChangedBind then
     PlayerDataChangedBind.Event:Connect(function(data)
         if type(data) ~= "table" then return end
-        for username, info in pairs(data) do
-            playerDataCache[username] = info
-        end
+        for username, info in pairs(data) do playerDataCache[username] = info end
     end)
 end
 
@@ -156,9 +84,7 @@ local function hookUpdateData(evName)
             ev.OnClientEvent:Connect(function(data)
                 if type(data) ~= "table" then return end
                 for username, info in pairs(data) do
-                    if type(info) == "table" then
-                        playerDataCache[username] = info
-                    end
+                    if type(info) == "table" then playerDataCache[username] = info end
                 end
             end)
         end
@@ -168,42 +94,28 @@ hookUpdateData("UpdateData")
 hookUpdateData("UpdateData2")
 hookUpdateData("UpdateData3")
 
--- Limpa cache no início de cada round (scanner confirma RoundStart existe)
 pcall(function()
     ReplicatedStorage.Remotes.Gameplay.RoundStart.OnClientEvent:Connect(function()
-        playerDataCache = {}
-        roleCache = {}
+        playerDataCache = {}; roleCache = {}
     end)
 end)
 
--- GiveWeapon: servidor envia arma pro player antes do round começar
--- Argumento pode ser o nome da tool ou uma instância — detectamos o papel pelo tipo
 pcall(function()
     ReplicatedStorage.Remotes.Gameplay.GiveWeapon.OnClientEvent:Connect(function(weaponArg)
         local name = ""
-        if type(weaponArg) == "string" then
-            name = weaponArg:lower()
-        elseif typeof(weaponArg) == "Instance" then
-            name = weaponArg.Name:lower()
-        end
-        if name:find("knife") then
-            roleCache[player] = "murderer"
-        elseif name:find("gun") or name:find("sheriff") or name:find("revolver") then
-            roleCache[player] = "sheriff"
-        end
+        if type(weaponArg) == "string" then name = weaponArg:lower()
+        elseif typeof(weaponArg) == "Instance" then name = weaponArg.Name:lower() end
+        if name:find("knife") then roleCache[player] = "murderer"
+        elseif name:find("gun") or name:find("sheriff") or name:find("revolver") then roleCache[player] = "sheriff" end
     end)
 end)
 
--- PlayerDataChanged (RemoteEvent): atualiza dados de TODOS os players
--- Scanner confirmou: RemoteEvent|Remotes.Gameplay.PlayerDataChanged
--- Dispara antes do round com papéis distribuídos
 pcall(function()
     ReplicatedStorage.Remotes.Gameplay.PlayerDataChanged.OnClientEvent:Connect(function(data)
         if type(data) ~= "table" then return end
         for username, info in pairs(data) do
             if type(info) == "table" then
                 playerDataCache[username] = info
-                -- Se o servidor mandou o papel explícito, atualiza roleCache
                 if info.Role then
                     for _, p in ipairs(Players:GetPlayers()) do
                         if p.Name == username then
@@ -219,11 +131,9 @@ pcall(function()
     end)
 end)
 
--- ShowRoleSelectNew: dispara quando o servidor está prestes a distribuir papéis
--- Bom momento pra checar o backpack de todos (a gun/knife pode já estar lá)
 pcall(function()
     ReplicatedStorage.Remotes.Gameplay.ShowRoleSelectNew.OnClientEvent:Connect(function()
-        task.wait(0.5)  -- pequena espera pra armas serem distribuídas
+        task.wait(0.5)
         for _, p in ipairs(Players:GetPlayers()) do
             local bp  = p:FindFirstChild("Backpack")
             local chr = p.Character
@@ -252,8 +162,7 @@ if RoleSelectEvent then
 end
 
 player.CharacterAdded:Connect(function()
-    playerDataCache = {}
-    roleCache[player] = nil
+    playerDataCache = {}; roleCache[player] = nil
     local bp = player:FindFirstChild("Backpack") or player:WaitForChild("Backpack", 5)
     if bp then bp.ChildAdded:Connect(function(child)
         if KNIFE_NAMES[child.Name] then roleCache[player] = "murderer"
@@ -262,18 +171,14 @@ player.CharacterAdded:Connect(function()
     end) end
 end)
 
--- Monitora backpack de TODOS os players pra detectar papel antes do round
 local function watchPlayerBackpack(p)
     if p == player then return end
     local function onChildAdded(child)
-        if KNIFE_NAMES[child.Name] then
-            roleCache[p] = "murderer"
-        elseif GUNDROP_NAMES[child.Name] then
-            roleCache[p] = "hero"    -- inocente pegou gun do chão
+        if KNIFE_NAMES[child.Name] then roleCache[p] = "murderer"
+        elseif GUNDROP_NAMES[child.Name] then roleCache[p] = "hero"
         elseif child.Name == "Gun" or child.Name == "Sheriff's Gun"
             or child.Name == "Revolver" or child.Name == "SheriffGun" then
-            roleCache[p] = "sheriff" -- sheriff original
-        end
+            roleCache[p] = "sheriff" end
     end
     local bp = p:FindFirstChild("Backpack")
     if bp  then bp.ChildAdded:Connect(onChildAdded) end
@@ -281,21 +186,32 @@ local function watchPlayerBackpack(p)
     if chr then chr.ChildAdded:Connect(onChildAdded) end
 end
 
--- Reconecta ao respawnar
 local function watchPlayerFull(p)
     watchPlayerBackpack(p)
     p.CharacterAdded:Connect(function()
-        roleCache[p] = nil  -- reseta papel do round anterior
-        task.wait(0.3)
-        watchPlayerBackpack(p)
+        roleCache[p] = nil; task.wait(0.3); watchPlayerBackpack(p)
     end)
 end
 
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= player then watchPlayerFull(p) end
-end
-Players.PlayerAdded:Connect(function(p)
-    if p ~= player then watchPlayerFull(p) end
+for _, p in ipairs(Players:GetPlayers()) do if p ~= player then watchPlayerFull(p) end end
+Players.PlayerAdded:Connect(function(p) if p ~= player then watchPlayerFull(p) end end)
+
+-- Detecta GunDrop pickup
+workspace.DescendantRemoving:Connect(function(obj)
+    if not GUNDROP_NAMES[obj.Name] then return end
+    task.wait(0.15)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == player then continue end
+        local bp  = p:FindFirstChild("Backpack")
+        local chr = p.Character
+        for n in pairs(GUN_NAMES) do
+            if (bp  and bp:FindFirstChild(n))
+            or (chr and chr:FindFirstChild(n)) then
+                if roleCache[p] ~= "murderer" then roleCache[p] = "hero" end
+                break
+            end
+        end
+    end
 end)
 
 task.defer(function()
@@ -348,8 +264,6 @@ local function getRole(p)
         return false
     end
     if hasIn(chr, KNIFE_NAMES) or hasIn(bp, KNIFE_NAMES) then return "murderer" end
-    -- GunDrop no inventário = herói (inocente que pegou a gun do chão)
-    -- Gun normal = sheriff original
     local function hasGunDrop(c)
         if not c then return false end
         for n in pairs(GUNDROP_NAMES) do if c:FindFirstChild(n) then return true end end
@@ -366,25 +280,9 @@ local function getRole(p)
     return "innocent"
 end
 
-local function isArmed(p)
-    local r = getRole(p)
-    return r == "sheriff" or r == "hero" or r == "murderer"
-end
-
 local function findByRole(role)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and isAlive(p) and getRole(p) == role then return p end
-    end
-    return nil
-end
-
--- Retorna qualquer player armado com gun (sheriff ou hero)
-local function findArmedWithGun()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and isAlive(p) then
-            local r = getRole(p)
-            if r == "sheriff" or r == "hero" then return p end
-        end
     end
     return nil
 end
@@ -400,11 +298,9 @@ local function isValidPos(pos)
 end
 
 local function isRoundActive()
-    -- GunDrop confirmado pelo scanner como indicador de round ativo
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == "GunDrop" then return true end
     end
-    -- RoundTimerPart com SurfaceGui (Timer) = round em andamento
     local rtp = workspace:FindFirstChild("RoundTimerPart")
     if rtp and #rtp:GetChildren() > 0 then return true end
     return false
@@ -414,86 +310,112 @@ end
 -- TOOL HELPERS
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local function getGunHandle()
+local function getGunTool()
     local bp  = player:FindFirstChild("Backpack")
     local chr = player.Character
     for name in pairs(GUN_NAMES) do
-        if bp  then local t = bp:FindFirstChild(name);  if t then local h = t:FindFirstChild("Handle"); if h then return h, t end end end
-        if chr then local t = chr:FindFirstChild(name); if t then local h = t:FindFirstChild("Handle"); if h then return h, t end end end
+        if chr then local t = chr:FindFirstChild(name); if t then return t end end
+        if bp  then local t = bp:FindFirstChild(name);  if t then return t end end
     end
-    return nil, nil
-end
-
-local function getGunTool()
-    local _, t = getGunHandle(); return t
+    return nil
 end
 
 local function getKnifeTool()
     local bp  = player:FindFirstChild("Backpack")
     local chr = player.Character
     for name in pairs(KNIFE_NAMES) do
-        if bp  and bp:FindFirstChild(name)  then return bp:FindFirstChild(name)  end
         if chr and chr:FindFirstChild(name) then return chr:FindFirstChild(name) end
+        if bp  and bp:FindFirstChild(name)  then return bp:FindFirstChild(name)  end
     end
     return nil
 end
 
-local function equipGun()
-    local bp  = player:FindFirstChild("Backpack"); if not bp then return end
-    local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid"); if not hum then return end
-    for name in pairs(GUN_NAMES) do
-        local t = bp:FindFirstChild(name)
-        if t then hum:EquipTool(t); task.wait(0.12); return end
-    end
+local function equipTool(tool)
+    local chr = player.Character; if not chr then return false end
+    local hum = chr:FindFirstChildOfClass("Humanoid"); if not hum then return false end
+    pcall(function() hum:EquipTool(tool) end)
+    task.wait(0.12)
+    return chr:FindFirstChild(tool.Name) ~= nil
 end
 
-local function equipKnife()
-    local bp  = player:FindFirstChild("Backpack"); if not bp then return end
-    local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid"); if not hum then return end
-    for name in pairs(KNIFE_NAMES) do
-        local t = bp:FindFirstChild(name)
-        if t then hum:EquipTool(t); task.wait(0.12); return end
-    end
+local function ensureEquipped(tool)
+    if not tool then return nil end
+    local chr = player.Character; if not chr then return nil end
+    if chr:FindFirstChild(tool.Name) then return tool end
+    equipTool(tool)
+    chr = player.Character; if not chr then return nil end
+    return chr:FindFirstChild(tool.Name)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SILENT AIM
+-- SILENT AIM — REESCRITO COMPLETAMENTE
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 
+-- Estratégia em CAMADAS (as duas funcionam em paralelo):
 --
--- Como funciona o tiro da gun no MM2 (confirmado pelo scan):
---   GunClient → RemoteEvent|Shoot:FireServer(targetPos, targetInstance)
---   GunServer recebe e faz raycast do GunRaycastAttachment1 → targetPos
+-- CAMADA 1 — Hook __namecall
+--   Intercepta QUALQUER FireServer de RemoteEvent que seja filho de uma Gun tool.
+--   Substitui o 2º argumento (posição/CFrame do alvo) pelo head do murderer.
+--   Isso cobre PC (MouseLock) e Mobile (TouchTap processado pelo GunClient).
 --
--- PROBLEMA NO MOBILE:
---   tool:Activate() não funciona no mobile — o GunClient usa TouchTap/TouchLongPress
---   pra detectar o toque, e o Activate() do executor não emula isso.
---   Resultado: o FireServer nunca é chamado, tiro não sai.
+-- CAMADA 2 — FireServer direto no Remote interno da gun
+--   Quando o jogador aperta o shoot button (ou a função fireSilentShot é chamada),
+--   buscamos o RemoteEvent "Shoot" dentro da gun equipada e chamamos FireServer
+--   diretamente com os args corretos. Isso garante que o tiro SAI mesmo se o
+--   GunClient bloquear o Activate() no mobile.
 --
--- SOLUÇÃO MOBILE:
---   Detectamos o toque na tela via UserInputService.TouchTapInWorld (qualquer toque
---   no mundo 3D = intenção de atirar) e chamamos o FireServer diretamente no
---   Remote|Shoot da gun, substituindo a posição pelo alvo do silent aim.
---   No PC o hook de __namecall continua funcionando normalmente.
+-- PREDIÇÃO DE POSIÇÃO
+--   Em vez de usar somente a posição atual, adicionamos um offset de velocidade
+--   estimada do alvo (velocity * 0.12s lookahead) pra compensar o lag de rede.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local silentAimOn     = false
-local silentAimTarget = nil
-
+local silentAimOn      = false
+local silentAimTarget  = nil  -- forçar alvo específico (nil = auto)
 local _namecallHooked  = false
-local _mobileShootConn = nil
-local _shootCooldown   = false
-local _dumpCapturing   = false
-local _dumpCallback    = nil
+local _lastShotTime    = 0
 
-local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+-- Cache de posição anterior do alvo pra calcular velocidade
+local _prevTargetPos   = {}
+local _prevTargetTime  = {}
+
+local function getPredictedPos(targetPlayer)
+    if not targetPlayer then return nil end
+    local chr = targetPlayer.Character; if not chr then return nil end
+    local head = chr:FindFirstChild("Head")
+    local hrp  = chr:FindFirstChild("HumanoidRootPart")
+    local part = head or hrp
+    if not part then return nil end
+
+    local now     = tick()
+    local curPos  = part.Position
+    local prevPos = _prevTargetPos[targetPlayer]
+    local prevT   = _prevTargetTime[targetPlayer]
+
+    local predicted = curPos
+    if prevPos and prevT and (now - prevT) > 0.01 and (now - prevT) < 0.5 then
+        local vel     = (curPos - prevPos) / (now - prevT)
+        local lookahead = 0.12  -- segundos de predição
+        predicted = curPos + vel * lookahead
+    end
+
+    _prevTargetPos[targetPlayer]  = curPos
+    _prevTargetTime[targetPlayer] = now
+
+    return predicted
+end
 
 local function getSilentTarget()
+    -- Alvo manual tem prioridade
     if silentAimTarget and silentAimTarget.Parent and isAlive(silentAimTarget) then
         return silentAimTarget
     end
+    -- Auto: se for sheriff/hero → mira no murderer
     local myRole = getRole()
     if myRole == "sheriff" or myRole == "hero" then
         return findByRole("murderer")
-    elseif myRole == "murderer" then
+    end
+    -- Murderer: mira no mais próximo
+    if myRole == "murderer" then
         local hrp = myHRP(); if not hrp then return nil end
         local best, bestD = nil, math.huge
         for _, p in ipairs(Players:GetPlayers()) do
@@ -510,84 +432,100 @@ local function getSilentTarget()
     return nil
 end
 
-local function getTargetHitPos(targetPlayer)
-    if not targetPlayer then return nil end
-    local chr = targetPlayer.Character; if not chr then return nil end
-    local head = chr:FindFirstChild("Head")
-    if head then return head.Position end
-    local hrp = chr:FindFirstChild("HumanoidRootPart")
-    if hrp then return hrp.Position end
-    return nil
+-- Busca TODOS os RemoteEvents dentro de uma gun tool (pode ter mais de um)
+local function getGunRemotes(tool)
+    if not tool then return {} end
+    local remotes = {}
+    -- Prioriza "Shoot" pelo nome
+    local shootRE = tool:FindFirstChild("Shoot")
+    if shootRE and shootRE:IsA("RemoteEvent") then
+        table.insert(remotes, shootRE)
+    end
+    -- Coleta todos os outros RemoteEvents como fallback
+    for _, obj in ipairs(tool:GetDescendants()) do
+        if obj:IsA("RemoteEvent") and obj ~= shootRE then
+            table.insert(remotes, obj)
+        end
+    end
+    return remotes
 end
 
-local function getTargetInstance(targetPlayer)
-    if not targetPlayer then return nil end
-    local chr = targetPlayer.Character; if not chr then return nil end
-    return chr:FindFirstChild("Head") or chr:FindFirstChild("HumanoidRootPart") or chr
-end
+-- Dispara o tiro diretamente via FireServer no Remote da gun
+-- Esta é a abordagem mais confiável pra mobile
+local function fireDirectShot()
+    local target = getSilentTarget()
+    if not target then return false end
 
--- Busca o Remote|Shoot dentro da gun equipada
-local function getShootRemote()
+    local hitPos = getPredictedPos(target)
+    if not hitPos then return false end
+
+    -- Tenta pegar a gun equipada primeiro, senão equipa do backpack
+    local gunTool = getGunTool()
+    if not gunTool then return false end
+
+    -- Garante que está equipada no character
     local chr = player.Character
-    local bp  = player:FindFirstChild("Backpack")
-    for name in pairs(GUN_NAMES) do
-        local tool = (chr and chr:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
-        if tool then
-            -- Scanner confirmou: RemoteEvent|Shoot|pai:Gun
-            local r = tool:FindFirstChild("Shoot")
-            if r and r:IsA("RemoteEvent") then return r, tool end
-            -- Fallback: qualquer RemoteEvent dentro da gun
-            for _, obj in ipairs(tool:GetDescendants()) do
-                if obj:IsA("RemoteEvent") then return obj, tool end
-            end
-        end
-    end
-    return nil, nil
-end
-
--- Dispara o tiro via tool:Activate() — deixa o GunClient fazer o FireServer
--- O hook __namecall intercepta e substitui os args pelo alvo correto.
--- Assim não precisamos conhecer a assinatura exata do remote.
-local function fireSilentShot()
-    if _shootCooldown then return end
-    local chr = player.Character; if not chr then return end
-
-    -- Acha a gun no character (precisa estar equipada)
-    local gunTool = nil
-    for name in pairs(GUN_NAMES) do
-        local t = chr:FindFirstChild(name)
-        if t and t:IsA("Tool") then gunTool = t; break end
-    end
-
-    -- Se tiver no backpack, equipa primeiro
-    if not gunTool then
-        local bp = player:FindFirstChild("Backpack")
-        if bp then
-            for name in pairs(GUN_NAMES) do
-                local t = bp:FindFirstChild(name)
-                if t and t:IsA("Tool") then
-                    local hum = chr:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        pcall(function() hum:EquipTool(t) end)
-                        task.wait(0.12)
-                        gunTool = chr:FindFirstChild(name)
-                    end
-                    break
-                end
-            end
+    if chr and not chr:FindFirstChild(gunTool.Name) then
+        local equipped = ensureEquipped(gunTool)
+        if not equipped then
+            -- Fallback: pega do backpack de novo depois de equipar
+            gunTool = getGunTool()
+            if not gunTool then return false end
         end
     end
 
-    if not gunTool then return end
+    -- Aponta HRP pro alvo (ajuda o raycast do servidor)
+    local hrp = myHRP()
+    if hrp then
+        pcall(function()
+            hrp.CFrame = CFrame.lookAt(hrp.Position, hitPos)
+        end)
+        task.wait(0.02)
+    end
 
-    _shootCooldown = true
-    -- Activate() faz o GunClient disparar o tiro normalmente.
-    -- O hook __namecall vai interceptar o FireServer resultante e redirecionar pro alvo.
-    pcall(function() gunTool:Activate() end)
-    task.delay(0.7, function() _shootCooldown = false end)
+    -- Tenta Activate() primeiro (PC/Gamepad)
+    if chr and chr:FindFirstChild(gunTool.Name) then
+        pcall(function() gunTool:Activate() end)
+        -- O hook __namecall vai redirecionar o FireServer resultante
+        return true
+    end
+
+    -- Fallback Mobile: FireServer direto nos remotes da gun
+    local remotes = getGunRemotes(gunTool)
+    if #remotes > 0 then
+        local targetHead = target.Character and (
+            target.Character:FindFirstChild("Head") or
+            target.Character:FindFirstChild("HumanoidRootPart")
+        )
+        -- Tenta diferentes assinaturas conhecidas do GunClient
+        for _, re in ipairs(remotes) do
+            pcall(function()
+                -- Assinatura 1: FireServer(attachCF, targetCFrame) — PC MouseLock
+                re:FireServer(nil, CFrame.new(hitPos))
+            end)
+            task.wait(0.03)
+            pcall(function()
+                -- Assinatura 2: FireServer(attachCF, targetPos) — Mobile
+                re:FireServer(nil, hitPos)
+            end)
+            task.wait(0.03)
+            if targetHead then
+                pcall(function()
+                    -- Assinatura 3: FireServer(targetPos, targetInstance)
+                    re:FireServer(hitPos, targetHead)
+                end)
+            end
+            break  -- só precisa do primeiro (Shoot)
+        end
+        return true
+    end
+
+    return false
 end
 
--- Silent aim hook
+-- Hook principal de __namecall
+-- Intercepta qualquer FireServer de RemoteEvent dentro de uma gun
+-- e substitui os argumentos de posição pelo alvo do silent aim
 local function hookSilentAim()
     if _namecallHooked then return end
     _namecallHooked = true
@@ -597,120 +535,146 @@ local function hookSilentAim()
     pcall(function() setreadonly(mt, false) end)
 
     mt.__namecall = newcclosure(function(self, ...)
-        -- Protege contra self nil (algumas chamadas internas podem chegar aqui)
         if self == nil then return old_namecall(self, ...) end
-        local method = getnamecallmethod()
-        local selfOk, selfIsRE  = pcall(function() return self:IsA("RemoteEvent") end)
-        local selfOk2, selfIsTool = pcall(function() return self:IsA("Tool") end)
 
-        -- Captura dump
-        if _dumpCapturing and method == "FireServer" and selfOk and selfIsRE then
-            local par = self.Parent
-            local parOk, parIsTool = pcall(function() return par and par:IsA("Tool") end)
-            if parOk and parIsTool and GUN_NAMES[par.Name] then
-                local cb = _dumpCallback
-                if cb then cb(self.Name, par.Name, {...}) end
-            end
+        local method = getnamecallmethod()
+
+        -- Só nos interessa FireServer
+        if method ~= "FireServer" then
+            return old_namecall(self, ...)
         end
 
-        -- Silent aim
-        -- Source confirmado:
-        --   PC/MouseLock: FireServer(attachCF_or_nil, GetMouseTargetCFrame()) -> arg2 = CFrame
-        --   Mobile:       FireServer(attachCF_or_nil, GetTargetPosition(x,y)) -> arg2 = Vector3
-        -- arg1 pode ser nil. Substituimos apenas arg2 pelo hitPos do alvo.
-        if silentAimOn and method == "FireServer" and selfOk and selfIsRE then
-            local par = self.Parent
-            local parOk2, parIsTool2 = pcall(function() return par and par:IsA("Tool") end)
-            if parOk2 and parIsTool2 and GUN_NAMES[par.Name] then
-                local target = getSilentTarget()
-                local hitPos = target and getTargetHitPos(target)
-                if hitPos then
-                    local args    = {...}
-                    local arg1    = args[1]
-                    local arg2new
-                    if typeof(args[2]) == "CFrame" then
-                        arg2new = CFrame.new(hitPos)
-                    else
-                        arg2new = hitPos
+        -- Verifica se é um RemoteEvent filho de uma gun
+        local ok, isRE = pcall(function() return self:IsA("RemoteEvent") end)
+        if not (ok and isRE) then return old_namecall(self, ...) end
+
+        if not silentAimOn then return old_namecall(self, ...) end
+
+        -- Verifica se o pai (ou avô) é uma gun tool
+        local parent = self.Parent
+        local isGunRemote = false
+        if parent then
+            local parOk, parIsTool = pcall(function() return parent:IsA("Tool") end)
+            if parOk and parIsTool and GUN_NAMES[parent.Name] then
+                isGunRemote = true
+            end
+            -- Também verifica 2 níveis acima (remote dentro de ModuleScript dentro da tool)
+            if not isGunRemote then
+                local gp = parent.Parent
+                if gp then
+                    local gpOk, gpIsTool = pcall(function() return gp:IsA("Tool") end)
+                    if gpOk and gpIsTool and GUN_NAMES[gp.Name] then
+                        isGunRemote = true
                     end
-                    return old_namecall(self, arg1, arg2new)
                 end
             end
         end
 
-        -- Hook WeaponService — redireciona mira antes do FireServer
+        if not isGunRemote then return old_namecall(self, ...) end
+
+        -- É um tiro! Redireciona pro alvo.
+        local target = getSilentTarget()
+        local hitPos = target and getPredictedPos(target)
+
+        if not hitPos then return old_namecall(self, ...) end
+
+        local args = {...}
+
+        -- Detecta o tipo dos argumentos originais e substitui o de posição
+        -- arg1 pode ser nil (attachment CFrame) ou Vector3/CFrame
+        -- arg2 é a posição/CFrame do alvo — É ESTE que substituímos
+        local newArgs = {}
+
+        if #args == 0 then
+            -- Sem args — manda posição direto
+            return old_namecall(self, CFrame.new(hitPos))
+        elseif #args == 1 then
+            -- Um arg — pode ser a posição
+            if typeof(args[1]) == "CFrame" then
+                newArgs = { CFrame.new(hitPos) }
+            elseif typeof(args[1]) == "Vector3" then
+                newArgs = { hitPos }
+            else
+                -- Tipo desconhecido, preserva arg1 e adiciona posição
+                newArgs = { args[1], hitPos }
+            end
+        elseif #args >= 2 then
+            -- Dois+ args: preserva arg1, substitui arg2 pela posição do alvo
+            newArgs[1] = args[1]  -- attachment CFrame (pode ser nil)
+            if typeof(args[2]) == "CFrame" then
+                newArgs[2] = CFrame.new(hitPos)
+            else
+                newArgs[2] = hitPos
+            end
+            -- Preserva args restantes
+            for i = 3, #args do newArgs[i] = args[i] end
+        end
+
+        return old_namecall(self, table.unpack(newArgs))
+    end)
+end
+
+-- Hook de GetMouseTargetCFrame e GetTargetPosition pra cobrir o caminho
+-- do GunClient antes do FireServer (alguns executores não pegam o __namecall cedo)
+local _indexHooked = false
+local function hookGunClientMethods()
+    if _indexHooked then return end
+    _indexHooked = true
+
+    -- Hook no UserInputService pra enganar o GunClient a usar o caminho de PC no mobile
+    local uisMt = getrawmetatable(UserInputService)
+    pcall(function() setreadonly(uisMt, false) end)
+    local oldUisIndex = uisMt.__index
+
+    uisMt.__index = newcclosure(function(self, key)
+        -- Faz o GunClient achar que está no PC/Gamepad, não no mobile
+        -- Isso faz ele usar GetMouseTargetCFrame em vez de GetTargetPosition(x,y)
         if silentAimOn then
-            if method == "GetMouseTargetCFrame" then
-                local target = getSilentTarget()
-                local hitPos = target and getTargetHitPos(target)
-                if hitPos then return CFrame.new(hitPos) end
-            elseif method == "GetTargetPosition" then
-                local target = getSilentTarget()
-                local hitPos = target and getTargetHitPos(target)
-                if hitPos then return hitPos end
+            if key == "TouchEnabled"    then return false end
+            if key == "KeyboardEnabled" then return true  end
+            if key == "PreferredInput"  then return Enum.PreferredInput.Gamepad end
+        end
+        return oldUisIndex(self, key)
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- KNIFE HELPERS
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local function knifeAt(targetChar)
+    if not targetChar then return false end
+    local hrp  = myHRP(); if not hrp then return false end
+    local tHRP = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Head")
+    if not tHRP then return false end
+    local knife = getKnifeTool()
+    if not knife then
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for name in pairs(KNIFE_NAMES) do
+                local t = bp:FindFirstChild(name)
+                if t then equipTool(t); knife = getKnifeTool(); break end
             end
         end
-
-        return old_namecall(self, ...)
-    end)
-end
-
--- No mobile o GunClient detecta Touch e retorna antes de atirar.
--- Solução: hooka o PreferredInput pra retornar Gamepad em vez de Touch,
--- enganando o GunClient pra executar o caminho do PC normalmente.
-local _preferredInputHooked = false
-local function hookPreferredInput()
-    if _preferredInputHooked then return end
-    _preferredInputHooked = true
-    local mt = getrawmetatable(UserInputService)
-    pcall(function() setreadonly(mt, false) end)
-    local old_index = mt.__index
-    mt.__index = newcclosure(function(self, key)
-        if silentAimOn and key == "PreferredInput" then
-            return Enum.PreferredInput.Gamepad  -- engana o GunClient
-        end
-        return old_index(self, key)
-    end)
-end
-
--- No mobile o GunClient já processa TouchTapInWorld sozinho e chama
--- GetTargetPosition(x,y) → FireServer. O hook __namecall já intercepta tudo.
--- startMobileSilentAim só garante que o hook está ativo.
-local function startMobileSilentAim()
-    -- Nada a fazer — o hook __namecall já cobre GetTargetPosition e FireServer
-    -- O GunClient processa o toque via TouchTapInWorld nativamente
-end
-
-local function stopMobileSilentAim()
-    if _mobileShootConn then
-        _mobileShootConn:Disconnect()
-        _mobileShootConn = nil
     end
-end
-
-local function unhookSilentAim()
-    silentAimOn = false
-    stopMobileSilentAim()
+    if not knife then return false end
+    hrp.CFrame = CFrame.lookAt(hrp.Position, tHRP.Position)
+    task.wait(0.03)
+    pcall(function() knife:Activate() end)
+    return true
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- HITBOX EXPANDER
--- Expande parts dos outros jogadores e adiciona NoCollisionConstraint entre
--- cada part expandida e as parts do SEU character — sem colisão física com
--- você, mas Touched continua funcionando normalmente.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local hitboxOn      = false
 local hitboxSize    = 12
 local hitboxVisible = false
+local hitboxCache   = {}
 
--- Cache: { [player] = { {part, origSize, origTransp, noCollConstraints={}}, ... } }
-local hitboxCache = {}
-
--- Retorna lista de BaseParts do character do player local
 local function getMyParts()
-    local chr = player.Character
-    if not chr then return {} end
+    local chr = player.Character; if not chr then return {} end
     local parts = {}
     for _, p in ipairs(chr:GetDescendants()) do
         if p:IsA("BasePart") then table.insert(parts, p) end
@@ -718,12 +682,9 @@ local function getMyParts()
     return parts
 end
 
--- Cria NoCollisionConstraint entre duas parts (sem colisão física, Touched intacto)
 local function noCollide(partA, partB)
     local nc = Instance.new("NoCollisionConstraint")
-    nc.Part0 = partA
-    nc.Part1 = partB
-    nc.Parent = partA  -- pai na part expandida — some junto quando restaurar
+    nc.Part0 = partA; nc.Part1 = partB; nc.Parent = partA
     return nc
 end
 
@@ -731,56 +692,29 @@ local function applyHitboxToChar(p)
     if not p or p == player then return end
     local chr = p.Character; if not chr then return end
     if hitboxCache[p] then return end
-
-    local myParts = getMyParts()
-    local saved   = {}
-
+    local myParts = getMyParts(); local saved = {}
     for _, part in ipairs(chr:GetDescendants()) do
-        if not part:IsA("BasePart")     then continue end
+        if not part:IsA("BasePart") then continue end
         if part.Parent:IsA("Accessory") then continue end
-        if part.Parent:IsA("Tool")      then continue end
-
-        local origSize   = part.Size
-        local origTransp = part.Transparency
-        local maxDim     = math.max(origSize.X, origSize.Y, origSize.Z, 0.1)
-        local scale      = hitboxSize / maxDim
-        local constraints = {}
-
-        if scale > 1 then
-            pcall(function() part.Size = origSize * scale end)
-        end
-        if hitboxVisible then
-            pcall(function() part.Transparency = 0.5 end)
-        end
-
-        -- NoCollisionConstraint com cada part do SEU character
+        if part.Parent:IsA("Tool") then continue end
+        local origSize = part.Size; local origTransp = part.Transparency
+        local maxDim = math.max(origSize.X, origSize.Y, origSize.Z, 0.1)
+        local scale  = hitboxSize / maxDim; local constraints = {}
+        if scale > 1 then pcall(function() part.Size = origSize * scale end) end
+        if hitboxVisible then pcall(function() part.Transparency = 0.5 end) end
         for _, myPart in ipairs(myParts) do
-            pcall(function()
-                table.insert(constraints, noCollide(part, myPart))
-            end)
+            pcall(function() table.insert(constraints, noCollide(part, myPart)) end)
         end
-
-        table.insert(saved, {
-            part        = part,
-            size        = origSize,
-            transp      = origTransp,
-            constraints = constraints,
-        })
+        table.insert(saved, { part = part, size = origSize, transp = origTransp, constraints = constraints })
     end
-
     hitboxCache[p] = saved
 end
 
 local function restoreHitboxOfPlayer(p)
-    local saved = hitboxCache[p]
-    if not saved then return end
+    local saved = hitboxCache[p]; if not saved then return end
     for _, data in ipairs(saved) do
-        -- Só restaura se a part ainda existe no jogo
         if data.part and data.part.Parent then
-            pcall(function()
-                data.part.Size         = data.size
-                data.part.Transparency = data.transp
-            end)
+            pcall(function() data.part.Size = data.size; data.part.Transparency = data.transp end)
         end
         for _, nc in ipairs(data.constraints) do
             pcall(function() if nc and nc.Parent then nc:Destroy() end end)
@@ -790,160 +724,63 @@ local function restoreHitboxOfPlayer(p)
 end
 
 local function restoreAllHitboxes()
-    -- Copia as chaves antes de iterar pra evitar modificar durante loop
     local players = {}
     for p in pairs(hitboxCache) do table.insert(players, p) end
     for _, p in ipairs(players) do restoreHitboxOfPlayer(p) end
     hitboxCache = {}
 end
 
--- Aplica/remove transparência sem alterar tamanho (pra toggle de visibilidade)
 local function applyHitboxVisibility(visible)
     for _, saved in pairs(hitboxCache) do
         for _, data in ipairs(saved) do
             if data.part and data.part.Parent then
-                pcall(function()
-                    data.part.Transparency = visible and 0.5 or data.transp
-                end)
+                pcall(function() data.part.Transparency = visible and 0.5 or data.transp end)
             end
         end
     end
 end
 
 local function startHitbox()
-    for _, p in ipairs(Players:GetPlayers()) do
-        applyHitboxToChar(p)
-    end
+    for _, p in ipairs(Players:GetPlayers()) do applyHitboxToChar(p) end
 end
 
 local function stopHitbox()
-    hitboxOn = false
-    restoreAllHitboxes()
+    hitboxOn = false; restoreAllHitboxes()
 end
 
--- Quando o SEU character muda, os NoCollisionConstraints antigos ficam inválidos
--- Reaplica hitbox em todos pra recriar os constraints com as novas parts
 player.CharacterAdded:Connect(function()
     if not hitboxOn then return end
     task.wait(1)
-    -- Restaura sem resetar o hitboxOn, e reaplica com as novas parts do player
     for p, saved in pairs(hitboxCache) do
         for _, data in ipairs(saved) do
-            for _, nc in ipairs(data.constraints) do
-                pcall(function() nc:Destroy() end)
-            end
+            for _, nc in ipairs(data.constraints) do pcall(function() nc:Destroy() end) end
             data.constraints = {}
         end
         hitboxCache[p] = nil
     end
-    for _, p in ipairs(Players:GetPlayers()) do
-        applyHitboxToChar(p)
-    end
+    for _, p in ipairs(Players:GetPlayers()) do applyHitboxToChar(p) end
 end)
 
-Players.PlayerRemoving:Connect(function(p)
-    hitboxCache[p] = nil
-end)
-
+Players.PlayerRemoving:Connect(function(p) hitboxCache[p] = nil end)
 Players.PlayerAdded:Connect(function(p)
     p.CharacterAdded:Connect(function()
         hitboxCache[p] = nil
         if hitboxOn then task.wait(1); applyHitboxToChar(p) end
     end)
 end)
-
 for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= player then
-        p.CharacterAdded:Connect(function()
-            hitboxCache[p] = nil
-            if hitboxOn then task.wait(1); applyHitboxToChar(p) end
-        end)
-    end
+    if p ~= player then p.CharacterAdded:Connect(function()
+        hitboxCache[p] = nil
+        if hitboxOn then task.wait(1); applyHitboxToChar(p) end
+    end) end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- KNIFE AT / SHOOT AT
--- ══════════════════════════════════════════════════════════════════════════════
-
-local function shootAt(targetChar)
-    if not targetChar then return false end
-    local hrp  = myHRP(); if not hrp then return false end
-    local tHRP = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Head")
-    if not tHRP then return false end
-
-    local handle, gunTool = getGunHandle()
-    if not handle then
-        equipGun(); task.wait(0.15)
-        handle, gunTool = getGunHandle()
-    end
-    if not handle then return false end
-
-    local targetPos = tHRP.Position
-    -- Aponta HRP pro alvo (necessário pro raycast do servidor)
-    hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos)
-    task.wait(0.02)
-
-    -- Garante que gun está equipada no character
-    local chr = player.Character
-    if chr and gunTool and not chr:FindFirstChild(gunTool.Name) then
-        local hum = chr:FindFirstChildOfClass("Humanoid")
-        if hum then
-            pcall(function() hum:EquipTool(gunTool) end)
-            task.wait(0.1)
-            handle, gunTool = getGunHandle()
-        end
-    end
-
-    if gunTool and chr and chr:FindFirstChild(gunTool.Name) then
-        pcall(function() gunTool:Activate() end)
-        return true
-    end
-
-    -- Fallback: FireServer direto no Shoot remote (confirmado pelo scanner)
-    if gunTool then
-        local shootRemote = gunTool:FindFirstChild("Shoot")
-        if shootRemote and shootRemote:IsA("RemoteEvent") then
-            pcall(function()
-                local head = targetChar:FindFirstChild("Head") or tHRP
-                shootRemote:FireServer(head.Position, head)
-            end)
-            return true
-        end
-        -- Busca qualquer RemoteEvent dentro da gun
-        for _, obj in ipairs(gunTool:GetDescendants()) do
-            if obj:IsA("RemoteEvent") then
-                pcall(function()
-                    obj:FireServer(targetPos, tHRP)
-                end)
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
-local function knifeAt(targetChar)
-    if not targetChar then return false end
-    local hrp  = myHRP(); if not hrp then return false end
-    local tHRP = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Head")
-    if not tHRP then return false end
-    local knife = getKnifeTool()
-    if not knife then equipKnife(); task.wait(0.15); knife = getKnifeTool() end
-    if not knife then return false end
-    hrp.CFrame = CFrame.lookAt(hrp.Position, tHRP.Position)
-    task.wait(0.03)
-    pcall(function() knife:Activate() end)
-    return true
-end
-
--- ══════════════════════════════════════════════════════════════════════════════
--- GUN / KNIFE FINDERS
+-- GUN / COIN FINDERS
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function findDroppedGuns()
     local found = {}
-    -- Scanner confirmou: Part|GunDrop (não Tool)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then
             table.insert(found, { tool = obj, handle = obj })
@@ -952,31 +789,23 @@ local function findDroppedGuns()
     return found
 end
 
--- ══════════════════════════════════════════════════════════════════════════════
--- COIN FARM
--- ══════════════════════════════════════════════════════════════════════════════
-
-local FARM_FLY_SPEED  = 16
-local farmPauseBetween = 0.8
-
 local function findAllCoinServers()
-    local coins = {}
-    local seen  = {}
-    -- Nomes possíveis baseado na estrutura do MM2
-    local COIN_NAMES = {
-        Coin_Server = true, Coin = true, CoinPart = true,
-        MainCoin    = true, CoinValue = true,
-    }
+    local coins = {}; local seen = {}
+    local COIN_NAMES = { Coin_Server=true, Coin=true, CoinPart=true, MainCoin=true, CoinValue=true }
     for _, obj in ipairs(workspace:GetDescendants()) do
         if COIN_NAMES[obj.Name] and obj:IsA("BasePart") and not seen[obj] then
-            if isValidPos(obj.Position) then
-                seen[obj] = true
-                table.insert(coins, obj)
-            end
+            if isValidPos(obj.Position) then seen[obj]=true; table.insert(coins, obj) end
         end
     end
     return coins
 end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- COIN FARM
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local FARM_FLY_SPEED   = 16
+local farmPauseBetween = 0.8
 
 local function flyTo(destination)
     local hrp = myHRP(); if not hrp then return end
@@ -985,19 +814,15 @@ local function flyTo(destination)
         if p:IsA("BasePart") then pcall(function() p.CanCollide = false end) end
     end
     local startPos = hrp.Position
-    local dist     = (destination - startPos).Magnitude
+    local dist = (destination - startPos).Magnitude
     if dist < 0.5 then return end
-    local steps    = math.max(3, math.ceil(dist))
-    local stepTime = 1 / FARM_FLY_SPEED
+    local steps = math.max(3, math.ceil(dist)); local stepTime = 1 / FARM_FLY_SPEED
     for i = 1, steps do
         hrp = myHRP(); if not hrp then return end
-        local t   = i / steps
-        local pos = startPos:Lerp(destination, t)
-        hrp.CFrame = CFrame.new(pos)
+        hrp.CFrame = CFrame.new(startPos:Lerp(destination, i / steps))
         task.wait(stepTime)
     end
-    hrp = myHRP()
-    if hrp then hrp.CFrame = CFrame.new(destination) end
+    hrp = myHRP(); if hrp then hrp.CFrame = CFrame.new(destination) end
 end
 
 local function collectCoin(coinServer)
@@ -1008,13 +833,9 @@ local function collectCoin(coinServer)
         hrp.CFrame = CFrame.new(coinServer.Position + Vector3.new(0.3, 0, 0))
         task.wait(0.05)
         hrp = myHRP()
-        if hrp and coinServer.Parent then
-            hrp.CFrame = CFrame.new(coinServer.Position)
-        end
+        if hrp and coinServer.Parent then hrp.CFrame = CFrame.new(coinServer.Position) end
     end
-    if GetCoinEvent then
-        pcall(function() GetCoinEvent:FireServer() end)
-    end
+    if GetCoinEvent then pcall(function() GetCoinEvent:FireServer() end) end
     task.wait(farmPauseBetween)
 end
 
@@ -1079,8 +900,7 @@ secInfo:Button("scan todos os papeis", function()
 end)
 
 secInfo:Divider("role esp")
-local roleEspOn = false
-local roleEspCache = {}
+local roleEspOn = false; local roleEspCache = {}
 
 local function removeRoleEsp(p)
     local d = roleEspCache[p]; if not d then return end
@@ -1099,7 +919,7 @@ local function buildRoleEsp(p)
     hl.OutlineTransparency=0; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     hl.Adornee=chr; hl.Parent=chr
     local bb = Instance.new("BillboardGui")
-    bb.Size=UDim2.new(0,130,0,40); bb.StudsOffset=Vector3.new(0,3.2,0)
+    bb.Size=UDim2.new(0,130,0,30); bb.StudsOffset=Vector3.new(0,3.2,0)
     bb.AlwaysOnTop=true; bb.ResetOnSpawn=false; bb.Adornee=hrp; bb.Parent=hrp
     local nm = Instance.new("TextLabel")
     nm.BackgroundTransparency=1; nm.Size=UDim2.new(1,0,0,20)
@@ -1107,7 +927,7 @@ local function buildRoleEsp(p)
     nm.TextStrokeTransparency=0.12; nm.TextXAlignment=Enum.TextXAlignment.Center
     nm.Text=p.DisplayName; nm.Parent=bb
     local rl = Instance.new("TextLabel")
-    rl.BackgroundTransparency=1; rl.Size=UDim2.new(1,0,0,14); rl.Position=UDim2.new(0,0,0,22)
+    rl.BackgroundTransparency=1; rl.Size=UDim2.new(1,0,0,14); rl.Position=UDim2.new(0,0,0,18)
     rl.Font=Enum.Font.GothamSemibold; rl.TextSize=11; rl.TextColor3=col
     rl.TextStrokeTransparency=0.2; rl.TextXAlignment=Enum.TextXAlignment.Center
     rl.Text="["..ROLE_LABEL[role].."]"; rl.Parent=bb
@@ -1192,19 +1012,12 @@ ui:CfgRegister("mm2_noclip", function() return noclipOn end, function(v) t_nc.Se
 end -- MAIN
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- TAB: ESP
+-- TAB: ESP — SEM BARRA DE HP
 -- ══════════════════════════════════════════════════════════════════════════════
 do
 
 local secESP = tabESP:Section("player esp")
 local espOn = false; local espMax = 300; local espCache = {}
-
-local function hpColor(h, mx)
-    local p = math.clamp(h/math.max(mx,1),0,1)
-    if p>.6 then return Color3.fromRGB(80,220,80)
-    elseif p>.3 then return Color3.fromRGB(240,200,40)
-    else return Color3.fromRGB(220,60,60) end
-end
 
 local function removeESP(p)
     local d=espCache[p]; if not d then return end
@@ -1218,10 +1031,12 @@ local function buildESP(p)
     local chr=p.Character; if not chr then return end
     local hrp=chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
     local role=getRole(p); local col=ROLE_COLOR[role] or ROLE_COLOR.unknown
+    -- Highlight
     local hl=Instance.new("Highlight"); hl.FillColor=col; hl.OutlineColor=Color3.new(1,1,1)
     hl.FillTransparency=0.45; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     hl.Adornee=chr; hl.Parent=chr
-    local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,140,0,60)
+    -- BillboardGui: nome + papel + distância (sem HP bar)
+    local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,130,0,46)
     bb.StudsOffset=Vector3.new(0,3.5,0); bb.AlwaysOnTop=true; bb.ResetOnSpawn=false
     bb.Adornee=hrp; bb.Parent=hrp
     local nm=Instance.new("TextLabel"); nm.BackgroundTransparency=1; nm.Size=UDim2.new(1,0,0,18)
@@ -1229,28 +1044,21 @@ local function buildESP(p)
     nm.TextStrokeTransparency=0.12; nm.TextXAlignment=Enum.TextXAlignment.Center
     nm.Text=p.DisplayName; nm.Parent=bb
     local rl=Instance.new("TextLabel"); rl.BackgroundTransparency=1; rl.Size=UDim2.new(1,0,0,14)
-    rl.Position=UDim2.new(0,0,0,20); rl.Font=Enum.Font.GothamSemibold; rl.TextSize=10
+    rl.Position=UDim2.new(0,0,0,20); rl.Font=Enum.Font.GothamSemibold; rl.TextSize=11
     rl.TextColor3=col; rl.TextXAlignment=Enum.TextXAlignment.Center
     rl.Text="["..ROLE_LABEL[role].."]"; rl.Parent=bb
-    local hpBg=Instance.new("Frame"); hpBg.Size=UDim2.new(1,0,0,4); hpBg.Position=UDim2.new(0,0,0,38)
-    hpBg.BackgroundColor3=Color3.fromRGB(18,18,18); hpBg.BackgroundTransparency=0.3
-    hpBg.BorderSizePixel=0; hpBg.Parent=bb
-    Instance.new("UICorner",hpBg).CornerRadius=UDim.new(1,0)
-    local hpF=Instance.new("Frame"); hpF.Size=UDim2.new(1,0,1,0); hpF.BorderSizePixel=0
-    hpF.BackgroundColor3=Color3.fromRGB(80,220,80); hpF.Parent=hpBg
-    Instance.new("UICorner",hpF).CornerRadius=UDim.new(1,0)
     local dl=Instance.new("TextLabel"); dl.BackgroundTransparency=1; dl.Size=UDim2.new(1,0,0,12)
-    dl.Position=UDim2.new(0,0,0,46); dl.Font=Enum.Font.Gotham; dl.TextSize=10
+    dl.Position=UDim2.new(0,0,0,34); dl.Font=Enum.Font.Gotham; dl.TextSize=10
     dl.TextColor3=Color3.fromRGB(200,200,220); dl.TextXAlignment=Enum.TextXAlignment.Center; dl.Parent=bb
-    espCache[p]={hl=hl,bb=bb,nm=nm,rl=rl,hpF=hpF,dl=dl}
+    espCache[p]={hl=hl,bb=bb,nm=nm,rl=rl,dl=dl}
 end
 
 RunService.RenderStepped:Connect(function()
     if not espOn then return end
     for _, p in ipairs(Players:GetPlayers()) do
         if p==player then continue end
-        local chr=p.Character; local hum=chr and chr:FindFirstChildOfClass("Humanoid")
-        local hrp=chr and chr:FindFirstChild("HumanoidRootPart")
+        local chr=p.Character; local hrp=chr and chr:FindFirstChild("HumanoidRootPart")
+        local hum=chr and chr:FindFirstChildOfClass("Humanoid")
         if not chr or not hum or not hrp then removeESP(p); continue end
         if not isAlive(p) then removeESP(p); continue end
         local dist=math.floor((cam.CFrame.Position-hrp.Position).Magnitude)
@@ -1259,10 +1067,7 @@ RunService.RenderStepped:Connect(function()
         local d=espCache[p]; if not d then continue end
         local role=getRole(p); local col=ROLE_COLOR[role] or ROLE_COLOR.unknown
         d.hl.FillColor=col; d.rl.TextColor3=col; d.rl.Text="["..ROLE_LABEL[role].."]"
-        d.nm.Text=p.DisplayName
-        local pct=math.clamp(hum.Health/math.max(hum.MaxHealth,1),0,1)
-        d.hpF.Size=UDim2.new(pct,0,1,0); d.hpF.BackgroundColor3=hpColor(hum.Health,hum.MaxHealth)
-        d.dl.Text=dist.."m"
+        d.nm.Text=p.DisplayName; d.dl.Text=dist.."m"
     end
 end)
 Players.PlayerRemoving:Connect(removeESP)
@@ -1328,9 +1133,7 @@ end
 workspace.DescendantAdded:Connect(function(obj)
     if not itemEspOn then return end
     task.wait(0.1)
-    if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then
-        makeItemBB(obj, obj)
-    end
+    if GUNDROP_NAMES[obj.Name] and obj:IsA("BasePart") then makeItemBB(obj, obj) end
 end)
 
 local t_item=secItemEsp:Toggle("gun dropped esp", false, function(v)
@@ -1368,216 +1171,30 @@ do
 local secSheriff = tabCombat:Section("sheriff")
 
 -- ── SILENT AIM ──────────────────────────────────────────────────────────────
-secSheriff:Divider("silent aim (hook fireserver)")
+secSheriff:Divider("silent aim")
 
-local t_sa = secSheriff:Toggle("silent aim (sem mover camera)", false, function(v)
+local t_sa = secSheriff:Toggle("silent aim (PC + Mobile)", false, function(v)
     silentAimOn = v
     if v then
-        hookSilentAim()
-        hookPreferredInput()   -- engana GunClient pra não bloquear no mobile
-        startMobileSilentAim()
+        hookSilentAim()       -- hook __namecall (intercepta FireServer)
+        hookGunClientMethods() -- hook UserInputService (engana o GunClient no mobile)
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-            "ativo — toque/clique na tela pra atirar",ROLE_COLOR.sheriff)
+            "ativo — toque/clique em qualquer lugar pra atirar",ROLE_COLOR.sheriff)
     else
-        unhookSilentAim()
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]","desativado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t_sa.Set(v) end)
 
--- GUI de resultado do dump — aparece na tela com botão copiar
-local function showDumpGui(text)
-    -- Remove GUI anterior se existir
-    local old = player.PlayerGui:FindFirstChild("MM2DumpGui")
-    if old then old:Destroy() end
-
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "MM2DumpGui"
-    sg.ResetOnSpawn = false
-    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.Parent = player.PlayerGui
-
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 420, 0, 320)
-    frame.Position = UDim2.new(0.5, -210, 0.5, -160)
-    frame.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-    frame.BorderSizePixel = 0
-    frame.Parent = sg
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -40, 0, 32)
-    title.Position = UDim2.new(0, 8, 0, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "GUN DUMP — copie e mande pro dev"
-    title.TextColor3 = Color3.fromRGB(200, 200, 210)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 13
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Parent = frame
-
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(0, 32, 0, 32)
-    closeBtn.Position = UDim2.new(1, -34, 0, 0)
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Text = "✕"
-    closeBtn.TextColor3 = Color3.fromRGB(180, 80, 80)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 16
-    closeBtn.Parent = frame
-    closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
-
-    local scroll = Instance.new("ScrollingFrame")
-    scroll.Size = UDim2.new(1, -16, 1, -76)
-    scroll.Position = UDim2.new(0, 8, 0, 36)
-    scroll.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
-    scroll.BorderSizePixel = 0
-    scroll.ScrollBarThickness = 4
-    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    scroll.Parent = frame
-    Instance.new("UICorner", scroll).CornerRadius = UDim.new(0, 6)
-
-    local txt = Instance.new("TextLabel")
-    txt.Size = UDim2.new(1, -8, 0, 0)
-    txt.AutomaticSize = Enum.AutomaticSize.Y
-    txt.Position = UDim2.new(0, 4, 0, 4)
-    txt.BackgroundTransparency = 1
-    txt.Text = text
-    txt.TextColor3 = Color3.fromRGB(160, 220, 160)
-    txt.Font = Enum.Font.Code
-    txt.TextSize = 11
-    txt.TextXAlignment = Enum.TextXAlignment.Left
-    txt.TextYAlignment = Enum.TextYAlignment.Top
-    txt.TextWrapped = true
-    txt.RichText = false
-    txt.Parent = scroll
-
-    local copyBtn = Instance.new("TextButton")
-    copyBtn.Size = UDim2.new(1, -16, 0, 32)
-    copyBtn.Position = UDim2.new(0, 8, 1, -40)
-    copyBtn.BackgroundColor3 = Color3.fromRGB(55, 180, 100)
-    copyBtn.BorderSizePixel = 0
-    copyBtn.Text = "📋  COPIAR TUDO"
-    copyBtn.TextColor3 = Color3.new(1,1,1)
-    copyBtn.Font = Enum.Font.GothamBold
-    copyBtn.TextSize = 13
-    copyBtn.Parent = frame
-    local copyReady = false
-    copyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
-    copyBtn.Text = "⏳  aguarde 5s..."
-
-    -- Habilita o botão após 5s
-    task.delay(5, function()
-        pcall(function()
-            copyReady = true
-            copyBtn.BackgroundColor3 = Color3.fromRGB(55, 180, 100)
-            copyBtn.Text = "📋  COPIAR TUDO"
-        end)
-    end)
-
-    Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
-    copyBtn.MouseButton1Click:Connect(function()
-        if not copyReady then return end
-        pcall(function() setclipboard(text) end)
-        copyBtn.Text = "✔  COPIADO!"
-        copyBtn.BackgroundColor3 = Color3.fromRGB(40, 130, 70)
-        task.delay(2, function()
-            pcall(function()
-                if sg and sg.Parent then sg:Destroy() end
-            end)
-        end)
-    end)
-end
-
--- Botão de dump — captura args reais do GunClient
-secSheriff:Button("DUMP gun (equipa gun e clica)", function()
-    local gunTool = getGunTool()
-    if not gunTool then
-        ui:Toast("rbxassetid://131165537896572","Dump","equipa a gun primeiro",ROLE_COLOR.unknown)
-        return
-    end
-
-    -- Coleta estrutura da gun
-    local lines = {}
-    local function ln(s) table.insert(lines, tostring(s)) end
-
-    ln("=== MM2 GUN DUMP ===")
-    ln("Tool: " .. gunTool.Name)
-    ln("--- Descendants ---")
-    for _, obj in ipairs(gunTool:GetDescendants()) do
-        ln(obj.ClassName .. " | " .. obj.Name .. " | parent: " .. obj.Parent.Name)
-    end
-
-    -- Tenta decompile do GunClient
-    local gc = gunTool:FindFirstChild("GunClient")
-        or gunTool:FindFirstChildWhichIsA("LocalScript")
-    if gc then
-        ln("--- GunClient: " .. gc.ClassName .. " / " .. gc.Name .. " ---")
-        if decompile then
-            pcall(function()
-                local src = decompile(gc)
-                if src and #src > 0 then
-                    -- Pega só as primeiras 80 linhas pra não explodir a GUI
-                    local i = 0
-                    for line in src:gmatch("[^\n]+") do
-                        i = i + 1
-                        ln(line)
-                        if i >= 150 then ln("... (truncado)"); break end
-                    end
-                end
-            end)
-        else
-            ln("(decompile nao disponivel neste executor)")
-        end
-    else
-        ln("GunClient nao encontrado")
-    end
-
-    -- Hook temporário — captura args do próximo tiro real
-    -- Usa uma flag global pra se encaixar no hook __namecall já existente
-    ln("")
-    ln("=== aguardando tiro... ===")
-    local resultText = table.concat(lines, "\n")
-    showDumpGui(resultText .. "\n\n[Atire uma vez pra capturar os args do FireServer]")
-
-    -- Flag global lida pelo hook __namecall principal
-    _dumpCapturing = true
-    _dumpCallback = function(remoteName, toolName, args)
-        _dumpCapturing = false
-        _dumpCallback = nil
-        local capLines = {}
-        table.insert(capLines, "=== FireServer CAPTURADO ===")
-        table.insert(capLines, "Remote: " .. remoteName .. " | Tool: " .. toolName)
-        table.insert(capLines, "Qtd args: " .. #args)
-        for i, v in ipairs(args) do
-            table.insert(capLines, "arg["..i.."] = "..typeof(v).." -> "..tostring(v))
-        end
-        table.insert(capLines, "=== FIM ===")
-        local full = resultText .. "\n\n" .. table.concat(capLines, "\n")
-        task.defer(function() showDumpGui(full) end)
-    end
-
-    -- Timeout de 30s
-    task.delay(30, function()
-        if _dumpCapturing then
-            _dumpCapturing = false
-            _dumpCallback = nil
-        end
-    end)
-
-    ui:Toast("rbxassetid://131165537896572","[Dump]","atire uma vez — GUI vai atualizar",ROLE_COLOR.sheriff)
-end)
-
 -- ── HITBOX EXPANDER ──────────────────────────────────────────────────────────
-secSheriff:Divider("hitbox expander — expande todas as parts do character")
+secSheriff:Divider("hitbox expander")
 
 local t_hb = secSheriff:Toggle("hitbox expander", false, function(v)
     hitboxOn = v
     if v then
         startHitbox()
         ui:Toast("rbxassetid://131165537896572","[Hitbox]",
-            "ativo — "..hitboxSize.."x scale em todas as parts",ROLE_COLOR.sheriff)
+            "ativo — "..hitboxSize.."x scale",ROLE_COLOR.sheriff)
     else
         stopHitbox()
         ui:Toast("rbxassetid://131165537896572","[Hitbox]","desativado + restaurado",ROLE_COLOR.unknown)
@@ -1585,19 +1202,19 @@ local t_hb = secSheriff:Toggle("hitbox expander", false, function(v)
 end)
 ui:CfgRegister("mm2_hitbox", function() return hitboxOn end, function(v) t_hb.Set(v) end)
 
-local s_hbsize = secSheriff:Slider("tamanho hitbox (studs max)", 4, 40, 12, function(v)
-    hitboxSize = v
-end)
+local s_hbsize = secSheriff:Slider("tamanho hitbox (studs max)", 4, 40, 12, function(v) hitboxSize = v end)
 ui:CfgRegister("mm2_hitboxsize", function() return hitboxSize end, function(v) s_hbsize.Set(v) end)
 
 local t_hbvis = secSheriff:Toggle("mostrar hitbox (debug)", false, function(v)
-    hitboxVisible = v
-    applyHitboxVisibility(v)  -- aplica imediatamente nas parts já expandidas
+    hitboxVisible = v; applyHitboxVisibility(v)
 end)
 ui:CfgRegister("mm2_hitboxvis", function() return hitboxVisible end, function(v) t_hbvis.Set(v) end)
 
--- ── SHOOT BUTTON ─────────────────────────────────────────────────────────────
-secSheriff:Divider("botao de tiro (mobile safe)")
+-- ── SHOOT BUTTON (integrado ao silent aim) ───────────────────────────────────
+-- O botão chama fireDirectShot() que:
+--  1. Tenta Activate() na gun equipada → o hook __namecall redireciona o FireServer
+--  2. Se falhar (mobile sem activate), FireServer direto no Remote "Shoot" da gun
+secSheriff:Divider("shoot button (mobile + pc)")
 
 local shootBtnGui = nil; local shootBtnOn = false; local shootCd = false
 
@@ -1623,7 +1240,7 @@ local function buildShootBtn()
     local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,0,14)
     lbl.BackgroundTransparency=1; lbl.Font=Enum.Font.Gotham; lbl.TextSize=9
     lbl.TextColor3=T.sub; lbl.TextXAlignment=Enum.TextXAlignment.Center
-    lbl.Text="SHERIFF"; lbl.Position=UDim2.new(0,0,0,4); lbl.Parent=card
+    lbl.Text="SHERIFF / SILENT AIM"; lbl.Position=UDim2.new(0,0,0,4); lbl.Parent=card
     local btn = Instance.new("TextButton")
     btn.Size=UDim2.new(1,-10,0,30); btn.Position=UDim2.new(0,5,0,20)
     btn.BackgroundColor3=ROLE_COLOR.sheriff; btn.BorderSizePixel=0
@@ -1631,26 +1248,40 @@ local function buildShootBtn()
     btn.TextColor3=Color3.new(1,1,1); btn.AutoButtonColor=true; btn.Parent=card
     Instance.new("UICorner",btn).CornerRadius=UDim.new(0,6)
     shootBtnGui = sg
+
     local function setBtnState(text, color)
         if not btn.Parent then return end
         btn.Text=text; btn.BackgroundColor3=color
     end
+
     btn.Activated:Connect(function()
         if shootCd then return end
-        if getRole() ~= "sheriff" and getRole() ~= "hero" then
+        local myRole = getRole()
+        if myRole ~= "sheriff" and myRole ~= "hero" then
             setBtnState("SEM GUN", T.err)
             task.delay(1.2, function() setBtnState("ATIRAR", ROLE_COLOR.sheriff) end); return
         end
-        local m = findByRole("murderer")
-        if not m then
-            setBtnState("?", Color3.fromRGB(195, 160, 38))
+        local gunTool = getGunTool()
+        if not gunTool then
+            setBtnState("SEM GUN", T.err)
+            task.delay(1.2, function() setBtnState("ATIRAR", ROLE_COLOR.sheriff) end); return
+        end
+        local target = getSilentTarget()
+        if not target then
+            setBtnState("SEM ALVO", T.warn)
             task.delay(1.2, function() setBtnState("ATIRAR", ROLE_COLOR.sheriff) end); return
         end
         shootCd = true
         setBtnState("...", Color3.fromRGB(80,80,80))
-        local ok = shootAt(m.Character)
+        -- Garante silent aim ativo pra esse tiro
+        local wasSilentAim = silentAimOn
+        silentAimOn = true
+        hookSilentAim()
+        hookGunClientMethods()
+        local ok = fireDirectShot()
+        if not wasSilentAim then silentAimOn = false end
         setBtnState(ok and "FIRED!" or "FALHOU", ok and T.ok or T.err)
-        task.wait(1)
+        task.wait(0.9)
         setBtnState("ATIRAR", ROLE_COLOR.sheriff)
         shootCd = false
     end)
@@ -1692,7 +1323,11 @@ local function gunAuraLoop()
         hrp.CFrame = CFrame.lookAt(hrp.Position, mHRP.Position)
         task.wait(0.04)
         lastGunAura = tick()
-        shootAt(mChr)
+        -- Usa silent aim pra atirar
+        local wasSA = silentAimOn; silentAimOn = true
+        hookSilentAim(); hookGunClientMethods()
+        fireDirectShot()
+        if not wasSA then silentAimOn = false end
     end
 end
 
@@ -1700,8 +1335,7 @@ local t_ga = secSheriff:Toggle("gun aura (tp + silent aim + shoot)", false, func
     gunAuraOn = v
     if v then
         task.spawn(gunAuraLoop)
-        ui:Toast("rbxassetid://131165537896572","[Gun Aura]",
-            "ativo — tp+mira+tiro no murderer",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Gun Aura]","ativo",ROLE_COLOR.sheriff)
     else
         ui:Toast("rbxassetid://131165537896572","[Gun Aura]","desativado",ROLE_COLOR.unknown)
     end
@@ -1714,7 +1348,7 @@ end)
 ui:CfgRegister("mm2_gacd", function() return gunAuraCD*10 end, function(v) s_gacd.Set(v) end)
 
 -- ── AUTO SHOOT ───────────────────────────────────────────────────────────────
-secSheriff:Divider("auto shoot (range livre)")
+secSheriff:Divider("auto shoot")
 local autoShootOn=false; local lastShot=0; local shotCD=0.6
 
 local function autoShootLoop()
@@ -1728,7 +1362,10 @@ local function autoShootLoop()
         if not mHrp or not hrp then continue end
         if (hrp.Position-mHrp.Position).Magnitude>300 then continue end
         lastShot=tick()
-        shootAt(m.Character)
+        local wasSA = silentAimOn; silentAimOn = true
+        hookSilentAim(); hookGunClientMethods()
+        fireDirectShot()
+        if not wasSA then silentAimOn = false end
     end
 end
 
@@ -1749,7 +1386,10 @@ secSheriff:Button("atirar no murderer (1x)", function()
     local m=findByRole("murderer")
     if not m then
         ui:Toast("rbxassetid://131165537896572","[Shoot]","murderer nao detectado",ROLE_COLOR.unknown); return end
-    local ok=shootAt(m.Character)
+    local wasSA = silentAimOn; silentAimOn = true
+    hookSilentAim(); hookGunClientMethods()
+    local ok = fireDirectShot()
+    if not wasSA then silentAimOn = false end
     ui:Toast("rbxassetid://131165537896572","[Shoot]",
         (ok and "disparado" or "falhou").." -> "..m.DisplayName, ROLE_COLOR.sheriff)
 end)
@@ -1780,43 +1420,34 @@ local function knifeAuraLoop()
             if t then hum:EquipTool(t); break end
         end
     end)
-    local accum      = 0
-    local cachedRole = "unknown"
-    local roleTimer  = 0
-    local playerHRPs = {}
+    local accum=0; local cachedRole="unknown"; local roleTimer=0; local playerHRPs={}
     _knifeAuraConn = RunService.Heartbeat:Connect(function(dt)
-        if not knifeAura then
-            _knifeAuraConn:Disconnect(); _knifeAuraConn = nil; return
-        end
-        accum     = accum + dt
-        roleTimer = roleTimer + dt
-        if roleTimer >= 0.5 then
-            roleTimer  = 0
-            cachedRole = getRole()
-            playerHRPs = {}
+        if not knifeAura then _knifeAuraConn:Disconnect(); _knifeAuraConn=nil; return end
+        accum=accum+dt; roleTimer=roleTimer+dt
+        if roleTimer>=0.5 then
+            roleTimer=0; cachedRole=getRole(); playerHRPs={}
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= player and isAlive(p) then
-                    local ph = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                    if ph then playerHRPs[p] = ph end
+                if p~=player and isAlive(p) then
+                    local ph=p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                    if ph then playerHRPs[p]=ph end
                 end
             end
         end
-        if accum < knifeCd then return end
-        accum = 0
-        if cachedRole ~= "murderer" then return end
-        local hrp   = myHRP(); if not hrp then return end
-        local knife = getKnifeTool(); if not knife then return end
-        local hrpPos = hrp.Position
-        local best, bestD = nil, knifeRange
-        for p, ph in pairs(playerHRPs) do
-            if not ph.Parent then playerHRPs[p] = nil; continue end
-            local d = (hrpPos - ph.Position).Magnitude
-            if d < bestD then best = ph; bestD = d end
+        if accum<knifeCd then return end
+        accum=0
+        if cachedRole~="murderer" then return end
+        local hrp=myHRP(); if not hrp then return end
+        local knife=getKnifeTool(); if not knife then return end
+        local hrpPos=hrp.Position; local best,bestD=nil,knifeRange
+        for p,ph in pairs(playerHRPs) do
+            if not ph.Parent then playerHRPs[p]=nil; continue end
+            local d=(hrpPos-ph.Position).Magnitude
+            if d<bestD then best=ph; bestD=d end
         end
         if best then
-            local lookCF = CFrame.lookAt(hrpPos, best.Position)
-            if math.abs(hrp.CFrame.LookVector:Dot(lookCF.LookVector) - 1) > 0.01 then
-                hrp.CFrame = lookCF
+            local lookCF=CFrame.lookAt(hrpPos,best.Position)
+            if math.abs(hrp.CFrame.LookVector:Dot(lookCF.LookVector)-1)>0.01 then
+                hrp.CFrame=lookCF
             end
             pcall(function() knife:Activate() end)
         end
@@ -1825,8 +1456,7 @@ end
 
 local t_ka=secMurd:Toggle("knife aura", false, function(v)
     knifeAura=v
-    if v then
-        knifeAuraLoop()
+    if v then knifeAuraLoop()
         ui:Toast("rbxassetid://131165537896572","[Knife Aura]","ativo",ROLE_COLOR.murderer)
     else
         if _knifeAuraConn then _knifeAuraConn:Disconnect(); _knifeAuraConn=nil end
@@ -1851,7 +1481,7 @@ secMurd:Button("matar mais proximo", function()
     if getRole()~="murderer" then
         ui:Toast("rbxassetid://131165537896572","[Knife]","voce nao e murderer",ROLE_COLOR.unknown); return end
     local hrp=myHRP(); if not hrp then return end
-    local best, bestD=nil, math.huge
+    local best,bestD=nil,math.huge
     for _, p in ipairs(Players:GetPlayers()) do
         if p==player then continue end
         local ph=p.Character and p.Character:FindFirstChild("HumanoidRootPart")
@@ -1912,8 +1542,7 @@ local function collectCoinsLoop()
             if not farmOn then break end
             if not coinPart or not coinPart.Parent then continue end
             if not myHRP() then break end
-            collectCoin(coinPart)
-            farmCount=farmCount+1
+            collectCoin(coinPart); farmCount=farmCount+1
         end
         task.wait(2)
     end
@@ -1921,37 +1550,29 @@ end
 
 local t_farm=secFarm:Toggle("auto farm coins", false, function(v)
     farmOn=v
-    if v then
-        task.spawn(collectCoinsLoop)
-        ui:Toast("rbxassetid://131165537896572","[Farm] iniciado","velocidade: "..FARM_FLY_SPEED.." studs/s",Color3.fromRGB(255,210,50))
-    else
-        ui:Toast("rbxassetid://131165537896572","[Farm] parado","coletadas: "..farmCount,Color3.fromRGB(255,210,50))
-    end
+    if v then task.spawn(collectCoinsLoop)
+        ui:Toast("rbxassetid://131165537896572","[Farm] iniciado","vel: "..FARM_FLY_SPEED.."s/s",Color3.fromRGB(255,210,50))
+    else ui:Toast("rbxassetid://131165537896572","[Farm] parado","coletadas: "..farmCount,Color3.fromRGB(255,210,50)) end
 end)
 ui:CfgRegister("mm2_farm", function() return farmOn end, function(v) t_farm.Set(v) end)
-
 local s_fspd=secFarm:Slider("velocidade (studs/s)", 4, 40, 16, function(v) FARM_FLY_SPEED=v end)
 ui:CfgRegister("mm2_farm_speed", function() return FARM_FLY_SPEED end, function(v) s_fspd.Set(v) end)
-
-local s_fpause=secFarm:Slider("pausa entre coins (x0.1s)", 2, 30, 8, function(v) farmPauseBetween = v / 10 end)
+local s_fpause=secFarm:Slider("pausa entre coins (x0.1s)", 2, 30, 8, function(v) farmPauseBetween=v/10 end)
 ui:CfgRegister("mm2_farm_pause", function() return farmPauseBetween*10 end, function(v) s_fpause.Set(v) end)
-
 secFarm:Button("status do farm", function()
-    local coins = findAllCoinServers()
+    local coins=findAllCoinServers()
     ui:Toast("rbxassetid://131165537896572",
         farmOn and "[Farm] rodando" or "[Farm] parado",
-        "no mapa: "..#coins.."  coletadas: "..farmCount, Color3.fromRGB(255,210,50))
+        "mapa: "..#coins.."  coletadas: "..farmCount, Color3.fromRGB(255,210,50))
 end)
-
 secFarm:Button("collect coins (1x)", function()
     if not myHRP() then return end
-    local coins = findAllCoinServers()
+    local coins=findAllCoinServers()
     if #coins==0 then
-        ui:Toast("rbxassetid://131165537896572","coins","nenhuma coin encontrada no mapa",ROLE_COLOR.unknown); return
-    end
+        ui:Toast("rbxassetid://131165537896572","coins","nenhuma coin encontrada",ROLE_COLOR.unknown); return end
     ui:Toast("rbxassetid://131165537896572","[Coins]","coletando "..#coins.."...",Color3.fromRGB(255,210,50))
     task.spawn(function()
-        local myPos = myHRP() and myHRP().Position or Vector3.zero
+        local myPos=myHRP() and myHRP().Position or Vector3.zero
         table.sort(coins, function(a,b)
             if not(a and a.Parent) then return false end
             if not(b and b.Parent) then return true end
@@ -1968,7 +1589,6 @@ end)
 
 local secGrab=tabFarm:Section("gun grab (inocente)")
 local grabOn=false
-
 local function grabLoop()
     while grabOn do
         task.wait(0.6)
@@ -1978,21 +1598,18 @@ local function grabLoop()
         if getGunTool() then continue end
         local best, bestD=nil, math.huge
         for _, g in ipairs(findDroppedGuns()) do
-            local d = (hrp.Position - g.handle.Position).Magnitude
-            if d < bestD then best = g.handle; bestD = d end
+            local d=(hrp.Position-g.handle.Position).Magnitude
+            if d<bestD then best=g.handle; bestD=d end
         end
         if best then
             hrp=myHRP(); if not hrp then continue end
-            local savedCF = hrp.CFrame
-            hrp.CFrame = CFrame.new(best.Position + Vector3.new(0, 2.5, 0))
-            task.wait(0.35)
-            hrp = myHRP(); if not hrp then continue end
-            hrp.CFrame = savedCF
-            task.wait(0.3)
+            local savedCF=hrp.CFrame
+            hrp.CFrame=CFrame.new(best.Position+Vector3.new(0,2.5,0))
+            task.wait(0.35); hrp=myHRP(); if not hrp then continue end
+            hrp.CFrame=savedCF; task.wait(0.3)
         end
     end
 end
-
 local t_grab=secGrab:Toggle("auto pegar gun (vai e volta)", false, function(v)
     grabOn=v
     if v then task.spawn(grabLoop)
@@ -2050,11 +1667,11 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIG
 -- ══════════════════════════════════════════════════════════════════════════════
-ui:BuildConfigTab(tabCfg, "ref_mm2v16")
+ui:BuildConfigTab(tabCfg, "ref_mm2v17")
 
 task.delay(0.9, function()
     local role=getRole()
     ui:Toast("rbxassetid://131165537896572",
-        "mm2 v9.3  ["..ROLE_LABEL[role].."]",
+        "mm2 v17  ["..ROLE_LABEL[role].."]",
         "bem-vindo, "..player.DisplayName, ROLE_COLOR[role])
 end)

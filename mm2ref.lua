@@ -567,85 +567,68 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= player then p.CharacterAdded
 end) end end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SKELETON ESP
+-- SKELETON ESP — Drawing.new("Line") + BillboardGui
+-- Wall ESP: Drawing ignora oclusão, sempre visível através de paredes
+-- Cor por papel | Lobby = branco
 -- ══════════════════════════════════════════════════════════════════════════════
--- LineHandleAdornment entre joints do character
--- AlwaysOnTop = true → visível através de paredes (wall ESP)
--- Cor = cor do papel | Lobby = branco
--- ══════════════════════════════════════════════════════════════════════════════
-
--- Pares de joints que formam o esqueleto
-local SKEL_R15 = {
-    {"Head","UpperTorso"},
-    {"UpperTorso","LowerTorso"},
-    {"UpperTorso","RightUpperArm"},
-    {"RightUpperArm","RightLowerArm"},
-    {"RightLowerArm","RightHand"},
-    {"UpperTorso","LeftUpperArm"},
-    {"LeftUpperArm","LeftLowerArm"},
-    {"LeftLowerArm","LeftHand"},
-    {"LowerTorso","RightUpperLeg"},
-    {"RightUpperLeg","RightLowerLeg"},
-    {"RightLowerLeg","RightFoot"},
-    {"LowerTorso","LeftUpperLeg"},
-    {"LeftUpperLeg","LeftLowerLeg"},
-    {"LeftLowerLeg","LeftFoot"},
-}
-local SKEL_R6 = {
-    {"Head","Torso"},
-    {"Torso","Right Arm"},
-    {"Torso","Left Arm"},
-    {"Torso","Right Leg"},
-    {"Torso","Left Leg"},
-}
-
--- Cria uma LineHandleAdornment ligando posA → posB
--- Adornee = HRP (se o character morrer o HRP some e as linhas somem junto)
-local function makeLine(hrp, col)
-    local line = Instance.new("LineHandleAdornment")
-    line.Color3       = col
-    line.Thickness    = 3          -- pixels — visível mesmo longe
-    line.AlwaysOnTop  = true       -- atravessa paredes
-    line.ZIndex       = 5
-    line.Length       = 1          -- será setado pelo update
-    line.Adornee      = hrp
-    line.Parent       = hrp
-    return line
-end
-
--- Atualiza posição/comprimento/direção de uma line entre dois Vector3
-local function updateLine(line, posA, posB)
-    if not line or not line.Parent then return end
-    local dir = posB - posA
-    local len = dir.Magnitude
-    if len < 0.01 then line.Length = 0; return end
-    -- CFrame: origem em posA, olhando para posB
-    -- LineHandleAdornment usa CFrame relativo ao Adornee (HRP)
-    local hrp = line.Adornee
-    if not hrp or not hrp.Parent then return end
-    local hrpCF = hrp.CFrame
-    -- Converte posA para espaço local do HRP
-    local localPosA = hrpCF:PointToObjectSpace(posA)
-    local localPosB = hrpCF:PointToObjectSpace(posB)
-    local localDir  = localPosB - localPosA
-    line.CFrame = CFrame.new(localPosA, localPosA + localDir)
-    line.Length = len
-end
 
 local espOn    = false
 local espMax   = 300
-local espCache = {}  -- [player] = { lines={}, lineData={{nameA,nameB,line},...}, bb, nm, dl }
+local espCache = {}  -- [player] = { lines={Drawing...}, bb, nm, dl }
+
+-- Conexões R15: nome do joint A → joint B
+local CONN_R15 = {
+    {"Head",         "UpperTorso"   },
+    {"UpperTorso",   "LowerTorso"   },
+    {"LowerTorso",   "LeftUpperLeg" },
+    {"LeftUpperLeg", "LeftLowerLeg" },
+    {"LowerTorso",   "RightUpperLeg"},
+    {"RightUpperLeg","RightLowerLeg"},
+    {"UpperTorso",   "LeftUpperArm" },
+    {"LeftUpperArm", "LeftLowerArm" },
+    {"LeftLowerArm", "LeftHand"     },
+    {"UpperTorso",   "RightUpperArm"},
+    {"RightUpperArm","RightLowerArm"},
+    {"RightLowerArm","RightHand"    },
+}
+-- Conexões R6 (nomes reais das parts)
+local CONN_R6_JOINTS = {
+    Head      = "Head",
+    Torso     = "Torso",
+    LeftArm   = "Left Arm",
+    RightArm  = "Right Arm",
+    LeftLeg   = "Left Leg",
+    RightLeg  = "Right Leg",
+}
+local CONN_R6 = {
+    {"Head",     "Torso"   },
+    {"Torso",    "LeftArm" },
+    {"Torso",    "RightArm"},
+    {"Torso",    "LeftLeg" },
+    {"Torso",    "RightLeg"},
+}
 
 local function getESPColor(p)
     if not isRoundActive() then return Color3.new(1, 1, 1) end
     return ROLE_COLOR[getRole(p)] or ROLE_COLOR.unknown
 end
 
+-- Cria N linhas Drawing para um jogador
+local function allocLines(n)
+    local lines = {}
+    for i = 1, n do
+        local l = Drawing.new("Line")
+        l.Thickness   = 2
+        l.Visible     = false
+        l.Transparency = 1
+        lines[i] = l
+    end
+    return lines
+end
+
 local function removeESP(p)
     local d = espCache[p]; if not d then return end
-    for _, ld in ipairs(d.lineData or {}) do
-        pcall(function() if ld.line and ld.line.Parent then ld.line:Destroy() end end)
-    end
+    for _, l in ipairs(d.lines) do pcall(function() l:Remove() end) end
     pcall(function() if d.bb and d.bb.Parent then d.bb:Destroy() end end)
     espCache[p] = nil
 end
@@ -654,79 +637,105 @@ local function buildESP(p)
     if espCache[p] then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    local col = getESPColor(p)
 
-    -- Detecta R15 vs R6
-    local skelPairs = chr:FindFirstChild("UpperTorso") and SKEL_R15 or SKEL_R6
+    local hum = chr:FindFirstChildOfClass("Humanoid"); if not hum then return end
+    local isR15 = hum.RigType == Enum.HumanoidRigType.R15
+    local conns = isR15 and CONN_R15 or CONN_R6
+    local lines = allocLines(#conns)
 
-    local lineData = {}
-    for _, pair in ipairs(skelPairs) do
-        local pA = chr:FindFirstChild(pair[1])
-        local pB = chr:FindFirstChild(pair[2])
-        if pA and pB then
-            local line = makeLine(hrp, col)
-            table.insert(lineData, { nameA=pair[1], nameB=pair[2], line=line })
-        end
-    end
-
-    -- BillboardGui simples: nome + papel/lobby + distância
+    -- BillboardGui: nome + papel + dist — AlwaysOnTop, visível atrás de paredes
     local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.new(0, 120, 0, 32)
-    bb.StudsOffset = Vector3.new(0, 3.4, 0)
-    bb.AlwaysOnTop = true
-    bb.ResetOnSpawn = false
-    bb.Adornee = hrp
-    bb.Parent  = hrp
+    bb.Size = UDim2.new(0, 120, 0, 32); bb.StudsOffset = Vector3.new(0, 3.2, 0)
+    bb.AlwaysOnTop = true; bb.ResetOnSpawn = false; bb.Adornee = hrp; bb.Parent = hrp
 
     local nm = Instance.new("TextLabel")
-    nm.BackgroundTransparency = 1; nm.Size = UDim2.new(1, 0, 0, 18)
-    nm.Font = Enum.Font.GothamBold; nm.TextSize = 12; nm.TextColor3 = col
-    nm.TextStrokeTransparency = 0.05; nm.TextXAlignment = Enum.TextXAlignment.Center
-    nm.Text = p.DisplayName; nm.Parent = bb
+    nm.BackgroundTransparency = 1; nm.Size = UDim2.new(1,0,0,18)
+    nm.Font = Enum.Font.GothamBold; nm.TextSize = 12
+    nm.TextColor3 = getESPColor(p); nm.TextStrokeTransparency = 0.05
+    nm.TextXAlignment = Enum.TextXAlignment.Center; nm.Text = p.DisplayName; nm.Parent = bb
 
     local dl = Instance.new("TextLabel")
-    dl.BackgroundTransparency = 1; dl.Size = UDim2.new(1, 0, 0, 12)
-    dl.Position = UDim2.new(0, 0, 0, 19)
+    dl.BackgroundTransparency = 1; dl.Size = UDim2.new(1,0,0,12); dl.Position = UDim2.new(0,0,0,19)
     dl.Font = Enum.Font.Gotham; dl.TextSize = 10
-    dl.TextColor3 = Color3.fromRGB(210, 210, 230)
+    dl.TextColor3 = Color3.fromRGB(210,210,230)
     dl.TextXAlignment = Enum.TextXAlignment.Center; dl.Parent = bb
 
-    espCache[p] = { lineData=lineData, bb=bb, nm=nm, dl=dl, col=col }
+    espCache[p] = { lines=lines, conns=conns, isR15=isR15, bb=bb, nm=nm, dl=dl }
 end
 
+-- RenderStepped: atualiza todas as linhas Drawing por player
 RunService.RenderStepped:Connect(function()
-    if not espOn then return end
     for _, p in ipairs(Players:GetPlayers()) do
         if p == player then continue end
+
+        local d = espCache[p]
+
+        -- Se ESP desligado: esconde linhas se existirem e pula
+        if not espOn then
+            if d then
+                for _, l in ipairs(d.lines) do l.Visible = false end
+                if d.bb then d.bb.Enabled = false end
+            end
+            continue
+        end
+
         local chr = p.Character
         local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
-        if not chr or not hrp then removeESP(p); continue end
-        if not isAlive(p) then removeESP(p); continue end
-        local dist = math.floor((cam.CFrame.Position - hrp.Position).Magnitude)
-        if dist > espMax then removeESP(p); continue end
-        if not espCache[p] then buildESP(p) end
-        local d = espCache[p]; if not d then continue end
 
-        -- Atualiza cor se mudou
+        -- Sem character ou morto: remove e pula
+        if not chr or not hrp or not isAlive(p) then
+            if d then removeESP(p) end; continue
+        end
+
+        -- Fora do range: esconde linhas mas não destrói
+        local dist = math.floor((cam.CFrame.Position - hrp.Position).Magnitude)
+        if dist > espMax then
+            if d then
+                for _, l in ipairs(d.lines) do l.Visible = false end
+                if d.bb then d.bb.Enabled = false end
+            end
+            continue
+        end
+
+        -- Cria ESP se não existe ainda
+        if not d then buildESP(p); d = espCache[p] end
+        if not d then continue end
+
+        if d.bb then d.bb.Enabled = true end
+
+        -- Cor atualizada por papel
         local col = getESPColor(p)
-        if col ~= d.col then
-            d.col = col
-            d.nm.TextColor3 = col
-            for _, ld in ipairs(d.lineData) do
-                if ld.line and ld.line.Parent then ld.line.Color3 = col end
+        local nm = d.nm; if nm then nm.TextColor3 = col; nm.Text = p.DisplayName end
+        if d.dl then d.dl.Text = dist.."m  ["..(isRoundActive() and ROLE_LABEL[getRole(p)] or "Lobby").."]" end
+
+        -- Resolve nomes dos joints: R15 usa nome direto, R6 mapeia alias→nome real
+        local function getJointPart(name)
+            if d.isR15 then
+                return chr:FindFirstChild(name)
+            else
+                -- R6: "LeftArm"→"Left Arm" etc
+                local realName = CONN_R6_JOINTS[name] or name
+                return chr:FindFirstChild(realName)
             end
         end
 
-        local role = getRole(p)
-        d.nm.Text = p.DisplayName
-        d.dl.Text = dist.."m  ["..(isRoundActive() and ROLE_LABEL[role] or "Lobby").."]"
-
-        -- Atualiza cada linha do esqueleto
-        for _, ld in ipairs(d.lineData) do
-            local pA = chr:FindFirstChild(ld.nameA)
-            local pB = chr:FindFirstChild(ld.nameB)
-            if pA and pB and ld.line and ld.line.Parent then
-                updateLine(ld.line, pA.Position, pB.Position)
+        -- Atualiza cada linha
+        for i, conn in ipairs(d.conns) do
+            local line = d.lines[i]; if not line then continue end
+            local jA = getJointPart(conn[1])
+            local jB = getJointPart(conn[2])
+            if jA and jB then
+                local pA, onA = cam:WorldToViewportPoint(jA.Position)
+                local pB, onB = cam:WorldToViewportPoint(jB.Position)
+                -- Drawing.new("Line") atravessa paredes por natureza
+                -- Mostra a linha mesmo se um dos joints não estiver "on screen" (wall ESP)
+                line.Color = col
+                line.From  = Vector2.new(pA.X, pA.Y)
+                line.To    = Vector2.new(pB.X, pB.Y)
+                -- Visível se pelo menos um ponto está na frente da câmera (Z > 0)
+                line.Visible = (pA.Z > 0 or pB.Z > 0)
+            else
+                line.Visible = false
             end
         end
     end
@@ -734,10 +743,10 @@ end)
 
 Players.PlayerRemoving:Connect(removeESP)
 Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function()
-    task.wait(1); if espOn then buildESP(p) end
+    removeESP(p)
 end) end)
 for _, p in ipairs(Players:GetPlayers()) do if p ~= player then p.CharacterAdded:Connect(function()
-    removeESP(p); task.wait(1); if espOn then buildESP(p) end
+    removeESP(p)
 end) end end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -1093,8 +1102,7 @@ secSheriff:Button("DUMP gun (equipa e clica, depois atira)", function()
 end)
 
 -- SILENT AIM
-secSheriff:Divider("silent aim")
-secSheriff:Label("arg[1]=origem(nao mexe) | arg[2]=alvo(substitui)")
+secSheriff:Divider("silent aim — arg[2]=alvo(CFrame)")
 local t_sa = secSheriff:Toggle("silent aim (PC + Mobile)", false, function(v)
     silentAimOn = v
     if v then

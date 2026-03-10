@@ -355,113 +355,73 @@ local function getSilentTarget()
     end
 end
 
--- Hook único — cobre dump E silent aim
--- Verificação rigorosa antes de tocar em qualquer coisa
-local _hookInstalled = false
-local dumpActive     = false
-local dumpCallback   = nil
+-- ══════════════════════════════════════════════════════════════════════════════
+-- TIRO DIRETO — sem hook, chama o RemoteEvent da gun diretamente
+-- Assinatura confirmada: FireServer(CFrame_origem, CFrame_alvo)
+-- ══════════════════════════════════════════════════════════════════════════════
 
-local function installHook()
-    if _hookInstalled then return end
-    _hookInstalled = true
+local dumpActive   = false
+local dumpCallback = nil
+local function installHook() end  -- removido, não precisa mais
 
-    local mt  = getrawmetatable(game)
-    local old = mt.__namecall
-    pcall(function() setreadonly(mt, false) end)
-
-    mt.__namecall = newcclosure(function(self, ...)
-        -- Proteção máxima: qualquer erro retorna o call original
-        if self == nil then return old(self, ...) end
-
-        local method = getnamecallmethod()
-        if method ~= "FireServer" then return old(self, ...) end
-
-        -- Só RemoteEvent
-        local isRE = false
-        pcall(function() isRE = self:IsA("RemoteEvent") end)
-        if not isRE then return old(self, ...) end
-
-        -- Só se for filho DIRETO de uma gun tool (não 2 níveis — evita falsos positivos)
-        local par = self.Parent
-        if not par then return old(self, ...) end
-        local isTool = false
-        pcall(function() isTool = par:IsA("Tool") end)
-        if not isTool then return old(self, ...) end
-        if not GUN_NAMES[par.Name] then return old(self, ...) end
-
-        -- É um FireServer da gun. Pega os args.
-        local args = { ... }
-
-        -- ── DUMP ──────────────────────────────────────────────────────────
-        if dumpActive and dumpCallback then
-            dumpActive = false
-            local cb = dumpCallback; dumpCallback = nil
-            local desc = {}
-            for i, v in ipairs(args) do
-                table.insert(desc, "arg["..i.."] = "..typeof(v).." = "..tostring(v):sub(1, 80))
-            end
-            task.defer(function() cb(desc) end)
-            return old(self, ...)  -- tiro original passa sem modificar
-        end
-
-        -- ── SILENT AIM ────────────────────────────────────────────────────
-        -- ASSINATURA: arg[1]=origem(CFrame), arg[2]=alvo(CFrame)
-        -- Só substitui se args[2] existir e for CFrame
-        if silentAimOn and args[2] and typeof(args[2]) == "CFrame" then
-            local target = getSilentTarget()
-            local hitPos = target and getPredictedPos(target)
-            if hitPos then
-                -- Cria um CFrame com a posição do alvo e rotação neutra
-                -- O servidor só usa a posição (.Position), a rotação não importa
-                args[2] = CFrame.new(hitPos)
-                return old(self, table.unpack(args))
+local function findShootRemote(gunTool)
+    if not gunTool then return nil end
+    for _, v in ipairs(gunTool:GetDescendants()) do
+        if v:IsA("RemoteEvent") then return v end
+    end
+    local chr = player.Character
+    if chr then
+        local t = chr:FindFirstChild(gunTool.Name)
+        if t then
+            for _, v in ipairs(t:GetDescendants()) do
+                if v:IsA("RemoteEvent") then return v end
             end
         end
-
-        return old(self, ...)
-    end)
-end
-
--- Engana GunClient no mobile: faz ele achar que é PC
-local _uisHooked = false
-local function hookUIS()
-    if _uisHooked then return end; _uisHooked = true
-    local mt = getrawmetatable(UserInputService)
-    pcall(function() setreadonly(mt, false) end)
-    local oldIdx = mt.__index
-    mt.__index = newcclosure(function(self, key)
-        if silentAimOn then
-            if key == "TouchEnabled"    then return false end
-            if key == "KeyboardEnabled" then return true  end
-            if key == "PreferredInput"  then return Enum.PreferredInput.Gamepad end
-        end
-        return oldIdx(self, key)
-    end)
+    end
+    return nil
 end
 
 local _shootCd = false
+
+-- Dispara chamando o RemoteEvent diretamente com a assinatura correta
+-- arg[1] = CFrame origem (câmera), arg[2] = CFrame alvo (posição predita)
+local function fireShot(targetPos)
+    local gunTool = getGunTool()
+    if not gunTool then return false end
+
+    -- Garante equipada
+    local chr = player.Character; if not chr then return false end
+    if not chr:FindFirstChild(gunTool.Name) then
+        equipTool(gunTool)
+        chr = player.Character; if not chr then return false end
+        gunTool = getGunTool(); if not gunTool then return false end
+    end
+
+    local remote = findShootRemote(gunTool)
+    if remote then
+        -- Chama com a assinatura exata confirmada pelo dump
+        local originCF = cam.CFrame
+        local targetCF = CFrame.new(targetPos)
+        pcall(function() remote:FireServer(originCF, targetCF) end)
+    else
+        -- Fallback: Activate() normal
+        pcall(function()
+            local hrp = myHRP()
+            if hrp then hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos) end
+            gunTool:Activate()
+        end)
+    end
+    return true
+end
+
 local function fireWithSilentAim()
     if _shootCd then return false end
     local target = getSilentTarget(); if not target then return false end
-    local gunTool = getGunTool(); if not gunTool then return false end
-    local chr = player.Character; if not chr then return false end
-    if not chr:FindFirstChild(gunTool.Name) then
-        equipTool(gunTool); chr = player.Character; if not chr then return false end
-        gunTool = getGunTool(); if not gunTool then return false end
-    end
-    local hrp = myHRP(); local hitPos = getPredictedPos(target)
-    if hrp and hitPos then
-        pcall(function() hrp.CFrame = CFrame.lookAt(hrp.Position, hitPos) end)
-        task.wait(0.02)
-    end
-    local wasSA = silentAimOn; silentAimOn = true
+    local hitPos = getPredictedPos(target); if not hitPos then return false end
     _shootCd = true
-    pcall(function() gunTool:Activate() end)
-    task.delay(0.7, function()
-        _shootCd = false
-        if not wasSA then silentAimOn = false end
-    end)
-    return true
+    local ok = fireShot(hitPos)
+    task.delay(0.65, function() _shootCd = false end)
+    return ok
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -567,172 +527,151 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= player then p.CharacterAdded
 end) end end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SKELETON ESP — Drawing.new("Line") + BillboardGui
--- Wall ESP: Drawing ignora oclusão, sempre visível através de paredes
+-- SKELETON ESP — Drawing.new("Line") — otimizado sem alloc no RenderStepped
+-- Pré-aloca linhas por player, nunca destrói durante o jogo (só esconde)
+-- Wall ESP: Drawing 2D ignora oclusão por natureza
 -- Cor por papel | Lobby = branco
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local espOn    = false
-local espMax   = 300
-local espCache = {}  -- [player] = { lines={Drawing...}, bb, nm, dl }
+local espOn  = false
+local espMax = 300
 
--- Conexões R15: nome do joint A → joint B
+-- Conexões R15
 local CONN_R15 = {
-    {"Head",         "UpperTorso"   },
-    {"UpperTorso",   "LowerTorso"   },
-    {"LowerTorso",   "LeftUpperLeg" },
-    {"LeftUpperLeg", "LeftLowerLeg" },
-    {"LowerTorso",   "RightUpperLeg"},
-    {"RightUpperLeg","RightLowerLeg"},
-    {"UpperTorso",   "LeftUpperArm" },
-    {"LeftUpperArm", "LeftLowerArm" },
-    {"LeftLowerArm", "LeftHand"     },
-    {"UpperTorso",   "RightUpperArm"},
-    {"RightUpperArm","RightLowerArm"},
-    {"RightLowerArm","RightHand"    },
+    {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
+    {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},
+    {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},
+    {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
+    {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
 }
--- Conexões R6 (nomes reais das parts)
-local CONN_R6_JOINTS = {
-    Head      = "Head",
-    Torso     = "Torso",
-    LeftArm   = "Left Arm",
-    RightArm  = "Right Arm",
-    LeftLeg   = "Left Leg",
-    RightLeg  = "Right Leg",
-}
+-- Conexões R6 (key=alias, usado no lookup; value=nome real da part)
+local R6_NAME = {Head="Head",Torso="Torso",LeftArm="Left Arm",RightArm="Right Arm",LeftLeg="Left Leg",RightLeg="Right Leg"}
 local CONN_R6 = {
-    {"Head",     "Torso"   },
-    {"Torso",    "LeftArm" },
-    {"Torso",    "RightArm"},
-    {"Torso",    "LeftLeg" },
-    {"Torso",    "RightLeg"},
+    {"Head","Torso"},{"Torso","LeftArm"},{"Torso","RightArm"},{"Torso","LeftLeg"},{"Torso","RightLeg"},
 }
+local MAX_LINES = math.max(#CONN_R15, #CONN_R6)
+
+local espData = {}  -- [player] = { lines={}, bb, nm, dl, conns, isR15, active }
 
 local function getESPColor(p)
-    if not isRoundActive() then return Color3.new(1, 1, 1) end
+    if not isRoundActive() then return Color3.new(1,1,1) end
     return ROLE_COLOR[getRole(p)] or ROLE_COLOR.unknown
 end
 
--- Cria N linhas Drawing para um jogador
-local function allocLines(n)
-    local lines = {}
-    for i = 1, n do
-        local l = Drawing.new("Line")
-        l.Thickness   = 2
-        l.Visible     = false
-        l.Transparency = 1
-        lines[i] = l
-    end
-    return lines
-end
-
-local function removeESP(p)
-    local d = espCache[p]; if not d then return end
-    for _, l in ipairs(d.lines) do pcall(function() l:Remove() end) end
-    pcall(function() if d.bb and d.bb.Parent then d.bb:Destroy() end end)
-    espCache[p] = nil
-end
-
-local function buildESP(p)
-    if espCache[p] then return end
+-- Aloca N linhas Drawing (feito uma vez por player, nunca refeito)
+local function allocForPlayer(p)
+    if espData[p] then return end
     local chr = p.Character; if not chr then return end
     local hrp = chr:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-
     local hum = chr:FindFirstChildOfClass("Humanoid"); if not hum then return end
     local isR15 = hum.RigType == Enum.HumanoidRigType.R15
     local conns = isR15 and CONN_R15 or CONN_R6
-    local lines = allocLines(#conns)
 
-    -- BillboardGui: nome + papel + dist — AlwaysOnTop, visível atrás de paredes
+    local lines = {}
+    for i = 1, #conns do
+        local l = Drawing.new("Line")
+        l.Thickness    = 2
+        l.Visible      = false
+        l.Transparency = 1
+        lines[i] = l
+    end
+
+    -- BillboardGui no HRP
     local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.new(0, 120, 0, 32); bb.StudsOffset = Vector3.new(0, 3.2, 0)
-    bb.AlwaysOnTop = true; bb.ResetOnSpawn = false; bb.Adornee = hrp; bb.Parent = hrp
+    bb.Size=UDim2.new(0,120,0,32); bb.StudsOffset=Vector3.new(0,3.2,0)
+    bb.AlwaysOnTop=true; bb.ResetOnSpawn=false; bb.Adornee=hrp; bb.Parent=hrp
 
     local nm = Instance.new("TextLabel")
-    nm.BackgroundTransparency = 1; nm.Size = UDim2.new(1,0,0,18)
-    nm.Font = Enum.Font.GothamBold; nm.TextSize = 12
-    nm.TextColor3 = getESPColor(p); nm.TextStrokeTransparency = 0.05
-    nm.TextXAlignment = Enum.TextXAlignment.Center; nm.Text = p.DisplayName; nm.Parent = bb
+    nm.BackgroundTransparency=1; nm.Size=UDim2.new(1,0,0,18)
+    nm.Font=Enum.Font.GothamBold; nm.TextSize=12; nm.TextColor3=getESPColor(p)
+    nm.TextStrokeTransparency=0.05; nm.TextXAlignment=Enum.TextXAlignment.Center
+    nm.Text=p.DisplayName; nm.Parent=bb
 
     local dl = Instance.new("TextLabel")
-    dl.BackgroundTransparency = 1; dl.Size = UDim2.new(1,0,0,12); dl.Position = UDim2.new(0,0,0,19)
-    dl.Font = Enum.Font.Gotham; dl.TextSize = 10
-    dl.TextColor3 = Color3.fromRGB(210,210,230)
-    dl.TextXAlignment = Enum.TextXAlignment.Center; dl.Parent = bb
+    dl.BackgroundTransparency=1; dl.Size=UDim2.new(1,0,0,12); dl.Position=UDim2.new(0,0,0,19)
+    dl.Font=Enum.Font.Gotham; dl.TextSize=10
+    dl.TextColor3=Color3.fromRGB(210,210,230)
+    dl.TextXAlignment=Enum.TextXAlignment.Center; dl.Parent=bb
 
-    espCache[p] = { lines=lines, conns=conns, isR15=isR15, bb=bb, nm=nm, dl=dl }
+    espData[p] = { lines=lines, conns=conns, isR15=isR15, bb=bb, nm=nm, dl=dl }
 end
 
--- RenderStepped: atualiza todas as linhas Drawing por player
+local function freePlayer(p)
+    local d = espData[p]; if not d then return end
+    for _, l in ipairs(d.lines) do pcall(function() l:Remove() end) end
+    pcall(function() if d.bb and d.bb.Parent then d.bb:Destroy() end end)
+    espData[p] = nil
+end
+
+local function hidePlayer(p)
+    local d = espData[p]; if not d then return end
+    for _, l in ipairs(d.lines) do l.Visible = false end
+    if d.bb then d.bb.Enabled = false end
+end
+
+-- Pré-aloca para todos os players existentes
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= player then task.spawn(function() task.wait(2); allocForPlayer(p) end) end
+end
+Players.PlayerAdded:Connect(function(p)
+    if p == player then return end
+    p.CharacterAdded:Connect(function()
+        freePlayer(p)
+        task.wait(1.5); allocForPlayer(p)
+    end)
+end)
+Players.PlayerRemoving:Connect(freePlayer)
+for _, p in ipairs(Players:GetPlayers()) do if p ~= player then p.CharacterAdded:Connect(function()
+    freePlayer(p); task.wait(1.5); allocForPlayer(p)
+end) end end
+
+-- RenderStepped: só atualiza posições — zero alloc
 RunService.RenderStepped:Connect(function()
     for _, p in ipairs(Players:GetPlayers()) do
         if p == player then continue end
+        local d = espData[p]
 
-        local d = espCache[p]
-
-        -- Se ESP desligado: esconde linhas se existirem e pula
         if not espOn then
-            if d then
-                for _, l in ipairs(d.lines) do l.Visible = false end
-                if d.bb then d.bb.Enabled = false end
-            end
+            if d then hidePlayer(p) end
             continue
         end
 
         local chr = p.Character
         local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
-
-        -- Sem character ou morto: remove e pula
         if not chr or not hrp or not isAlive(p) then
-            if d then removeESP(p) end; continue
+            if d then hidePlayer(p) end; continue
         end
 
-        -- Fora do range: esconde linhas mas não destrói
-        local dist = math.floor((cam.CFrame.Position - hrp.Position).Magnitude)
+        local dist = (cam.CFrame.Position - hrp.Position).Magnitude
         if dist > espMax then
-            if d then
-                for _, l in ipairs(d.lines) do l.Visible = false end
-                if d.bb then d.bb.Enabled = false end
-            end
-            continue
+            if d then hidePlayer(p) end; continue
         end
 
-        -- Cria ESP se não existe ainda
-        if not d then buildESP(p); d = espCache[p] end
-        if not d then continue end
+        if not d then continue end  -- ainda aguardando alloc
 
+        -- Atualiza BillboardGui
         if d.bb then d.bb.Enabled = true end
-
-        -- Cor atualizada por papel
         local col = getESPColor(p)
-        local nm = d.nm; if nm then nm.TextColor3 = col; nm.Text = p.DisplayName end
-        if d.dl then d.dl.Text = dist.."m  ["..(isRoundActive() and ROLE_LABEL[getRole(p)] or "Lobby").."]" end
+        if d.nm then d.nm.TextColor3 = col; d.nm.Text = p.DisplayName end
+        if d.dl then d.dl.Text = math.floor(dist).."m  ["..(isRoundActive() and ROLE_LABEL[getRole(p)] or "Lobby").."]" end
 
-        -- Resolve nomes dos joints: R15 usa nome direto, R6 mapeia alias→nome real
-        local function getJointPart(name)
-            if d.isR15 then
-                return chr:FindFirstChild(name)
-            else
-                -- R6: "LeftArm"→"Left Arm" etc
-                local realName = CONN_R6_JOINTS[name] or name
-                return chr:FindFirstChild(realName)
-            end
+        -- Helper para resolver nome da part (R6 usa alias)
+        local function getPart(name)
+            if d.isR15 then return chr:FindFirstChild(name) end
+            return chr:FindFirstChild(R6_NAME[name] or name)
         end
 
-        -- Atualiza cada linha
+        -- Atualiza linhas do skeleton
         for i, conn in ipairs(d.conns) do
             local line = d.lines[i]; if not line then continue end
-            local jA = getJointPart(conn[1])
-            local jB = getJointPart(conn[2])
+            local jA = getPart(conn[1])
+            local jB = getPart(conn[2])
             if jA and jB then
-                local pA, onA = cam:WorldToViewportPoint(jA.Position)
-                local pB, onB = cam:WorldToViewportPoint(jB.Position)
-                -- Drawing.new("Line") atravessa paredes por natureza
-                -- Mostra a linha mesmo se um dos joints não estiver "on screen" (wall ESP)
-                line.Color = col
-                line.From  = Vector2.new(pA.X, pA.Y)
-                line.To    = Vector2.new(pB.X, pB.Y)
-                -- Visível se pelo menos um ponto está na frente da câmera (Z > 0)
+                local pA = cam:WorldToViewportPoint(jA.Position)
+                local pB = cam:WorldToViewportPoint(jB.Position)
+                line.Color   = col
+                line.From    = Vector2.new(pA.X, pA.Y)
+                line.To      = Vector2.new(pB.X, pB.Y)
                 line.Visible = (pA.Z > 0 or pB.Z > 0)
             else
                 line.Visible = false
@@ -741,13 +680,6 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
-Players.PlayerRemoving:Connect(removeESP)
-Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function()
-    removeESP(p)
-end) end)
-for _, p in ipairs(Players:GetPlayers()) do if p ~= player then p.CharacterAdded:Connect(function()
-    removeESP(p)
-end) end end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- FINDERS

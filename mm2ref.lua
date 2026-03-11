@@ -307,17 +307,14 @@ end
 -- SILENT AIM
 -- ══════════════════════════════════════════════════════════════════════════════
 --
--- ASSINATURA CONFIRMADA PELO DUMP:
---   FireServer(
---     arg[1] = CFrame  -- ORIGEM do tiro (posição da gun/câmera) — NAO MEXER
---     arg[2] = CFrame  -- ALVO (onde está mirando)              — SUBSTITUIR
---   )
---
--- O hook substitui APENAS arg[2] pelo CFrame da posição prevista do alvo.
--- arg[1] fica idêntico ao original — o servidor precisa dele pra raycast.
+-- SILENT AIM — fica apontando a câmera pro alvo no RenderStepped
+-- Quando você clica pra atirar, a câmera já está virada: o tiro vai pro alvo
+-- Câmera volta pra rotação original assim que soltar (suave, imperceptível)
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local silentAimOn = false
+local SA_PRED     = 0.165  -- prediction em segundos
+local SA_FOV      = 9999   -- sem limite de FOV (sempre trava no alvo)
 local _prevPos    = {}
 local _prevTime   = {}
 
@@ -326,11 +323,15 @@ local function getPredictedPos(tp)
     local chr = tp.Character; if not chr then return nil end
     local part = chr:FindFirstChild("Head") or chr:FindFirstChild("HumanoidRootPart")
     if not part then return nil end
-    local now = tick(); local cur = part.Position
+    local now = tick()
+    local cur = part.Position
     local prev = _prevPos[tp]; local pt = _prevTime[tp]
     local pred = cur
-    if prev and pt and (now - pt) > 0.01 and (now - pt) < 0.5 then
-        pred = cur + (cur - prev) / (now - pt) * 0.1
+    if prev and pt then
+        local dt = now - pt
+        if dt > 0.001 and dt < 0.5 then
+            pred = cur + (cur - prev) / dt * SA_PRED
+        end
     end
     _prevPos[tp] = cur; _prevTime[tp] = now
     return pred
@@ -355,74 +356,38 @@ local function getSilentTarget()
     end
 end
 
--- ══════════════════════════════════════════════════════════════════════════════
--- TIRO DIRETO — sem hook, chama o RemoteEvent da gun diretamente
--- Assinatura confirmada: FireServer(CFrame_origem, CFrame_alvo)
--- ══════════════════════════════════════════════════════════════════════════════
-
-local dumpActive   = false
-local dumpCallback = nil
-local function installHook() end  -- removido, não precisa mais
-
-local function findShootRemote(gunTool)
-    if not gunTool then return nil end
-    for _, v in ipairs(gunTool:GetDescendants()) do
-        if v:IsA("RemoteEvent") then return v end
-    end
-    local chr = player.Character
-    if chr then
-        local t = chr:FindFirstChild(gunTool.Name)
-        if t then
-            for _, v in ipairs(t:GetDescendants()) do
-                if v:IsA("RemoteEvent") then return v end
-            end
-        end
-    end
-    return nil
-end
+-- RenderStepped: quando silentAimOn, câmera aponta continuamente pro alvo
+-- Assim qualquer clique na tela já dispara na direção certa
+RunService.RenderStepped:Connect(function()
+    if not silentAimOn then return end
+    local target = getSilentTarget(); if not target then return end
+    local hitPos = getPredictedPos(target); if not hitPos then return end
+    local origin = cam.CFrame.Position
+    -- Só vira a rotação, não muda a posição da câmera
+    cam.CFrame = CFrame.lookAt(origin, hitPos)
+end)
 
 local _shootCd = false
-
--- Dispara chamando o RemoteEvent diretamente com a assinatura correta
--- arg[1] = CFrame origem (câmera), arg[2] = CFrame alvo (posição predita)
-local function fireShot(targetPos)
-    local gunTool = getGunTool()
-    if not gunTool then return false end
-
-    -- Garante equipada
+local function fireWithSilentAim()
+    if _shootCd then return false end
+    local target = getSilentTarget(); if not target then return false end
+    local hitPos = getPredictedPos(target); if not hitPos then return false end
+    local gunTool = getGunTool(); if not gunTool then return false end
     local chr = player.Character; if not chr then return false end
     if not chr:FindFirstChild(gunTool.Name) then
         equipTool(gunTool)
         chr = player.Character; if not chr then return false end
         gunTool = getGunTool(); if not gunTool then return false end
     end
-
-    local remote = findShootRemote(gunTool)
-    if remote then
-        -- Chama com a assinatura exata confirmada pelo dump
-        local originCF = cam.CFrame
-        local targetCF = CFrame.new(targetPos)
-        pcall(function() remote:FireServer(originCF, targetCF) end)
-    else
-        -- Fallback: Activate() normal
-        pcall(function()
-            local hrp = myHRP()
-            if hrp then hrp.CFrame = CFrame.lookAt(hrp.Position, targetPos) end
-            gunTool:Activate()
-        end)
-    end
+    _shootCd = true
+    -- Garante câmera apontada antes de Activate
+    cam.CFrame = CFrame.lookAt(cam.CFrame.Position, hitPos)
+    pcall(function() gunTool:Activate() end)
+    task.delay(0.65, function() _shootCd = false end)
     return true
 end
 
-local function fireWithSilentAim()
-    if _shootCd then return false end
-    local target = getSilentTarget(); if not target then return false end
-    local hitPos = getPredictedPos(target); if not hitPos then return false end
-    _shootCd = true
-    local ok = fireShot(hitPos)
-    task.delay(0.65, function() _shootCd = false end)
-    return ok
-end
+local function installHook() end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- KNIFE
@@ -982,8 +947,7 @@ secSheriff:Button("DUMP gun (equipa e clica, depois atira)", function()
     if not gunTool then
         ui:Toast("rbxassetid://131165537896572","Dump","sem gun equipada",ROLE_COLOR.unknown); return
     end
-    installHook()
-    dumpActive   = true
+        dumpActive   = true
     dumpCallback = function(desc)
         local lines = {
             "=== FIRESERVER CAPTURADO ===",
@@ -1034,18 +998,18 @@ secSheriff:Button("DUMP gun (equipa e clica, depois atira)", function()
 end)
 
 -- SILENT AIM
-secSheriff:Divider("silent aim — arg[2]=alvo(CFrame)")
-local t_sa = secSheriff:Toggle("silent aim (PC + Mobile)", false, function(v)
+secSheriff:Divider("silent aim")
+local t_sa = secSheriff:Toggle("silent aim (trava mira no murder)", false, function(v)
     silentAimOn = v
     if v then
-        installHook(); hookUIS()
-        ui:Toast("rbxassetid://131165537896572","[Silent Aim]",
-            "ativo — atire normalmente",ROLE_COLOR.sheriff)
+        ui:Toast("rbxassetid://131165537896572","[Silent Aim]","ativo — clique pra atirar",ROLE_COLOR.sheriff)
     else
         ui:Toast("rbxassetid://131165537896572","[Silent Aim]","desativado",ROLE_COLOR.unknown)
     end
 end)
 ui:CfgRegister("mm2_silentaim", function() return silentAimOn end, function(v) t_sa.Set(v) end)
+local s_pred = secSheriff:Slider("prediction (x0.01s)", 0, 40, 17, function(v) SA_PRED = v/100 end)
+ui:CfgRegister("mm2_sa_pred", function() return SA_PRED*100 end, function(v) s_pred.Set(v) end)
 
 -- HITBOX
 secSheriff:Divider("hitbox expander")
@@ -1092,14 +1056,24 @@ local function buildShootBtn()
     local function set(text, col) if btn.Parent then btn.Text=text; btn.BackgroundColor3=col end end
     btn.Activated:Connect(function()
         if busy then return end
-        if getRole()~="sheriff" and getRole()~="hero" then
-            set("SEM GUN",T.err); task.delay(1.2,function() set("ATIRAR",ROLE_COLOR.sheriff) end); return end
-        if not getSilentTarget() then
-            set("SEM ALVO",T.warn); task.delay(1.2,function() set("ATIRAR",ROLE_COLOR.sheriff) end); return end
-        busy=true; set("...",Color3.fromRGB(80,80,80))
+        -- Verifica se tem gun equipada ou no backpack
+        if not getGunTool() then
+            set("SEM GUN", T.err); task.delay(1.2, function() set("ATIRAR", ROLE_COLOR.sheriff) end); return
+        end
+        -- Verifica se tem alvo (murderer vivo)
+        local target = getSilentTarget()
+        if not target then
+            set("SEM ALVO", T.warn); task.delay(1.2, function() set("ATIRAR", ROLE_COLOR.sheriff) end); return
+        end
+        busy = true; set("...", Color3.fromRGB(80,80,80))
+        -- Aponta câmera pro alvo e dispara
+        local hitPos = getPredictedPos(target)
+        if hitPos then
+            cam.CFrame = CFrame.lookAt(cam.CFrame.Position, hitPos)
+        end
         local ok = fireWithSilentAim()
         task.wait(0.15); set(ok and "FIRED!" or "MISS", ok and T.ok or T.err)
-        task.wait(0.8); set("ATIRAR",ROLE_COLOR.sheriff); busy=false
+        task.wait(0.8); set("ATIRAR", ROLE_COLOR.sheriff); busy = false
     end)
 end
 local t_btn = secSheriff:Toggle("shoot button (mobile safe)", false, function(v)
@@ -1400,8 +1374,6 @@ end -- FARM
 -- ══════════════════════════════════════════════════════════════════════════════
 ui:BuildConfigTab(tabCfg, "ref_mm2v20")
 
--- Instala hook na inicialização (não modifica nada, só observa)
-installHook()
 
 task.delay(0.9, function()
     local role = getRole()

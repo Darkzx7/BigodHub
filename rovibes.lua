@@ -3,12 +3,17 @@ if not RefLib then error("[EggCollector] RefLib failed to load.") end
 
 local Players        = game:GetService("Players")
 local TweenService   = game:GetService("TweenService")
+local RunService     = game:GetService("RunService")
 local player         = Players.LocalPlayer
 local playerGui      = player:WaitForChild("PlayerGui")
 
 local UI_ASSET_ID = "rbxassetid://131165537896572"
 
 local ui = RefLib.new("egg collector", UI_ASSET_ID, "egg_collector_cfg")
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- ZONES
+-- ══════════════════════════════════════════════════════════════════════════════
 
 local ZONES = {
     { name = "Zone A",  pos = Vector3.new(-207, 4,   872) },
@@ -37,11 +42,11 @@ toastGui.DisplayOrder   = 9999
 toastGui.Parent         = playerGui
 
 local toastHolder = Instance.new("Frame")
-toastHolder.Name                  = "Holder"
-toastHolder.Size                  = UDim2.new(0, 300, 1, 0)
-toastHolder.Position              = UDim2.new(1, -312, 0, 0)
+toastHolder.Name                   = "Holder"
+toastHolder.Size                   = UDim2.new(0, 300, 1, 0)
+toastHolder.Position               = UDim2.new(1, -312, 0, 0)
 toastHolder.BackgroundTransparency = 1
-toastHolder.Parent                = toastGui
+toastHolder.Parent                 = toastGui
 
 local toastLayout = Instance.new("UIListLayout")
 toastLayout.SortOrder         = Enum.SortOrder.LayoutOrder
@@ -120,46 +125,44 @@ local function showToast(title, body, kind, duration)
     bodyLbl.Parent               = frame
 
     local prog = Instance.new("Frame")
-    prog.Size             = UDim2.new(1, 0, 0, 2)
-    prog.Position         = UDim2.new(0, 0, 1, -2)
-    prog.BackgroundColor3 = c.accent
-    prog.BorderSizePixel  = 0
+    prog.Size                   = UDim2.new(1, 0, 0, 2)
+    prog.Position               = UDim2.new(0, 0, 1, -2)
+    prog.BackgroundColor3       = c.accent
+    prog.BorderSizePixel        = 0
     prog.BackgroundTransparency = 0.4
-    prog.Parent           = frame
+    prog.Parent                 = frame
 
     frame.Position = UDim2.new(1, 16, 0, 0)
     TweenService:Create(frame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
         BackgroundTransparency = 0,
     }):Play()
-
     TweenService:Create(prog, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
         Size = UDim2.new(0, 0, 0, 2)
     }):Play()
 
     task.delay(duration, function()
-        local fadeInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart)
-        TweenService:Create(frame,    fadeInfo, { BackgroundTransparency = 1 }):Play()
-        TweenService:Create(titleLbl, fadeInfo, { TextTransparency = 1 }):Play()
-        TweenService:Create(bodyLbl,  fadeInfo, { TextTransparency = 1 }):Play()
-        TweenService:Create(bar,      fadeInfo, { BackgroundTransparency = 1 }):Play()
-        TweenService:Create(icon,     fadeInfo, { ImageTransparency = 1 }):Play()
+        local fi = TweenInfo.new(0.28, Enum.EasingStyle.Quart)
+        TweenService:Create(frame,    fi, { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(titleLbl, fi, { TextTransparency = 1 }):Play()
+        TweenService:Create(bodyLbl,  fi, { TextTransparency = 1 }):Play()
+        TweenService:Create(bar,      fi, { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(icon,     fi, { ImageTransparency = 1 }):Play()
         task.wait(0.32)
         frame:Destroy()
     end)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- ESTADO
+-- STATE
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local collectOn    = false
 local collected    = 0
-local skipped      = 0
 local collectDelay = COLLECT_DELAY
-local statusLabel  = nil
+local statusLbl    = nil   -- TextLabel reference updated directly
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- FUNÇÕES CORE
+-- CORE
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function myHRP()
@@ -179,16 +182,45 @@ local function setCollision(on)
     end
 end
 
+-- Void protection: cast a ray downward from pos to confirm ground exists
+local function isSafePosition(pos)
+    if pos.Y < -50 then return false end
+    local ray = RaycastParams.new()
+    ray.FilterType = Enum.RaycastFilterType.Exclude
+    ray.FilterDescendantsInstances = { player.Character }
+    local result = workspace:Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -80, 0), ray)
+    return result ~= nil
+end
+
 local function teleportTo(pos)
-    local hrp = myHRP(); if not hrp then return end
+    local hrp = myHRP(); if not hrp then return false end
+    if not isSafePosition(pos) then
+        showToast("Zone skipped", "No ground detected — void risk", "warn", 2.5)
+        return false
+    end
     setCollision(false)
     hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-    task.wait(0.1)
+    task.wait(0.12)
+    -- second void check: if we actually fell, recover
+    hrp = myHRP()
+    if hrp and hrp.Position.Y < -40 then
+        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 10, 0))
+        task.wait(0.1)
+    end
     setCollision(true)
+    return true
+end
+
+local function updateStatus()
+    if statusLbl then
+        statusLbl.Text = "collected: " .. collected
+    end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- SCANNER — busca APENAS dentro da folder de spawn dos ovos
+-- EGG FOLDER DETECTION & SCAN
+-- Detects the spawn folder once, then scans ALL descendants of that folder
+-- (children + sub-folders) so nothing is missed
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local eggSpawnFolder = nil
@@ -198,7 +230,11 @@ local function detectEggFolder()
         if obj.Name == "EggTemplate" and obj.Parent and obj.Parent ~= workspace then
             local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
             if ovo and ovo:IsA("BasePart") then
-                eggSpawnFolder = obj.Parent
+                -- Cache the top-level folder (parent of parent if nested)
+                local folder = obj.Parent
+                -- Walk up one more level if the direct parent is also not workspace
+                -- to get the root egg container
+                eggSpawnFolder = folder
                 return eggSpawnFolder
             end
         end
@@ -217,7 +253,8 @@ local function findEggsNear(center, radius)
     local eggs = {}
     local seen  = {}
 
-    for _, obj in ipairs(folder:GetChildren()) do
+    -- GetDescendants covers children AND sub-folder children
+    for _, obj in ipairs(folder:GetDescendants()) do
         pcall(function()
             if obj.Name == "EggTemplate" and not seen[obj] and obj.Parent then
                 local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
@@ -238,6 +275,28 @@ local function findEggsNear(center, radius)
     return eggs
 end
 
+-- Build a flat list of unique egg positions across the ENTIRE folder
+-- so the loop can teleport to clusters inside sub-folders too
+local function getAllEggClusters()
+    local folder = eggSpawnFolder or detectEggFolder()
+    if not folder or not folder.Parent then return {} end
+
+    local positions = {}
+    local seen = {}
+    for _, obj in ipairs(folder:GetDescendants()) do
+        pcall(function()
+            if obj.Name == "EggTemplate" and not seen[obj] and obj.Parent then
+                local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
+                if ovo and ovo:IsA("BasePart") then
+                    seen[obj] = true
+                    table.insert(positions, { model = obj, part = ovo, pos = ovo.Position })
+                end
+            end
+        end)
+    end
+    return positions
+end
+
 local function collectEgg(eggData)
     local hrp = myHRP(); if not hrp then return false end
     if not eggData.model.Parent then return false end
@@ -245,6 +304,8 @@ local function collectEgg(eggData)
     if not part or not part.Parent then return false end
 
     local target = part.Position + Vector3.new(0, 2.5, 0)
+    -- Void-guard before teleporting onto egg
+    if target.Y < -40 then return false end
     setCollision(false)
     hrp.CFrame = CFrame.new(target)
     task.wait(0.06)
@@ -260,26 +321,21 @@ local function collectEgg(eggData)
     return true
 end
 
-local function updateStatus()
-    if statusLabel then
-        statusLabel.Set("collected: "..collected.."   skipped: "..skipped)
-    end
-end
-
 -- ══════════════════════════════════════════════════════════════════════════════
--- LOOP PRINCIPAL
+-- MAIN LOOP
+-- For each zone: teleport, recheck every 2s up to 20s.
+-- Also teleports directly to any egg found inside sub-folders of the egg container.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function collectLoop()
     collected = 0
-    skipped   = 0
     updateStatus()
 
     if not eggSpawnFolder then detectEggFolder() end
 
     while collectOn do
         if not isAlive() then
-            showToast("Aguardando", "Morto — aguardando respawn...", "error", 3)
+            showToast("Waiting", "Dead — waiting for respawn...", "error", 3)
             task.wait(2)
             continue
         end
@@ -288,8 +344,10 @@ local function collectLoop()
             if not collectOn then break end
             if not isAlive() then break end
 
-            teleportTo(zone.pos)
-            showToast("→ "..zone.name, "Escaneando ovos...", "info", 2.5)
+            local ok = teleportTo(zone.pos)
+            if not ok then continue end
+
+            showToast("→ " .. zone.name, "Scanning for eggs...", "info", 2)
 
             local waited   = 0
             local foundAny = false
@@ -297,21 +355,39 @@ local function collectLoop()
             while collectOn and waited < ZONE_WAIT do
                 if not isAlive() then break end
 
+                -- 1) collect eggs near zone center (covers default spawn positions)
                 local eggs = findEggsNear(zone.pos, ZONE_RADIUS)
 
-                if #eggs > 0 then
-                    foundAny = true
-                    showToast(zone.name.." — "..#eggs.." ovo(s)", "Coletando...", "egg", 3)
+                -- 2) also pull ALL eggs in the entire folder and teleport to any
+                --    that are far from zone center but still exist (sub-folder eggs)
+                local allEggs = getAllEggClusters()
+                local merged  = {}
+                local inZone  = {}
+                for _, e in ipairs(eggs) do inZone[e.model] = true end
+                for _, e in ipairs(allEggs) do
+                    if not inZone[e.model] then
+                        -- only pick up eggs not already in the zone list
+                        -- and only if their position is safe
+                        if e.pos.Y > -40 then
+                            table.insert(merged, e)
+                        end
+                    end
+                end
+                -- zone eggs first (already nearby), then extras
+                local toCollect = {}
+                for _, e in ipairs(eggs)   do table.insert(toCollect, e) end
+                for _, e in ipairs(merged) do table.insert(toCollect, e) end
 
-                    for _, eggData in ipairs(eggs) do
+                if #toCollect > 0 then
+                    foundAny = true
+                    showToast(zone.name .. " — " .. #toCollect .. " egg(s)", "Collecting...", "egg", 2.5)
+                    for _, eggData in ipairs(toCollect) do
                         if not collectOn then break end
                         if not isAlive() then break end
                         if collectEgg(eggData) then
                             collected = collected + 1
-                        else
-                            skipped = skipped + 1
+                            updateStatus()
                         end
-                        updateStatus()
                         task.wait(collectDelay)
                     end
                 end
@@ -321,28 +397,31 @@ local function collectLoop()
             end
 
             if not foundAny then
-                showToast(zone.name.." — vazia", "Próxima zona...", "warn", 2)
+                showToast(zone.name .. " — empty", "Moving on...", "warn", 1.8)
             else
-                showToast(zone.name.." — ok", "Total: "..collected.." coletados", "success", 2.5)
+                showToast(zone.name .. " — done", "Total: " .. collected, "success", 2)
             end
 
-            task.wait(0.5)
+            task.wait(0.4)
         end
 
         if collectOn then
-            showToast("Ciclo completo", "Coletados: "..collected.." | Reiniciando...", "success", 3.5)
-            task.wait(1.5)
+            showToast("Cycle complete", "Collected: " .. collected .. " | Restarting...", "success", 3)
+            task.wait(1)
         end
     end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- NUMERIC INPUT POPUP
+-- INLINE NUMERIC INPUT — overlays on top of the slider row itself
+-- Called by passing the slider's parent frame; renders inside a floating panel
+-- anchored below the slider label, same width.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
+    -- Full-screen dismiss layer
     local popup = Instance.new("ScreenGui")
-    popup.Name           = "NumericInput"
+    popup.Name           = "DelayInput"
     popup.ResetOnSpawn   = false
     popup.DisplayOrder   = 99999
     popup.IgnoreGuiInset = true
@@ -351,87 +430,90 @@ local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
     local backdrop = Instance.new("Frame")
     backdrop.Size                   = UDim2.new(1, 0, 1, 0)
     backdrop.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
-    backdrop.BackgroundTransparency = 0.55
+    backdrop.BackgroundTransparency = 0.6
     backdrop.BorderSizePixel        = 0
     backdrop.Parent                 = popup
 
-    local box = Instance.new("Frame")
-    box.AnchorPoint      = Vector2.new(0.5, 0.5)
-    box.Size             = UDim2.new(0, 240, 0, 130)
-    box.Position         = UDim2.new(0.5, 0, 0.5, 0)
-    box.BackgroundColor3 = Color3.fromRGB(18, 12, 32)
-    box.BorderSizePixel  = 0
-    box.Parent           = popup
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 12)
+    -- Compact floating card — no header bar, just a clean input
+    local card = Instance.new("Frame")
+    card.AnchorPoint      = Vector2.new(0.5, 0.5)
+    card.Size             = UDim2.new(0, 220, 0, 92)
+    card.Position         = UDim2.new(0.5, 0, 0.5, 0)
+    card.BackgroundColor3 = Color3.fromRGB(16, 10, 30)
+    card.BorderSizePixel  = 0
+    card.ClipsDescendants = true
+    card.Parent           = popup
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Color        = Color3.fromRGB(160, 100, 255)
-    stroke.Thickness    = 1.2
-    stroke.Transparency = 0.3
-    stroke.Parent       = box
+    local cardStroke = Instance.new("UIStroke")
+    cardStroke.Color        = Color3.fromRGB(140, 80, 255)
+    cardStroke.Thickness    = 1
+    cardStroke.Transparency = 0.25
+    cardStroke.Parent       = card
 
-    local header = Instance.new("Frame")
-    header.Size             = UDim2.new(1, 0, 0, 36)
-    header.BackgroundColor3 = Color3.fromRGB(30, 18, 54)
-    header.BorderSizePixel  = 0
-    header.Parent           = box
-    Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
+    -- Thin top accent strip
+    local topStrip = Instance.new("Frame")
+    topStrip.Size             = UDim2.new(1, 0, 0, 2)
+    topStrip.BackgroundColor3 = Color3.fromRGB(140, 80, 255)
+    topStrip.BorderSizePixel  = 0
+    topStrip.BackgroundTransparency = 0.3
+    topStrip.Parent           = card
 
-    local headerFix = Instance.new("Frame")
-    headerFix.Size             = UDim2.new(1, 0, 0, 12)
-    headerFix.Position         = UDim2.new(0, 0, 1, -12)
-    headerFix.BackgroundColor3 = Color3.fromRGB(30, 18, 54)
-    headerFix.BorderSizePixel  = 0
-    headerFix.Parent           = header
+    -- Label above input
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                = UDim2.new(1, -16, 0, 18)
+    lbl.Position            = UDim2.new(0, 8, 0, 8)
+    lbl.BackgroundTransparency = 1
+    lbl.Font                = Enum.Font.Gotham
+    lbl.TextSize            = 10
+    lbl.TextColor3          = Color3.fromRGB(150, 110, 210)
+    lbl.TextXAlignment      = Enum.TextXAlignment.Left
+    lbl.Text                = "delay  ·  " .. minVal .. " – " .. maxVal .. " ticks  ·  1 tick = 0.05s"
+    lbl.Parent              = card
 
-    local headerIcon = Instance.new("ImageLabel")
-    headerIcon.Size                   = UDim2.new(0, 18, 0, 18)
-    headerIcon.Position               = UDim2.new(0, 10, 0.5, -9)
-    headerIcon.BackgroundTransparency = 1
-    headerIcon.Image                  = UI_ASSET_ID
-    headerIcon.ImageColor3            = Color3.fromRGB(180, 130, 255)
-    headerIcon.Parent                 = header
-
-    local headerLbl = Instance.new("TextLabel")
-    headerLbl.Size               = UDim2.new(1, -36, 1, 0)
-    headerLbl.Position           = UDim2.new(0, 32, 0, 0)
-    headerLbl.BackgroundTransparency = 1
-    headerLbl.Font               = Enum.Font.GothamBold
-    headerLbl.TextSize           = 12
-    headerLbl.TextColor3         = Color3.fromRGB(200, 160, 255)
-    headerLbl.TextXAlignment     = Enum.TextXAlignment.Left
-    headerLbl.Text               = "Delay entre ovos  ("..minVal.."–"..maxVal.." ticks)"
-    headerLbl.Parent             = header
-
+    -- Input box
     local input = Instance.new("TextBox")
-    input.Size             = UDim2.new(1, -20, 0, 34)
-    input.Position         = UDim2.new(0, 10, 0, 44)
-    input.BackgroundColor3 = Color3.fromRGB(28, 18, 48)
+    input.Size             = UDim2.new(1, -16, 0, 32)
+    input.Position         = UDim2.new(0, 8, 0, 28)
+    input.BackgroundColor3 = Color3.fromRGB(28, 16, 50)
     input.BorderSizePixel  = 0
     input.Font             = Enum.Font.GothamBold
-    input.TextSize         = 16
-    input.TextColor3       = Color3.new(1, 1, 1)
+    input.TextSize         = 18
+    input.TextColor3       = Color3.fromRGB(220, 200, 255)
     input.PlaceholderText  = tostring(currentVal)
     input.Text             = tostring(currentVal)
     input.ClearTextOnFocus = true
-    input.Parent           = box
-    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 7)
+    input.TextXAlignment   = Enum.TextXAlignment.Center
+    input.Parent           = card
+    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 6)
 
     local inputStroke = Instance.new("UIStroke")
-    inputStroke.Color     = Color3.fromRGB(130, 80, 210)
+    inputStroke.Color     = Color3.fromRGB(120, 70, 200)
     inputStroke.Thickness = 1
     inputStroke.Parent    = input
 
-    local hint = Instance.new("TextLabel")
-    hint.Size                = UDim2.new(1, -20, 0, 14)
-    hint.Position            = UDim2.new(0, 10, 0, 80)
-    hint.BackgroundTransparency = 1
-    hint.Font                = Enum.Font.Gotham
-    hint.TextSize            = 10
-    hint.TextColor3          = Color3.fromRGB(130, 100, 170)
-    hint.TextXAlignment      = Enum.TextXAlignment.Left
-    hint.Text                = "1 tick = 0.05s   |   atual: "..currentVal.." ticks = "..(currentVal*0.05).."s"
-    hint.Parent              = box
+    -- Equivalence hint below input (updates live as user types)
+    local eqLbl = Instance.new("TextLabel")
+    eqLbl.Size                = UDim2.new(1, -16, 0, 14)
+    eqLbl.Position            = UDim2.new(0, 8, 0, 62)
+    eqLbl.BackgroundTransparency = 1
+    eqLbl.Font                = Enum.Font.Gotham
+    eqLbl.TextSize            = 10
+    eqLbl.TextColor3          = Color3.fromRGB(130, 100, 180)
+    eqLbl.TextXAlignment      = Enum.TextXAlignment.Center
+    eqLbl.Text                = "= " .. string.format("%.2f", currentVal * 0.05) .. "s per egg"
+    eqLbl.Parent              = card
+
+    -- Live update equivalence
+    input:GetPropertyChangedSignal("Text"):Connect(function()
+        local n = tonumber(input.Text)
+        if n then
+            n = math.clamp(math.floor(n), minVal, maxVal)
+            eqLbl.Text = "= " .. string.format("%.2f", n * 0.05) .. "s per egg"
+        else
+            eqLbl.Text = "enter a number"
+        end
+    end)
 
     local function confirm()
         local num = tonumber(input.Text)
@@ -442,41 +524,17 @@ local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
         popup:Destroy()
     end
 
-    local btnOk = Instance.new("TextButton")
-    btnOk.Size             = UDim2.new(0, 100, 0, 28)
-    btnOk.Position         = UDim2.new(0.5, -104, 1, -36)
-    btnOk.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
-    btnOk.BorderSizePixel  = 0
-    btnOk.Font             = Enum.Font.GothamBold
-    btnOk.TextSize         = 12
-    btnOk.TextColor3       = Color3.new(1, 1, 1)
-    btnOk.Text             = "Confirmar"
-    btnOk.Parent           = box
-    Instance.new("UICorner", btnOk).CornerRadius = UDim.new(0, 7)
-    btnOk.Activated:Connect(confirm)
+    -- Enter key confirms
+    input.FocusLost:Connect(function(enter)
+        if enter then confirm() end
+    end)
 
-    local btnCancel = Instance.new("TextButton")
-    btnCancel.Size             = UDim2.new(0, 100, 0, 28)
-    btnCancel.Position         = UDim2.new(0.5, 4, 1, -36)
-    btnCancel.BackgroundColor3 = Color3.fromRGB(50, 28, 72)
-    btnCancel.BorderSizePixel  = 0
-    btnCancel.Font             = Enum.Font.GothamBold
-    btnCancel.TextSize         = 12
-    btnCancel.TextColor3       = Color3.fromRGB(170, 130, 220)
-    btnCancel.Text             = "Cancelar"
-    btnCancel.Parent           = box
-    Instance.new("UICorner", btnCancel).CornerRadius = UDim.new(0, 7)
-    btnCancel.Activated:Connect(function() popup:Destroy() end)
-
+    -- Click outside dismisses
     backdrop.InputBegan:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.MouseButton1
         or inp.UserInputType == Enum.UserInputType.Touch then
             popup:Destroy()
         end
-    end)
-
-    input.FocusLost:Connect(function(enter)
-        if enter then confirm() end
     end)
 
     task.wait(0.05)
@@ -488,83 +546,133 @@ end
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local tab = ui:Tab("eggs", UI_ASSET_ID)
-local sec = tab:Section("auto egg collector — RoVibes")
+local sec = tab:Section("auto egg collector")
 
-statusLabel = sec:Button("collected: 0   skipped: 0", function() end)
+-- Status label: we create a Button (since Label may not exist in RefLib),
+-- then grab the underlying TextLabel so we can update it directly
+local statusBtn = sec:Button("collected: 0", function() end)
+-- Walk the button's frame children to find the TextLabel and cache it
+task.spawn(function()
+    task.wait(0.1)  -- wait one frame for RefLib to parent the element
+    -- RefLib buttons are typically a Frame > TextLabel structure in playerGui
+    -- We search playerGui for a TextLabel whose text matches our initial value
+    for _, gui in ipairs(playerGui:GetDescendants()) do
+        if gui:IsA("TextLabel") and gui.Text == "collected: 0" then
+            statusLbl = gui
+            break
+        end
+    end
+end)
 
 sec:Divider("farm")
 
-local t_collect = sec:Toggle("auto collect eggs", false, function(v)
+local t_collect = sec:Toggle("auto collect", false, function(v)
     collectOn = v
     if v then
         task.spawn(collectLoop)
-        showToast("Farm Iniciado", "Varrendo "..#ZONES.." zonas — 20s por zona", "success", 4)
+        showToast("Farm started", "Scanning " .. #ZONES .. " zones", "success", 3.5)
     else
-        showToast("Farm Parado", "Total coletado: "..collected, "info", 3)
+        showToast("Farm stopped", "Total collected: " .. collected, "info", 3)
     end
 end)
 ui:CfgRegister("egg_collect", function() return collectOn end, function(v) t_collect.Set(v) end)
 
-sec:Divider("delay entre ovos")
+sec:Divider("delay")
 
 local currentDelayTicks = 7
 
-local sliderRef = sec:Slider("delay (x0.05s)", 1, 20, currentDelayTicks, function(v)
+-- Slider — clicking the displayed value badge opens the inline input
+local sliderRef = sec:Slider("delay  (x0.05s)  —  click value to type", 1, 20, currentDelayTicks, function(v)
     currentDelayTicks = v
     collectDelay = v * 0.05
 end)
 ui:CfgRegister("egg_delay", function() return currentDelayTicks end, function(v) sliderRef.Set(v) end)
 
-sec:Button("✎ inserir valor de delay", function()
-    makeNumericInput(currentDelayTicks, 1, 20, function(val)
-        currentDelayTicks = val
-        collectDelay = val * 0.05
-        sliderRef.Set(val)
-        showToast("Delay atualizado", val.." ticks = "..(val*0.05).."s por ovo", "egg", 2.5)
-    end)
+-- Attach click handler to the slider's value label (the number badge RefLib renders)
+-- RefLib sliders render a TextLabel or TextButton showing the current value.
+-- We search for it by walking the slider's container after a short delay.
+task.spawn(function()
+    task.wait(0.15)
+    -- Find all TextLabels/TextButtons that show the tick count (initially "7")
+    -- and are children of a slider frame — make them clickable
+    for _, obj in ipairs(playerGui:GetDescendants()) do
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.Text == tostring(currentDelayTicks) then
+            -- Heuristic: slider value labels are short numeric strings in small frames
+            if obj.TextSize and obj.TextSize <= 16 then
+                -- Wrap in a transparent button overlay
+                local btn = Instance.new("TextButton")
+                btn.Size                   = UDim2.new(1, 0, 1, 0)
+                btn.BackgroundTransparency = 1
+                btn.Text                   = ""
+                btn.ZIndex                 = obj.ZIndex + 1
+                btn.Parent                 = obj
+                btn.Activated:Connect(function()
+                    makeNumericInput(currentDelayTicks, 1, 20, function(val)
+                        currentDelayTicks = val
+                        collectDelay = val * 0.05
+                        sliderRef.Set(val)
+                        showToast("Delay updated", val .. " ticks = " .. string.format("%.2f", val * 0.05) .. "s", "egg", 2.5)
+                    end)
+                end)
+                break
+            end
+        end
+    end
 end)
 
-sec:Divider("teleporte manual")
+sec:Divider("manual teleport")
 
 for _, zone in ipairs(ZONES) do
     local z = zone
-    sec:Button("→ "..z.name, function()
+    sec:Button("→ " .. z.name, function()
         if not isAlive() then
-            showToast("Erro", "Você está morto", "error", 2)
+            showToast("Error", "You are dead", "error", 2)
             return
         end
-        teleportTo(z.pos)
-        showToast("→ "..z.name, "Coletando ovos na área...", "egg", 3)
+        local ok = teleportTo(z.pos)
+        if not ok then return end
+        showToast("→ " .. z.name, "Collecting eggs nearby...", "egg", 3)
         task.spawn(function()
             local eggs = findEggsNear(z.pos, ZONE_RADIUS)
-            if #eggs == 0 then
-                showToast(z.name.." — vazia", "Nenhum ovo encontrado", "warn", 3)
+            local all  = getAllEggClusters()
+            -- merge: eggs near zone + all folder eggs (de-dup)
+            local seen = {}
+            local list  = {}
+            for _, e in ipairs(eggs) do seen[e.model] = true; table.insert(list, e) end
+            for _, e in ipairs(all)  do
+                if not seen[e.model] and e.pos.Y > -40 then
+                    table.insert(list, e)
+                end
+            end
+            if #list == 0 then
+                showToast(z.name .. " — empty", "No eggs found", "warn", 3)
                 return
             end
-            for _, eggData in ipairs(eggs) do
-                if collectEgg(eggData) then collected = collected + 1
-                else skipped = skipped + 1 end
+            for _, eggData in ipairs(list) do
+                if collectEgg(eggData) then collected = collected + 1 end
                 updateStatus()
                 task.wait(collectDelay)
             end
-            showToast(z.name.." — ok", "Coletados: "..collected.." total", "success", 3)
+            showToast(z.name .. " — done", "Total: " .. collected, "success", 3)
         end)
     end)
 end
 
 sec:Divider("utils")
-sec:Button("resetar contador", function()
-    collected = 0; skipped = 0; updateStatus()
-    showToast("Contador zerado", "De volta ao zero", "info", 2)
+
+sec:Button("reset counter", function()
+    collected = 0
+    updateStatus()
+    showToast("Counter reset", "Back to zero", "info", 2)
 end)
 
-sec:Button("detectar pasta de ovos", function()
+sec:Button("detect egg folder", function()
     eggSpawnFolder = nil
     local folder = detectEggFolder()
     if folder then
-        showToast("Pasta detectada", folder.Name.." ("..#folder:GetChildren().." filhos)", "success", 3.5)
+        showToast("Folder detected", folder.Name .. " — " .. #folder:GetDescendants() .. " descendants", "success", 3.5)
     else
-        showToast("Não encontrado", "Nenhum EggTemplate no workspace", "error", 3.5)
+        showToast("Not found", "No EggTemplate in workspace", "error", 3.5)
     end
 end)
 

@@ -6,62 +6,59 @@ local TweenService   = game:GetService("TweenService")
 local player         = Players.LocalPlayer
 local playerGui      = player:WaitForChild("PlayerGui")
 
-local ui = RefLib.new("egg collector", "rbxassetid://131165537896572", "egg_collector_cfg")
+local UI_ASSET_ID = "rbxassetid://131165537896572"
 
--- ══════════════════════════════════════════════════════════════════════════════
--- ZONES — RoVibes (positions from scanner)
--- ══════════════════════════════════════════════════════════════════════════════
+local ui = RefLib.new("egg collector", UI_ASSET_ID, "egg_collector_cfg")
 
 local ZONES = {
-    { name = "Zone A",  pos = Vector3.new(-207, 4,  872) },
-    { name = "Zone B",  pos = Vector3.new( 190, 9,  563) },
-    { name = "Zone C",  pos = Vector3.new(  -6, 16, 563) },
-    { name = "Zone D",  pos = Vector3.new( -57, 8,  672) },
-    { name = "Zone E",  pos = Vector3.new( 343, 6,  762) },
-    { name = "Zone F",  pos = Vector3.new( -64, 19, 454) },
-    { name = "Zone G",  pos = Vector3.new(-137, 25, 781) },
-    { name = "Zone H",  pos = Vector3.new(-209, 24, 774) },
+    { name = "Zone A",  pos = Vector3.new(-207, 4,   872) },
+    { name = "Zone B",  pos = Vector3.new( 280, 9,   480) },
+    { name = "Zone C",  pos = Vector3.new(  -6, 16,  490) },
+    { name = "Zone D",  pos = Vector3.new(-120, 8,   650) },
+    { name = "Zone E",  pos = Vector3.new( 420, 6,   720) },
+    { name = "Zone F",  pos = Vector3.new( -64, 19,  350) },
+    { name = "Zone G",  pos = Vector3.new(-250, 25,  820) },
+    { name = "Zone H",  pos = Vector3.new( 160, 24,  900) },
 }
 
-local ZONE_RADIUS   = 120   -- stud radius per zone
-local ZONE_WAIT     = 60    -- seconds to wait in zone before moving on if no eggs
-local COLLECT_DELAY = 0.35  -- seconds between each egg
+local ZONE_RADIUS   = 140
+local ZONE_WAIT     = 20
+local COLLECT_DELAY = 0.35
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- TOAST NOTIFICATION SYSTEM — custom, replaces RefLib toast
+-- TOAST SYSTEM
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local toastGui = Instance.new("ScreenGui")
-toastGui.Name = "EggToasts"
-toastGui.ResetOnSpawn = false
+toastGui.Name           = "EggToasts"
+toastGui.ResetOnSpawn   = false
 toastGui.IgnoreGuiInset = true
-toastGui.DisplayOrder = 9999
-toastGui.Parent = playerGui
+toastGui.DisplayOrder   = 9999
+toastGui.Parent         = playerGui
 
 local toastHolder = Instance.new("Frame")
-toastHolder.Name = "Holder"
-toastHolder.Size = UDim2.new(0, 320, 1, 0)
-toastHolder.Position = UDim2.new(1, -330, 0, 0)
+toastHolder.Name                  = "Holder"
+toastHolder.Size                  = UDim2.new(0, 300, 1, 0)
+toastHolder.Position              = UDim2.new(1, -312, 0, 0)
 toastHolder.BackgroundTransparency = 1
-toastHolder.Parent = toastGui
+toastHolder.Parent                = toastGui
 
 local toastLayout = Instance.new("UIListLayout")
-toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
+toastLayout.SortOrder         = Enum.SortOrder.LayoutOrder
 toastLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-toastLayout.Padding = UDim.new(0, 6)
-toastLayout.Parent = toastHolder
+toastLayout.Padding           = UDim.new(0, 6)
+toastLayout.Parent            = toastHolder
 
 local toastPad = Instance.new("UIPadding")
-toastPad.PaddingBottom = UDim.new(0, 16)
-toastPad.PaddingRight  = UDim.new(0, 0)
-toastPad.Parent = toastHolder
+toastPad.PaddingBottom = UDim.new(0, 18)
+toastPad.Parent        = toastHolder
 
 local TOAST_COLORS = {
-    info    = { bg = Color3.fromRGB(30,  30,  45),  accent = Color3.fromRGB(80, 140, 255) },
-    success = { bg = Color3.fromRGB(20,  40,  30),  accent = Color3.fromRGB(60, 210, 110) },
-    warn    = { bg = Color3.fromRGB(45,  35,  15),  accent = Color3.fromRGB(255, 190, 50) },
-    error   = { bg = Color3.fromRGB(45,  20,  20),  accent = Color3.fromRGB(220, 70,  70) },
-    egg     = { bg = Color3.fromRGB(35,  25,  50),  accent = Color3.fromRGB(200, 130, 255) },
+    info    = { bg = Color3.fromRGB(22,  16,  38),  accent = Color3.fromRGB(160, 100, 255) },
+    success = { bg = Color3.fromRGB(18,  12,  36),  accent = Color3.fromRGB(180, 130, 255) },
+    warn    = { bg = Color3.fromRGB(30,  18,  48),  accent = Color3.fromRGB(210, 160, 255) },
+    error   = { bg = Color3.fromRGB(40,  14,  50),  accent = Color3.fromRGB(220,  80, 255) },
+    egg     = { bg = Color3.fromRGB(26,  14,  46),  accent = Color3.fromRGB(200, 120, 255) },
 }
 
 local function showToast(title, body, kind, duration)
@@ -70,68 +67,89 @@ local function showToast(title, body, kind, duration)
     local c  = TOAST_COLORS[kind] or TOAST_COLORS.info
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 56)
-    frame.BackgroundColor3 = c.bg
-    frame.BorderSizePixel  = 0
+    frame.Size                   = UDim2.new(1, 0, 0, 62)
+    frame.BackgroundColor3       = c.bg
+    frame.BorderSizePixel        = 0
     frame.BackgroundTransparency = 1
-    frame.Parent = toastHolder
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+    frame.ClipsDescendants       = true
+    frame.Parent                 = toastHolder
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 9)
 
-    -- Left accent bar
+    local stroke = Instance.new("UIStroke")
+    stroke.Color        = c.accent
+    stroke.Thickness    = 1
+    stroke.Transparency = 0.6
+    stroke.Parent       = frame
+
+    local icon = Instance.new("ImageLabel")
+    icon.Size                   = UDim2.new(0, 24, 0, 24)
+    icon.Position               = UDim2.new(0, 10, 0, 10)
+    icon.BackgroundTransparency = 1
+    icon.Image                  = UI_ASSET_ID
+    icon.ImageColor3            = c.accent
+    icon.Parent                 = frame
+
     local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(0, 3, 1, -12)
-    bar.Position = UDim2.new(0, 6, 0, 6)
+    bar.Size             = UDim2.new(0, 2, 1, -14)
+    bar.Position         = UDim2.new(0, 38, 0, 7)
     bar.BackgroundColor3 = c.accent
-    bar.BorderSizePixel = 0
-    bar.Parent = frame
+    bar.BorderSizePixel  = 0
+    bar.Parent           = frame
     Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
 
-    -- Title
     local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size = UDim2.new(1, -24, 0, 20)
-    titleLbl.Position = UDim2.new(0, 16, 0, 8)
+    titleLbl.Size                = UDim2.new(1, -56, 0, 22)
+    titleLbl.Position            = UDim2.new(0, 46, 0, 8)
     titleLbl.BackgroundTransparency = 1
-    titleLbl.Font = Enum.Font.GothamBold
-    titleLbl.TextSize = 12
-    titleLbl.TextColor3 = c.accent
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Text = title
-    titleLbl.Parent = frame
+    titleLbl.Font                = Enum.Font.GothamBold
+    titleLbl.TextSize            = 12
+    titleLbl.TextColor3          = c.accent
+    titleLbl.TextXAlignment      = Enum.TextXAlignment.Left
+    titleLbl.Text                = title
+    titleLbl.Parent              = frame
 
-    -- Body
     local bodyLbl = Instance.new("TextLabel")
-    bodyLbl.Size = UDim2.new(1, -24, 0, 18)
-    bodyLbl.Position = UDim2.new(0, 16, 0, 28)
+    bodyLbl.Size                 = UDim2.new(1, -56, 0, 18)
+    bodyLbl.Position             = UDim2.new(0, 46, 0, 30)
     bodyLbl.BackgroundTransparency = 1
-    bodyLbl.Font = Enum.Font.Gotham
-    bodyLbl.TextSize = 11
-    bodyLbl.TextColor3 = Color3.fromRGB(190, 190, 210)
-    bodyLbl.TextXAlignment = Enum.TextXAlignment.Left
-    bodyLbl.Text = body
-    bodyLbl.Parent = frame
+    bodyLbl.Font                 = Enum.Font.Gotham
+    bodyLbl.TextSize             = 11
+    bodyLbl.TextColor3           = Color3.fromRGB(195, 170, 230)
+    bodyLbl.TextXAlignment       = Enum.TextXAlignment.Left
+    bodyLbl.Text                 = body
+    bodyLbl.Parent               = frame
 
-    -- Slide in
-    frame.Position = UDim2.new(1, 20, 0, 0)
-    frame.BackgroundTransparency = 0
-    TweenService:Create(frame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+    local prog = Instance.new("Frame")
+    prog.Size             = UDim2.new(1, 0, 0, 2)
+    prog.Position         = UDim2.new(0, 0, 1, -2)
+    prog.BackgroundColor3 = c.accent
+    prog.BorderSizePixel  = 0
+    prog.BackgroundTransparency = 0.4
+    prog.Parent           = frame
+
+    frame.Position = UDim2.new(1, 16, 0, 0)
+    TweenService:Create(frame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
         BackgroundTransparency = 0,
     }):Play()
 
-    -- Auto dismiss
+    TweenService:Create(prog, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+        Size = UDim2.new(0, 0, 0, 2)
+    }):Play()
+
     task.delay(duration, function()
-        TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
-            BackgroundTransparency = 1,
-        }):Play()
-        TweenService:Create(titleLbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
-        TweenService:Create(bodyLbl,  TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
-        TweenService:Create(bar,      TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
-        task.wait(0.35)
+        local fadeInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quart)
+        TweenService:Create(frame,    fadeInfo, { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(titleLbl, fadeInfo, { TextTransparency = 1 }):Play()
+        TweenService:Create(bodyLbl,  fadeInfo, { TextTransparency = 1 }):Play()
+        TweenService:Create(bar,      fadeInfo, { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(icon,     fadeInfo, { ImageTransparency = 1 }):Play()
+        task.wait(0.32)
         frame:Destroy()
     end)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- STATE
+-- ESTADO
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local collectOn    = false
@@ -141,7 +159,7 @@ local collectDelay = COLLECT_DELAY
 local statusLabel  = nil
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- CORE FUNCTIONS
+-- FUNÇÕES CORE
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function myHRP()
@@ -169,10 +187,37 @@ local function teleportTo(pos)
     setCollision(true)
 end
 
+-- ══════════════════════════════════════════════════════════════════════════════
+-- SCANNER — busca APENAS dentro da folder de spawn dos ovos
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local eggSpawnFolder = nil
+
+local function detectEggFolder()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "EggTemplate" and obj.Parent and obj.Parent ~= workspace then
+            local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
+            if ovo and ovo:IsA("BasePart") then
+                eggSpawnFolder = obj.Parent
+                return eggSpawnFolder
+            end
+        end
+    end
+    return nil
+end
+
 local function findEggsNear(center, radius)
+    local folder = eggSpawnFolder or detectEggFolder()
+    if not folder or not folder.Parent then
+        eggSpawnFolder = nil
+        folder = detectEggFolder()
+        if not folder then return {} end
+    end
+
     local eggs = {}
     local seen  = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
+
+    for _, obj in ipairs(folder:GetChildren()) do
         pcall(function()
             if obj.Name == "EggTemplate" and not seen[obj] and obj.Parent then
                 local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
@@ -186,6 +231,7 @@ local function findEggsNear(center, radius)
             end
         end)
     end
+
     table.sort(eggs, function(a, b)
         return (a.pos - center).Magnitude < (b.pos - center).Magnitude
     end)
@@ -221,7 +267,7 @@ local function updateStatus()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- MAIN LOOP — teleport to zone, wait up to 60s for eggs, move on
+-- LOOP PRINCIPAL
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function collectLoop()
@@ -229,9 +275,11 @@ local function collectLoop()
     skipped   = 0
     updateStatus()
 
+    if not eggSpawnFolder then detectEggFolder() end
+
     while collectOn do
         if not isAlive() then
-            showToast("Waiting", "Dead — waiting for respawn...", "error", 3)
+            showToast("Aguardando", "Morto — aguardando respawn...", "error", 3)
             task.wait(2)
             continue
         end
@@ -240,13 +288,11 @@ local function collectLoop()
             if not collectOn then break end
             if not isAlive() then break end
 
-            -- Teleport to zone
             teleportTo(zone.pos)
-            showToast("Moved to "..zone.name, "Scanning for eggs nearby...", "info", 3)
+            showToast("→ "..zone.name, "Escaneando ovos...", "info", 2.5)
 
-            -- Wait up to ZONE_WAIT seconds for eggs to appear
-            local waited    = 0
-            local foundAny  = false
+            local waited   = 0
+            local foundAny = false
 
             while collectOn and waited < ZONE_WAIT do
                 if not isAlive() then break end
@@ -255,7 +301,7 @@ local function collectLoop()
 
                 if #eggs > 0 then
                     foundAny = true
-                    showToast(zone.name.." — "..#eggs.." egg(s)", "Collecting...", "egg", 4)
+                    showToast(zone.name.." — "..#eggs.." ovo(s)", "Coletando...", "egg", 3)
 
                     for _, eggData in ipairs(eggs) do
                         if not collectOn then break end
@@ -268,87 +314,124 @@ local function collectLoop()
                         updateStatus()
                         task.wait(collectDelay)
                     end
-
-                    -- After collecting, keep watching this zone for new spawns
-                    -- until the zone wait expires
                 end
 
-                task.wait(4)  -- recheck every 4s within the zone
-                waited = waited + 4
+                task.wait(2)
+                waited = waited + 2
             end
 
             if not foundAny then
-                showToast(zone.name.." — no eggs", "Moving to next zone...", "warn", 3)
+                showToast(zone.name.." — vazia", "Próxima zona...", "warn", 2)
             else
-                showToast(zone.name.." — done", "Total collected: "..collected, "success", 3)
+                showToast(zone.name.." — ok", "Total: "..collected.." coletados", "success", 2.5)
             end
 
-            task.wait(1)
+            task.wait(0.5)
         end
 
-        -- Full cycle complete
         if collectOn then
-            showToast("Cycle complete", "Collected: "..collected.." | Restarting...", "success", 4)
-            task.wait(2)
+            showToast("Ciclo completo", "Coletados: "..collected.." | Reiniciando...", "success", 3.5)
+            task.wait(1.5)
         end
     end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- NUMERIC INPUT POPUP — shows when user clicks the value next to slider
+-- NUMERIC INPUT POPUP
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
     local popup = Instance.new("ScreenGui")
-    popup.Name = "NumericInput"
-    popup.ResetOnSpawn = false
-    popup.DisplayOrder = 99999
+    popup.Name           = "NumericInput"
+    popup.ResetOnSpawn   = false
+    popup.DisplayOrder   = 99999
     popup.IgnoreGuiInset = true
-    popup.Parent = playerGui
+    popup.Parent         = playerGui
 
     local backdrop = Instance.new("Frame")
-    backdrop.Size = UDim2.new(1, 0, 1, 0)
-    backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    backdrop.BackgroundTransparency = 0.5
-    backdrop.BorderSizePixel = 0
-    backdrop.Parent = popup
+    backdrop.Size                   = UDim2.new(1, 0, 1, 0)
+    backdrop.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+    backdrop.BackgroundTransparency = 0.55
+    backdrop.BorderSizePixel        = 0
+    backdrop.Parent                 = popup
 
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(0, 220, 0, 110)
-    box.Position = UDim2.new(0.5, -110, 0.5, -55)
-    box.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
-    box.BorderSizePixel = 0
-    box.Parent = popup
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+    box.AnchorPoint      = Vector2.new(0.5, 0.5)
+    box.Size             = UDim2.new(0, 240, 0, 130)
+    box.Position         = UDim2.new(0.5, 0, 0.5, 0)
+    box.BackgroundColor3 = Color3.fromRGB(18, 12, 32)
+    box.BorderSizePixel  = 0
+    box.Parent           = popup
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 12)
 
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(80, 140, 255)
-    stroke.Thickness = 1.5
-    stroke.Parent = box
+    stroke.Color        = Color3.fromRGB(160, 100, 255)
+    stroke.Thickness    = 1.2
+    stroke.Transparency = 0.3
+    stroke.Parent       = box
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 28)
-    lbl.Position = UDim2.new(0, 0, 0, 8)
-    lbl.BackgroundTransparency = 1
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 12
-    lbl.TextColor3 = Color3.fromRGB(160, 180, 255)
-    lbl.Text = "Enter value ("..minVal.." – "..maxVal..")"
-    lbl.Parent = box
+    local header = Instance.new("Frame")
+    header.Size             = UDim2.new(1, 0, 0, 36)
+    header.BackgroundColor3 = Color3.fromRGB(30, 18, 54)
+    header.BorderSizePixel  = 0
+    header.Parent           = box
+    Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
+
+    local headerFix = Instance.new("Frame")
+    headerFix.Size             = UDim2.new(1, 0, 0, 12)
+    headerFix.Position         = UDim2.new(0, 0, 1, -12)
+    headerFix.BackgroundColor3 = Color3.fromRGB(30, 18, 54)
+    headerFix.BorderSizePixel  = 0
+    headerFix.Parent           = header
+
+    local headerIcon = Instance.new("ImageLabel")
+    headerIcon.Size                   = UDim2.new(0, 18, 0, 18)
+    headerIcon.Position               = UDim2.new(0, 10, 0.5, -9)
+    headerIcon.BackgroundTransparency = 1
+    headerIcon.Image                  = UI_ASSET_ID
+    headerIcon.ImageColor3            = Color3.fromRGB(180, 130, 255)
+    headerIcon.Parent                 = header
+
+    local headerLbl = Instance.new("TextLabel")
+    headerLbl.Size               = UDim2.new(1, -36, 1, 0)
+    headerLbl.Position           = UDim2.new(0, 32, 0, 0)
+    headerLbl.BackgroundTransparency = 1
+    headerLbl.Font               = Enum.Font.GothamBold
+    headerLbl.TextSize           = 12
+    headerLbl.TextColor3         = Color3.fromRGB(200, 160, 255)
+    headerLbl.TextXAlignment     = Enum.TextXAlignment.Left
+    headerLbl.Text               = "Delay entre ovos  ("..minVal.."–"..maxVal.." ticks)"
+    headerLbl.Parent             = header
 
     local input = Instance.new("TextBox")
-    input.Size = UDim2.new(1, -20, 0, 32)
-    input.Position = UDim2.new(0, 10, 0, 38)
-    input.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
-    input.BorderSizePixel = 0
-    input.Font = Enum.Font.GothamBold
-    input.TextSize = 14
-    input.TextColor3 = Color3.new(1, 1, 1)
-    input.PlaceholderText = tostring(currentVal)
-    input.Text = tostring(currentVal)
+    input.Size             = UDim2.new(1, -20, 0, 34)
+    input.Position         = UDim2.new(0, 10, 0, 44)
+    input.BackgroundColor3 = Color3.fromRGB(28, 18, 48)
+    input.BorderSizePixel  = 0
+    input.Font             = Enum.Font.GothamBold
+    input.TextSize         = 16
+    input.TextColor3       = Color3.new(1, 1, 1)
+    input.PlaceholderText  = tostring(currentVal)
+    input.Text             = tostring(currentVal)
     input.ClearTextOnFocus = true
-    input.Parent = box
-    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 6)
+    input.Parent           = box
+    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 7)
+
+    local inputStroke = Instance.new("UIStroke")
+    inputStroke.Color     = Color3.fromRGB(130, 80, 210)
+    inputStroke.Thickness = 1
+    inputStroke.Parent    = input
+
+    local hint = Instance.new("TextLabel")
+    hint.Size                = UDim2.new(1, -20, 0, 14)
+    hint.Position            = UDim2.new(0, 10, 0, 80)
+    hint.BackgroundTransparency = 1
+    hint.Font                = Enum.Font.Gotham
+    hint.TextSize            = 10
+    hint.TextColor3          = Color3.fromRGB(130, 100, 170)
+    hint.TextXAlignment      = Enum.TextXAlignment.Left
+    hint.Text                = "1 tick = 0.05s   |   atual: "..currentVal.." ticks = "..(currentVal*0.05).."s"
+    hint.Parent              = box
 
     local function confirm()
         local num = tonumber(input.Text)
@@ -359,36 +442,38 @@ local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
         popup:Destroy()
     end
 
-    local btnRow = Instance.new("Frame")
-    btnRow.Size = UDim2.new(1, -20, 0, 28)
-    btnRow.Position = UDim2.new(0, 10, 0, 76)
-    btnRow.BackgroundTransparency = 1
-    btnRow.Parent = box
-
     local btnOk = Instance.new("TextButton")
-    btnOk.Size = UDim2.new(0.48, 0, 1, 0)
-    btnOk.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
-    btnOk.BorderSizePixel = 0
-    btnOk.Font = Enum.Font.GothamBold
-    btnOk.TextSize = 12
-    btnOk.TextColor3 = Color3.new(1,1,1)
-    btnOk.Text = "OK"
-    btnOk.Parent = btnRow
-    Instance.new("UICorner", btnOk).CornerRadius = UDim.new(0, 6)
+    btnOk.Size             = UDim2.new(0, 100, 0, 28)
+    btnOk.Position         = UDim2.new(0.5, -104, 1, -36)
+    btnOk.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
+    btnOk.BorderSizePixel  = 0
+    btnOk.Font             = Enum.Font.GothamBold
+    btnOk.TextSize         = 12
+    btnOk.TextColor3       = Color3.new(1, 1, 1)
+    btnOk.Text             = "Confirmar"
+    btnOk.Parent           = box
+    Instance.new("UICorner", btnOk).CornerRadius = UDim.new(0, 7)
     btnOk.Activated:Connect(confirm)
 
     local btnCancel = Instance.new("TextButton")
-    btnCancel.Size = UDim2.new(0.48, 0, 1, 0)
-    btnCancel.Position = UDim2.new(0.52, 0, 0, 0)
-    btnCancel.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
-    btnCancel.BorderSizePixel = 0
-    btnCancel.Font = Enum.Font.GothamBold
-    btnCancel.TextSize = 12
-    btnCancel.TextColor3 = Color3.new(1,1,1)
-    btnCancel.Text = "Cancel"
-    btnCancel.Parent = btnRow
-    Instance.new("UICorner", btnCancel).CornerRadius = UDim.new(0, 6)
+    btnCancel.Size             = UDim2.new(0, 100, 0, 28)
+    btnCancel.Position         = UDim2.new(0.5, 4, 1, -36)
+    btnCancel.BackgroundColor3 = Color3.fromRGB(50, 28, 72)
+    btnCancel.BorderSizePixel  = 0
+    btnCancel.Font             = Enum.Font.GothamBold
+    btnCancel.TextSize         = 12
+    btnCancel.TextColor3       = Color3.fromRGB(170, 130, 220)
+    btnCancel.Text             = "Cancelar"
+    btnCancel.Parent           = box
+    Instance.new("UICorner", btnCancel).CornerRadius = UDim.new(0, 7)
     btnCancel.Activated:Connect(function() popup:Destroy() end)
+
+    backdrop.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            popup:Destroy()
+        end
+    end)
 
     input.FocusLost:Connect(function(enter)
         if enter then confirm() end
@@ -399,10 +484,10 @@ local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- UI
+-- UI TABS
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local tab = ui:Tab("eggs", "rbxassetid://131165537896572")
+local tab = ui:Tab("eggs", UI_ASSET_ID)
 local sec = tab:Section("auto egg collector — RoVibes")
 
 statusLabel = sec:Button("collected: 0   skipped: 0", function() end)
@@ -413,49 +498,47 @@ local t_collect = sec:Toggle("auto collect eggs", false, function(v)
     collectOn = v
     if v then
         task.spawn(collectLoop)
-        showToast("Egg Farm Started", "Scanning "..#ZONES.." zones — 60s per zone", "success", 4)
+        showToast("Farm Iniciado", "Varrendo "..#ZONES.." zonas — 20s por zona", "success", 4)
     else
-        showToast("Egg Farm Stopped", "Total collected: "..collected, "info", 3)
+        showToast("Farm Parado", "Total coletado: "..collected, "info", 3)
     end
 end)
 ui:CfgRegister("egg_collect", function() return collectOn end, function(v) t_collect.Set(v) end)
 
--- Slider + numeric input button side by side
-sec:Divider("delay between eggs")
+sec:Divider("delay entre ovos")
 
-local currentDelayTicks = 7  -- default: 7 * 0.05 = 0.35s
+local currentDelayTicks = 7
 
-local sliderRef = sec:Slider("delay (x0.05s)  [ click # to type ]", 1, 20, currentDelayTicks, function(v)
+local sliderRef = sec:Slider("delay (x0.05s)", 1, 20, currentDelayTicks, function(v)
     currentDelayTicks = v
     collectDelay = v * 0.05
 end)
 ui:CfgRegister("egg_delay", function() return currentDelayTicks end, function(v) sliderRef.Set(v) end)
 
--- Button next to slider that opens numeric input
-sec:Button("✎ type delay value  (current: "..currentDelayTicks..")", function()
+sec:Button("✎ inserir valor de delay", function()
     makeNumericInput(currentDelayTicks, 1, 20, function(val)
         currentDelayTicks = val
         collectDelay = val * 0.05
         sliderRef.Set(val)
-        showToast("Delay updated", val.." ticks = "..(val*0.05).."s per egg", "info", 2.5)
+        showToast("Delay atualizado", val.." ticks = "..(val*0.05).."s por ovo", "egg", 2.5)
     end)
 end)
 
-sec:Divider("manual teleport + collect")
+sec:Divider("teleporte manual")
 
 for _, zone in ipairs(ZONES) do
     local z = zone
     sec:Button("→ "..z.name, function()
         if not isAlive() then
-            showToast("Can't teleport", "You are dead", "error", 2)
+            showToast("Erro", "Você está morto", "error", 2)
             return
         end
         teleportTo(z.pos)
-        showToast("Teleported to "..z.name, "Collecting eggs nearby...", "egg", 3)
+        showToast("→ "..z.name, "Coletando ovos na área...", "egg", 3)
         task.spawn(function()
             local eggs = findEggsNear(z.pos, ZONE_RADIUS)
             if #eggs == 0 then
-                showToast(z.name.." — empty", "No eggs found in this zone", "warn", 3)
+                showToast(z.name.." — vazia", "Nenhum ovo encontrado", "warn", 3)
                 return
             end
             for _, eggData in ipairs(eggs) do
@@ -464,16 +547,26 @@ for _, zone in ipairs(ZONES) do
                 updateStatus()
                 task.wait(collectDelay)
             end
-            showToast(z.name.." — done", "Collected: "..collected.." total", "success", 3)
+            showToast(z.name.." — ok", "Coletados: "..collected.." total", "success", 3)
         end)
     end)
 end
 
 sec:Divider("utils")
-sec:Button("reset counter", function()
+sec:Button("resetar contador", function()
     collected = 0; skipped = 0; updateStatus()
-    showToast("Counter reset", "Back to zero", "info", 2)
+    showToast("Contador zerado", "De volta ao zero", "info", 2)
 end)
 
-local tabCfg = ui:Tab("config", "rbxassetid://131165537896572")
+sec:Button("detectar pasta de ovos", function()
+    eggSpawnFolder = nil
+    local folder = detectEggFolder()
+    if folder then
+        showToast("Pasta detectada", folder.Name.." ("..#folder:GetChildren().." filhos)", "success", 3.5)
+    else
+        showToast("Não encontrado", "Nenhum EggTemplate no workspace", "error", 3.5)
+    end
+end)
+
+local tabCfg = ui:Tab("config", UI_ASSET_ID)
 ui:BuildConfigTab(tabCfg, "egg_collector_cfg")

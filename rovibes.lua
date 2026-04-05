@@ -1,39 +1,147 @@
 local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua", true))()
-if not RefLib then error("[EggCollector] RefLib falhou ao carregar.") end
+if not RefLib then error("[EggCollector] RefLib failed to load.") end
 
-local Players = game:GetService("Players")
-local player  = Players.LocalPlayer
+local Players        = game:GetService("Players")
+local TweenService   = game:GetService("TweenService")
+local player         = Players.LocalPlayer
+local playerGui      = player:WaitForChild("PlayerGui")
 
 local ui = RefLib.new("egg collector", "rbxassetid://131165537896572", "egg_collector_cfg")
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- ZONAS DO MAPA — RoVibes
--- Posições retiradas do scanner. Edite os Vector3 se mudar de servidor.
+-- ZONES — RoVibes (positions from scanner)
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local ZONES = {
-    { name = "Zona A",  pos = Vector3.new(-207, 4,  872) },
-    { name = "Zona B",  pos = Vector3.new( 190, 9,  563) },
-    { name = "Zona C",  pos = Vector3.new(  -6, 16, 563) },
-    { name = "Zona D",  pos = Vector3.new( -57, 8,  672) },
-    { name = "Zona E",  pos = Vector3.new( 343, 6,  762) },
-    { name = "Zona F",  pos = Vector3.new( -64, 19, 454) },
-    { name = "Zona G",  pos = Vector3.new(-137, 25, 781) },
-    { name = "Zona H",  pos = Vector3.new(-209, 24, 774) },
+    { name = "Zone A",  pos = Vector3.new(-207, 4,  872) },
+    { name = "Zone B",  pos = Vector3.new( 190, 9,  563) },
+    { name = "Zone C",  pos = Vector3.new(  -6, 16, 563) },
+    { name = "Zone D",  pos = Vector3.new( -57, 8,  672) },
+    { name = "Zone E",  pos = Vector3.new( 343, 6,  762) },
+    { name = "Zone F",  pos = Vector3.new( -64, 19, 454) },
+    { name = "Zone G",  pos = Vector3.new(-137, 25, 781) },
+    { name = "Zone H",  pos = Vector3.new(-209, 24, 774) },
 }
 
--- ══════════════════════════════════════════════════════════════════════════════
--- ESTADO
--- ══════════════════════════════════════════════════════════════════════════════
-
-local collectOn = false
-local collected = 0
-local skipped   = 0
-local cooldown  = 0.35   -- segundos entre cada egg
-local eggLabel  = nil
+local ZONE_RADIUS   = 120   -- stud radius per zone
+local ZONE_WAIT     = 60    -- seconds to wait in zone before moving on if no eggs
+local COLLECT_DELAY = 0.35  -- seconds between each egg
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- HELPERS
+-- TOAST NOTIFICATION SYSTEM — custom, replaces RefLib toast
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local toastGui = Instance.new("ScreenGui")
+toastGui.Name = "EggToasts"
+toastGui.ResetOnSpawn = false
+toastGui.IgnoreGuiInset = true
+toastGui.DisplayOrder = 9999
+toastGui.Parent = playerGui
+
+local toastHolder = Instance.new("Frame")
+toastHolder.Name = "Holder"
+toastHolder.Size = UDim2.new(0, 320, 1, 0)
+toastHolder.Position = UDim2.new(1, -330, 0, 0)
+toastHolder.BackgroundTransparency = 1
+toastHolder.Parent = toastGui
+
+local toastLayout = Instance.new("UIListLayout")
+toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
+toastLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+toastLayout.Padding = UDim.new(0, 6)
+toastLayout.Parent = toastHolder
+
+local toastPad = Instance.new("UIPadding")
+toastPad.PaddingBottom = UDim.new(0, 16)
+toastPad.PaddingRight  = UDim.new(0, 0)
+toastPad.Parent = toastHolder
+
+local TOAST_COLORS = {
+    info    = { bg = Color3.fromRGB(30,  30,  45),  accent = Color3.fromRGB(80, 140, 255) },
+    success = { bg = Color3.fromRGB(20,  40,  30),  accent = Color3.fromRGB(60, 210, 110) },
+    warn    = { bg = Color3.fromRGB(45,  35,  15),  accent = Color3.fromRGB(255, 190, 50) },
+    error   = { bg = Color3.fromRGB(45,  20,  20),  accent = Color3.fromRGB(220, 70,  70) },
+    egg     = { bg = Color3.fromRGB(35,  25,  50),  accent = Color3.fromRGB(200, 130, 255) },
+}
+
+local function showToast(title, body, kind, duration)
+    kind     = kind or "info"
+    duration = duration or 3.5
+    local c  = TOAST_COLORS[kind] or TOAST_COLORS.info
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 56)
+    frame.BackgroundColor3 = c.bg
+    frame.BorderSizePixel  = 0
+    frame.BackgroundTransparency = 1
+    frame.Parent = toastHolder
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+    -- Left accent bar
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(0, 3, 1, -12)
+    bar.Position = UDim2.new(0, 6, 0, 6)
+    bar.BackgroundColor3 = c.accent
+    bar.BorderSizePixel = 0
+    bar.Parent = frame
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
+
+    -- Title
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Size = UDim2.new(1, -24, 0, 20)
+    titleLbl.Position = UDim2.new(0, 16, 0, 8)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Font = Enum.Font.GothamBold
+    titleLbl.TextSize = 12
+    titleLbl.TextColor3 = c.accent
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+    titleLbl.Text = title
+    titleLbl.Parent = frame
+
+    -- Body
+    local bodyLbl = Instance.new("TextLabel")
+    bodyLbl.Size = UDim2.new(1, -24, 0, 18)
+    bodyLbl.Position = UDim2.new(0, 16, 0, 28)
+    bodyLbl.BackgroundTransparency = 1
+    bodyLbl.Font = Enum.Font.Gotham
+    bodyLbl.TextSize = 11
+    bodyLbl.TextColor3 = Color3.fromRGB(190, 190, 210)
+    bodyLbl.TextXAlignment = Enum.TextXAlignment.Left
+    bodyLbl.Text = body
+    bodyLbl.Parent = frame
+
+    -- Slide in
+    frame.Position = UDim2.new(1, 20, 0, 0)
+    frame.BackgroundTransparency = 0
+    TweenService:Create(frame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        BackgroundTransparency = 0,
+    }):Play()
+
+    -- Auto dismiss
+    task.delay(duration, function()
+        TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+            BackgroundTransparency = 1,
+        }):Play()
+        TweenService:Create(titleLbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+        TweenService:Create(bodyLbl,  TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+        TweenService:Create(bar,      TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
+        task.wait(0.35)
+        frame:Destroy()
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- STATE
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local collectOn    = false
+local collected    = 0
+local skipped      = 0
+local collectDelay = COLLECT_DELAY
+local statusLabel  = nil
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- CORE FUNCTIONS
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function myHRP()
@@ -57,11 +165,10 @@ local function teleportTo(pos)
     local hrp = myHRP(); if not hrp then return end
     setCollision(false)
     hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-    task.wait(0.08)
+    task.wait(0.1)
     setCollision(true)
 end
 
--- Busca EggTemplates num raio em volta de uma posição
 local function findEggsNear(center, radius)
     local eggs = {}
     local seen  = {}
@@ -79,14 +186,12 @@ local function findEggsNear(center, radius)
             end
         end)
     end
-    -- Ordena pelos mais próximos
     table.sort(eggs, function(a, b)
         return (a.pos - center).Magnitude < (b.pos - center).Magnitude
     end)
     return eggs
 end
 
--- Coleta um egg: teleporta em cima + oscilação pra garantir Touched
 local function collectEgg(eggData)
     local hrp = myHRP(); if not hrp then return false end
     if not eggData.model.Parent then return false end
@@ -110,16 +215,14 @@ local function collectEgg(eggData)
 end
 
 local function updateStatus()
-    if eggLabel then
-        eggLabel.Set("coletados: "..collected.."   pulados: "..skipped)
+    if statusLabel then
+        statusLabel.Set("collected: "..collected.."   skipped: "..skipped)
     end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- LOOP PRINCIPAL — visita cada zona, coleta eggs em volta, repete
+-- MAIN LOOP — teleport to zone, wait up to 60s for eggs, move on
 -- ══════════════════════════════════════════════════════════════════════════════
-
-local ZONE_RADIUS = 120  -- studs — raio de busca em cada zona
 
 local function collectLoop()
     collected = 0
@@ -127,118 +230,249 @@ local function collectLoop()
     updateStatus()
 
     while collectOn do
-        if not isAlive() then task.wait(1); continue end
-
-        local anyFound = false
+        if not isAlive() then
+            showToast("Waiting", "Dead — waiting for respawn...", "error", 3)
+            task.wait(2)
+            continue
+        end
 
         for _, zone in ipairs(ZONES) do
             if not collectOn then break end
             if not isAlive() then break end
 
-            -- Teleporta pra zona
+            -- Teleport to zone
             teleportTo(zone.pos)
-            task.wait(0.15)
+            showToast("Moved to "..zone.name, "Scanning for eggs nearby...", "info", 3)
 
-            -- Coleta todos os eggs nessa zona
-            local eggs = findEggsNear(zone.pos, ZONE_RADIUS)
+            -- Wait up to ZONE_WAIT seconds for eggs to appear
+            local waited    = 0
+            local foundAny  = false
 
-            if #eggs > 0 then
-                anyFound = true
-                ui:Toast("rbxassetid://131165537896572",
-                    "[Eggs] "..zone.name,
-                    #eggs.." egg(s) encontrado(s) — coletando...",
-                    Color3.fromRGB(255, 200, 50))
+            while collectOn and waited < ZONE_WAIT do
+                if not isAlive() then break end
 
-                for _, eggData in ipairs(eggs) do
-                    if not collectOn then break end
-                    if not isAlive() then break end
-                    if collectEgg(eggData) then
-                        collected = collected + 1
-                    else
-                        skipped = skipped + 1
+                local eggs = findEggsNear(zone.pos, ZONE_RADIUS)
+
+                if #eggs > 0 then
+                    foundAny = true
+                    showToast(zone.name.." — "..#eggs.." egg(s)", "Collecting...", "egg", 4)
+
+                    for _, eggData in ipairs(eggs) do
+                        if not collectOn then break end
+                        if not isAlive() then break end
+                        if collectEgg(eggData) then
+                            collected = collected + 1
+                        else
+                            skipped = skipped + 1
+                        end
+                        updateStatus()
+                        task.wait(collectDelay)
                     end
-                    updateStatus()
-                    task.wait(cooldown)
+
+                    -- After collecting, keep watching this zone for new spawns
+                    -- until the zone wait expires
                 end
+
+                task.wait(4)  -- recheck every 4s within the zone
+                waited = waited + 4
             end
+
+            if not foundAny then
+                showToast(zone.name.." — no eggs", "Moving to next zone...", "warn", 3)
+            else
+                showToast(zone.name.." — done", "Total collected: "..collected, "success", 3)
+            end
+
+            task.wait(1)
         end
 
-        -- Após varrer todas as zonas
+        -- Full cycle complete
         if collectOn then
-            local msg = anyFound
-                and "ciclo completo — "..collected.." coletados | rescaneando..."
-                or  "nenhum egg em nenhuma zona — aguardando respawn..."
-            ui:Toast("rbxassetid://131165537896572", "[Eggs]", msg, Color3.fromRGB(100, 220, 100))
-            task.wait(anyFound and 2 or 5)
+            showToast("Cycle complete", "Collected: "..collected.." | Restarting...", "success", 4)
+            task.wait(2)
         end
     end
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- NUMERIC INPUT POPUP — shows when user clicks the value next to slider
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
+    local popup = Instance.new("ScreenGui")
+    popup.Name = "NumericInput"
+    popup.ResetOnSpawn = false
+    popup.DisplayOrder = 99999
+    popup.IgnoreGuiInset = true
+    popup.Parent = playerGui
+
+    local backdrop = Instance.new("Frame")
+    backdrop.Size = UDim2.new(1, 0, 1, 0)
+    backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    backdrop.BackgroundTransparency = 0.5
+    backdrop.BorderSizePixel = 0
+    backdrop.Parent = popup
+
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 220, 0, 110)
+    box.Position = UDim2.new(0.5, -110, 0.5, -55)
+    box.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+    box.BorderSizePixel = 0
+    box.Parent = popup
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(80, 140, 255)
+    stroke.Thickness = 1.5
+    stroke.Parent = box
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 28)
+    lbl.Position = UDim2.new(0, 0, 0, 8)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 12
+    lbl.TextColor3 = Color3.fromRGB(160, 180, 255)
+    lbl.Text = "Enter value ("..minVal.." – "..maxVal..")"
+    lbl.Parent = box
+
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(1, -20, 0, 32)
+    input.Position = UDim2.new(0, 10, 0, 38)
+    input.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+    input.BorderSizePixel = 0
+    input.Font = Enum.Font.GothamBold
+    input.TextSize = 14
+    input.TextColor3 = Color3.new(1, 1, 1)
+    input.PlaceholderText = tostring(currentVal)
+    input.Text = tostring(currentVal)
+    input.ClearTextOnFocus = true
+    input.Parent = box
+    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 6)
+
+    local function confirm()
+        local num = tonumber(input.Text)
+        if num then
+            num = math.clamp(math.floor(num), minVal, maxVal)
+            onConfirm(num)
+        end
+        popup:Destroy()
+    end
+
+    local btnRow = Instance.new("Frame")
+    btnRow.Size = UDim2.new(1, -20, 0, 28)
+    btnRow.Position = UDim2.new(0, 10, 0, 76)
+    btnRow.BackgroundTransparency = 1
+    btnRow.Parent = box
+
+    local btnOk = Instance.new("TextButton")
+    btnOk.Size = UDim2.new(0.48, 0, 1, 0)
+    btnOk.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+    btnOk.BorderSizePixel = 0
+    btnOk.Font = Enum.Font.GothamBold
+    btnOk.TextSize = 12
+    btnOk.TextColor3 = Color3.new(1,1,1)
+    btnOk.Text = "OK"
+    btnOk.Parent = btnRow
+    Instance.new("UICorner", btnOk).CornerRadius = UDim.new(0, 6)
+    btnOk.Activated:Connect(confirm)
+
+    local btnCancel = Instance.new("TextButton")
+    btnCancel.Size = UDim2.new(0.48, 0, 1, 0)
+    btnCancel.Position = UDim2.new(0.52, 0, 0, 0)
+    btnCancel.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+    btnCancel.BorderSizePixel = 0
+    btnCancel.Font = Enum.Font.GothamBold
+    btnCancel.TextSize = 12
+    btnCancel.TextColor3 = Color3.new(1,1,1)
+    btnCancel.Text = "Cancel"
+    btnCancel.Parent = btnRow
+    Instance.new("UICorner", btnCancel).CornerRadius = UDim.new(0, 6)
+    btnCancel.Activated:Connect(function() popup:Destroy() end)
+
+    input.FocusLost:Connect(function(enter)
+        if enter then confirm() end
+    end)
+
+    task.wait(0.05)
+    input:CaptureFocus()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- UI
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local tab = ui:Tab("ovos", "rbxassetid://131165537896572")
-local sec = tab:Section("auto coletor — RoVibes")
+local tab = ui:Tab("eggs", "rbxassetid://131165537896572")
+local sec = tab:Section("auto egg collector — RoVibes")
 
-eggLabel = sec:Button("coletados: 0   pulados: 0", function() end)
+statusLabel = sec:Button("collected: 0   skipped: 0", function() end)
 
 sec:Divider("farm")
 
-local t_collect = sec:Toggle("auto coletar eggs", false, function(v)
+local t_collect = sec:Toggle("auto collect eggs", false, function(v)
     collectOn = v
     if v then
         task.spawn(collectLoop)
-        ui:Toast("rbxassetid://131165537896572", "[Eggs] iniciado",
-            "varrendo "..#ZONES.." zonas do mapa...", Color3.fromRGB(255, 200, 50))
+        showToast("Egg Farm Started", "Scanning "..#ZONES.." zones — 60s per zone", "success", 4)
     else
-        ui:Toast("rbxassetid://131165537896572", "[Eggs] parado",
-            "total coletados: "..collected, Color3.fromRGB(150, 150, 160))
+        showToast("Egg Farm Stopped", "Total collected: "..collected, "info", 3)
     end
 end)
 ui:CfgRegister("egg_collect", function() return collectOn end, function(v) t_collect.Set(v) end)
 
-local s_cd = sec:Slider("delay entre eggs (x0.05s)", 1, 20, 7, function(v)
-    cooldown = v * 0.05
-end)
-ui:CfgRegister("egg_cooldown", function() return cooldown / 0.05 end, function(v) s_cd.Set(v) end)
+-- Slider + numeric input button side by side
+sec:Divider("delay between eggs")
 
-sec:Divider("teleporte manual — zonas")
+local currentDelayTicks = 7  -- default: 7 * 0.05 = 0.35s
+
+local sliderRef = sec:Slider("delay (x0.05s)  [ click # to type ]", 1, 20, currentDelayTicks, function(v)
+    currentDelayTicks = v
+    collectDelay = v * 0.05
+end)
+ui:CfgRegister("egg_delay", function() return currentDelayTicks end, function(v) sliderRef.Set(v) end)
+
+-- Button next to slider that opens numeric input
+sec:Button("✎ type delay value  (current: "..currentDelayTicks..")", function()
+    makeNumericInput(currentDelayTicks, 1, 20, function(val)
+        currentDelayTicks = val
+        collectDelay = val * 0.05
+        sliderRef.Set(val)
+        showToast("Delay updated", val.." ticks = "..(val*0.05).."s per egg", "info", 2.5)
+    end)
+end)
+
+sec:Divider("manual teleport + collect")
 
 for _, zone in ipairs(ZONES) do
-    local z = zone  -- captura pro closure
-    sec:Button("ir para "..z.name, function()
+    local z = zone
+    sec:Button("→ "..z.name, function()
         if not isAlive() then
-            ui:Toast("rbxassetid://131165537896572", "[TP]", "voce esta morto", Color3.fromRGB(200,80,80))
+            showToast("Can't teleport", "You are dead", "error", 2)
             return
         end
         teleportTo(z.pos)
-        ui:Toast("rbxassetid://131165537896572", "[TP] "..z.name,
-            "teleportado | coletando eggs proximos...", Color3.fromRGB(100, 200, 255))
-        -- Coleta imediata na zona mesmo sem o loop ativo
+        showToast("Teleported to "..z.name, "Collecting eggs nearby...", "egg", 3)
         task.spawn(function()
             local eggs = findEggsNear(z.pos, ZONE_RADIUS)
             if #eggs == 0 then
-                ui:Toast("rbxassetid://131165537896572", "[TP] "..z.name,
-                    "nenhum egg nessa zona", Color3.fromRGB(160,160,180))
+                showToast(z.name.." — empty", "No eggs found in this zone", "warn", 3)
                 return
             end
             for _, eggData in ipairs(eggs) do
                 if collectEgg(eggData) then collected = collected + 1
                 else skipped = skipped + 1 end
                 updateStatus()
-                task.wait(cooldown)
+                task.wait(collectDelay)
             end
-            ui:Toast("rbxassetid://131165537896572", "[TP] "..z.name.." feito",
-                "coletados: "..collected, Color3.fromRGB(100, 220, 100))
+            showToast(z.name.." — done", "Collected: "..collected.." total", "success", 3)
         end)
     end)
 end
 
-sec:Divider("config")
-sec:Button("resetar contador", function()
+sec:Divider("utils")
+sec:Button("reset counter", function()
     collected = 0; skipped = 0; updateStatus()
-    ui:Toast("rbxassetid://131165537896572", "[Eggs]", "contador zerado", Color3.fromRGB(160,160,200))
+    showToast("Counter reset", "Back to zero", "info", 2)
 end)
 
 local tabCfg = ui:Tab("config", "rbxassetid://131165537896572")

@@ -182,31 +182,94 @@ local function setCollision(on)
     end
 end
 
--- Void protection: cast a ray downward from pos to confirm ground exists
-local function isSafePosition(pos)
-    if pos.Y < -50 then return false end
-    local ray = RaycastParams.new()
-    ray.FilterType = Enum.RaycastFilterType.Exclude
-    ray.FilterDescendantsInstances = { player.Character }
-    local result = workspace:Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -80, 0), ray)
-    return result ~= nil
+-- ── VOID PROTECTION ──────────────────────────────────────────────────────────
+-- lastSafePos: updated every frame while alive and Y > 10.
+-- voidWatchdog: permanent loop that snaps back if Y drops below VOID_THRESHOLD.
+-- teleportTo: casts ray BOTH from above (for tall geometry) AND from below
+--   (for terrain/water) before committing; also waits multiple frames after
+--   teleport and verifies Y is stable before returning true.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local VOID_THRESHOLD = -30   -- Y below this = void
+local lastSafePos    = nil   -- last known good CFrame
+
+-- Track safe position continuously
+RunService.Heartbeat:Connect(function()
+    local hrp = myHRP()
+    if hrp and hrp.Position.Y > 10 then
+        lastSafePos = hrp.CFrame
+    end
+end)
+
+-- Watchdog: if we fall into void, snap back immediately
+RunService.Heartbeat:Connect(function()
+    local hrp = myHRP()
+    if hrp and hrp.Position.Y < VOID_THRESHOLD and lastSafePos then
+        hrp.CFrame = lastSafePos
+    end
+end)
+
+local function hasGroundAt(pos)
+    -- Ray 1: exclude character, catches BaseParts and Terrain
+    local params1 = RaycastParams.new()
+    params1.FilterType = Enum.RaycastFilterType.Exclude
+    pcall(function()
+        params1.FilterDescendantsInstances = { player.Character }
+    end)
+    local hit1 = workspace:Raycast(
+        Vector3.new(pos.X, pos.Y + 60, pos.Z),
+        Vector3.new(0, -200, 0),
+        params1
+    )
+    if hit1 then return true end
+
+    -- Ray 2: terrain only — catches water floors that Ray 1 may miss
+    local params2 = RaycastParams.new()
+    params2.FilterType = Enum.RaycastFilterType.Include
+    pcall(function() params2.FilterDescendantsInstances = { workspace.Terrain } end)
+    local hit2 = workspace:Raycast(
+        Vector3.new(pos.X, pos.Y + 60, pos.Z),
+        Vector3.new(0, -200, 0),
+        params2
+    )
+    return hit2 ~= nil
 end
 
 local function teleportTo(pos)
     local hrp = myHRP(); if not hrp then return false end
-    if not isSafePosition(pos) then
-        showToast("Zone skipped", "No ground detected — void risk", "warn", 2.5)
+
+    -- Hard Y floor
+    if pos.Y < VOID_THRESHOLD then
+        showToast("Zone skipped", "Position below void threshold", "warn", 2)
         return false
     end
-    setCollision(false)
-    hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-    task.wait(0.12)
-    -- second void check: if we actually fell, recover
-    hrp = myHRP()
-    if hrp and hrp.Position.Y < -40 then
-        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 10, 0))
-        task.wait(0.1)
+
+    -- Ground check before committing
+    if not hasGroundAt(pos) then
+        showToast("Zone skipped", "No ground detected", "warn", 2)
+        return false
     end
+
+    -- Save current safe pos in case we need to revert
+    local fallback = hrp.CFrame
+
+    setCollision(false)
+    hrp.CFrame = CFrame.new(pos.X, pos.Y + 4, pos.Z)
+
+    -- Wait up to 6 frames, checking each frame if we're falling into void
+    for _ = 1, 6 do
+        task.wait()
+        hrp = myHRP()
+        if not hrp then setCollision(true); return false end
+        if hrp.Position.Y < VOID_THRESHOLD then
+            -- Revert immediately
+            hrp.CFrame = fallback
+            setCollision(true)
+            showToast("Teleport reverted", "Fell into void — skipped", "warn", 2.5)
+            return false
+        end
+    end
+
     setCollision(true)
     return true
 end
@@ -304,12 +367,21 @@ local function collectEgg(eggData)
     if not part or not part.Parent then return false end
 
     local target = part.Position + Vector3.new(0, 2.5, 0)
-    -- Void-guard before teleporting onto egg
-    if target.Y < -40 then return false end
+
+    -- Hard void guard on egg position
+    if target.Y < VOID_THRESHOLD then return false end
+    if not hasGroundAt(part.Position) then return false end
+
+    local fallback = hrp.CFrame
     setCollision(false)
     hrp.CFrame = CFrame.new(target)
     task.wait(0.06)
     hrp = myHRP()
+    if hrp and hrp.Position.Y < VOID_THRESHOLD then
+        hrp.CFrame = fallback
+        setCollision(true)
+        return false
+    end
     if hrp then
         hrp.CFrame = CFrame.new(target + Vector3.new(0.4, 0, 0))
         task.wait(0.05)

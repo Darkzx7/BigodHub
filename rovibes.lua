@@ -11,9 +11,7 @@ local playerGui      = player:WaitForChild("PlayerGui")
 local SAVE_FILE = "egg_collector_save.json"
 
 local function saveCollected(n)
-    pcall(function()
-        writefile(SAVE_FILE, tostring(n))
-    end)
+    pcall(function() writefile(SAVE_FILE, tostring(n)) end)
 end
 
 local function loadCollected()
@@ -26,7 +24,6 @@ local function loadCollected()
 end
 
 local UI_ASSET_ID = "rbxassetid://131165537896572"
-
 local ui = RefLib.new("egg collector", UI_ASSET_ID, "egg_collector_cfg")
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -35,7 +32,7 @@ local ui = RefLib.new("egg collector", UI_ASSET_ID, "egg_collector_cfg")
 
 local ZONES = {
     { name = "Zone A",  pos = Vector3.new(-207, 4,   872) },
-    { name = "Zone B",  pos = Vector3.new( 100, 18,  600) }, -- Y elevado: era 8, void fix
+    { name = "Zone B",  pos = Vector3.new( 100, 18,  600) },
     { name = "Zone C",  pos = Vector3.new(  -6, 16,  490) },
     { name = "Zone D",  pos = Vector3.new(-120, 8,   650) },
     { name = "Zone E",  pos = Vector3.new( 420, 6,   720) },
@@ -46,8 +43,12 @@ local ZONES = {
 
 local ZONE_RADIUS          = 140
 local ZONE_WAIT            = 20
-local COLLECT_DELAY        = 0.50   -- 10 ticks * 0.05s
+local COLLECT_DELAY        = 0.50
 local MANUAL_COLLECT_DELAY = 0.015
+local VOID_THRESHOLD       = -30
+
+-- Raio de detecção de proximidade (ao se mover pelo mapa)
+local PROXIMITY_RADIUS     = 80
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- TOAST SYSTEM
@@ -175,13 +176,15 @@ end
 -- STATE
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local collectOn    = false
-local collected    = 0
-local collectDelay = COLLECT_DELAY
-local statusLbl    = nil
+local collectOn       = false
+local proximityOn     = false   -- toggle separado para proximity collector
+local collected       = 0
+local collectDelay    = COLLECT_DELAY
+local statusLbl       = nil
+local lastSafePos     = nil
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- CORE
+-- CORE HELPERS
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function myHRP()
@@ -201,9 +204,7 @@ local function setCollision(on)
     end
 end
 
-local VOID_THRESHOLD = -30
-local lastSafePos    = nil
-
+-- Void protection
 RunService.Heartbeat:Connect(function()
     local hrp = myHRP()
     if hrp and hrp.Position.Y > 10 then
@@ -221,9 +222,7 @@ end)
 local function hasGroundAt(pos)
     local params1 = RaycastParams.new()
     params1.FilterType = Enum.RaycastFilterType.Exclude
-    pcall(function()
-        params1.FilterDescendantsInstances = { player.Character }
-    end)
+    pcall(function() params1.FilterDescendantsInstances = { player.Character } end)
     local hit1 = workspace:Raycast(
         Vector3.new(pos.X, pos.Y + 60, pos.Z),
         Vector3.new(0, -200, 0),
@@ -256,7 +255,6 @@ local function teleportTo(pos)
     end
 
     local fallback = hrp.CFrame
-
     setCollision(false)
     hrp.CFrame = CFrame.new(pos.X, pos.Y + 4, pos.Z)
 
@@ -285,6 +283,8 @@ end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- EGG FOLDER DETECTION & SCAN
+-- Varre GetDescendants() do folder inteiro — sem filtro de radius.
+-- Único filtro: Y > VOID_THRESHOLD (segurança).
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local eggSpawnFolder = nil
@@ -302,10 +302,9 @@ local function detectEggFolder()
     return nil
 end
 
--- ── DEEP SCAN: coleta TODOS os EggTemplate dentro do folder detectado ─────────
--- Eggs em sub-pastas são incluídos SEM limite de distância (apenas Y seguro).
--- Eggs diretamente no folder raiz usam o radius de zona normalmente.
-local function findEggsNear(center, radius)
+-- Retorna TODOS os eggs do folder, ordenados por distância ao centro dado.
+-- center = pode ser zona ou posição do jogador; sem corte por radius.
+local function findAllEggs(center)
     local folder = eggSpawnFolder or detectEggFolder()
     if not folder or not folder.Parent then
         eggSpawnFolder = nil
@@ -320,51 +319,29 @@ local function findEggsNear(center, radius)
         pcall(function()
             if obj.Name == "EggTemplate" and not seen[obj] and obj.Parent then
                 local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
-                if ovo and ovo:IsA("BasePart") then
-                    local pos  = ovo.Position
-                    local dist = (pos - center).Magnitude
-
-                    -- Eggs em sub-pastas: sem limite de distância (detecção expandida)
-                    -- Eggs no folder raiz: respeitam o radius da zona
-                    local isNested = (obj.Parent ~= folder)
-                    local eligible = isNested and (pos.Y > VOID_THRESHOLD)
-                                  or (dist <= radius and pos.Y > VOID_THRESHOLD)
-
-                    if eligible then
-                        seen[obj] = true
-                        table.insert(eggs, { model = obj, part = ovo, pos = pos, dist = dist })
-                    end
+                if ovo and ovo:IsA("BasePart") and ovo.Position.Y > VOID_THRESHOLD then
+                    seen[obj] = true
+                    local dist = (ovo.Position - center).Magnitude
+                    table.insert(eggs, { model = obj, part = ovo, pos = ovo.Position, dist = dist })
                 end
             end
         end)
     end
 
-    -- Eggs próximos primeiro, depois os de sub-pastas distantes
-    table.sort(eggs, function(a, b)
-        return a.dist < b.dist
-    end)
+    table.sort(eggs, function(a, b) return a.dist < b.dist end)
     return eggs
 end
 
--- getAllEggClusters: lista plana de todos os eggs no folder (sem filtro de distância)
-local function getAllEggClusters()
-    local folder = eggSpawnFolder or detectEggFolder()
-    if not folder or not folder.Parent then return {} end
-
-    local positions = {}
-    local seen = {}
-    for _, obj in ipairs(folder:GetDescendants()) do
-        pcall(function()
-            if obj.Name == "EggTemplate" and not seen[obj] and obj.Parent then
-                local ovo = obj:FindFirstChild("Ovo") or obj:FindFirstChild("Ovo2")
-                if ovo and ovo:IsA("BasePart") then
-                    seen[obj] = true
-                    table.insert(positions, { model = obj, part = ovo, pos = ovo.Position })
-                end
-            end
-        end)
+-- Filtra findAllEggs por radius ao redor de center (para uso no proximity)
+local function findEggsInRadius(center, radius)
+    local all = findAllEggs(center)
+    local out = {}
+    for _, e in ipairs(all) do
+        if e.dist <= radius then
+            table.insert(out, e)
+        end
     end
-    return positions
+    return out
 end
 
 local function collectEgg(eggData)
@@ -400,7 +377,46 @@ local function collectEgg(eggData)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- MAIN LOOP
+-- PROXIMITY COLLECTOR
+-- Loop paralelo e independente. Roda sempre que proximityOn = true.
+-- Não interfere no auto farm — ambos podem rodar juntos.
+-- A cada 0.5s verifica eggs dentro de PROXIMITY_RADIUS do jogador e coleta.
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local proximityThread = nil
+
+local function startProximityLoop()
+    if proximityThread then return end
+    proximityThread = task.spawn(function()
+        while proximityOn do
+            if isAlive() then
+                local hrp = myHRP()
+                if hrp then
+                    local nearby = findEggsInRadius(hrp.Position, PROXIMITY_RADIUS)
+                    for _, eggData in ipairs(nearby) do
+                        if not proximityOn then break end
+                        if not isAlive() then break end
+                        if collectEgg(eggData) then
+                            collected = collected + 1
+                            updateStatus()
+                        end
+                        task.wait(0.05)
+                    end
+                end
+            end
+            task.wait(0.5)
+        end
+        proximityThread = nil
+    end)
+end
+
+local function stopProximityLoop()
+    proximityOn   = false
+    proximityThread = nil
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- MAIN AUTO FARM LOOP
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function collectLoop()
@@ -431,8 +447,8 @@ local function collectLoop()
             while collectOn and waited < ZONE_WAIT do
                 if not isAlive() then break end
 
-                -- findEggsNear agora já inclui eggs de sub-pastas sem limite de distância
-                local eggs = findEggsNear(zone.pos, ZONE_RADIUS)
+                -- Varre folder inteiro, ordenado por distância à zona
+                local eggs = findAllEggs(zone.pos)
 
                 if #eggs > 0 then
                     foundAny = true
@@ -587,7 +603,7 @@ local function makeNumericInput(currentVal, minVal, maxVal, onConfirm)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- LOAD SAVED DATA (writefile/readfile — executor persist)
+-- LOAD SAVED DATA
 -- ══════════════════════════════════════════════════════════════════════════════
 
 task.spawn(function()
@@ -630,9 +646,23 @@ local t_collect = sec:Toggle("auto collect", false, function(v)
 end)
 ui:CfgRegister("egg_collect", function() return collectOn end, function(v) t_collect.Set(v) end)
 
+sec:Divider("proximity")
+
+local t_proximity = sec:Toggle("proximity collect  (ao se mover)", false, function(v)
+    proximityOn = v
+    if v then
+        startProximityLoop()
+        showToast("Proximity ON", "Raio: " .. PROXIMITY_RADIUS .. " studs", "egg", 3)
+    else
+        stopProximityLoop()
+        showToast("Proximity OFF", "Coleta por proximidade parada", "info", 2.5)
+    end
+end)
+ui:CfgRegister("egg_proximity", function() return proximityOn end, function(v) t_proximity.Set(v) end)
+
 sec:Divider("delay")
 
-local currentDelayTicks = 10  -- default: 10 ticks = 0.50s
+local currentDelayTicks = 10
 
 local sliderRef = sec:Slider("delay  (x0.05s)  —  click value to type", 1, 20, currentDelayTicks, function(v)
     currentDelayTicks = v
@@ -678,17 +708,7 @@ for _, zone in ipairs(ZONES) do
         if not ok then return end
         showToast("→ " .. z.name, "Collecting eggs nearby...", "egg", 3)
         task.spawn(function()
-            -- findEggsNear já captura sub-pastas; getAllEggClusters para garantir tudo
-            local eggs = findEggsNear(z.pos, ZONE_RADIUS)
-            local all  = getAllEggClusters()
-            local seen = {}
-            local list  = {}
-            for _, e in ipairs(eggs) do seen[e.model] = true; table.insert(list, e) end
-            for _, e in ipairs(all)  do
-                if not seen[e.model] and e.pos.Y > VOID_THRESHOLD then
-                    table.insert(list, e)
-                end
-            end
+            local list = findAllEggs(z.pos)
             if #list == 0 then
                 showToast(z.name .. " — empty", "No eggs found", "warn", 3)
                 return

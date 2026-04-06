@@ -700,15 +700,38 @@ function RefLib:Tab(name)
 			lb.TextXAlignment = Enum.TextXAlignment.Left
 			lb.Parent = h
 
-			local vl = Instance.new("TextLabel")
+			-- container do valor (label + textbox se sobrepõem aqui)
+			local valWrap = Instance.new("Frame")
+			valWrap.BackgroundTransparency = 1
+			valWrap.Size = UDim2.new(0, 60, 0, 18)
+			valWrap.Position = UDim2.new(1, -72, 0, 8)
+			valWrap.ClipsDescendants = false
+			valWrap.Parent = h
+
+			local vl = Instance.new("TextButton")
 			vl.BackgroundTransparency = 1
-			vl.Size = UDim2.new(0, 60, 0, 18)
-			vl.Position = UDim2.new(1, -72, 0, 8)
+			vl.Size = UDim2.new(1, 0, 1, 0)
 			vl.Font = Enum.Font.Gotham
 			vl.TextSize = 12
 			vl.TextColor3 = T3.Sub
 			vl.TextXAlignment = Enum.TextXAlignment.Right
-			vl.Parent = h
+			vl.AutoButtonColor = false
+			vl.Text = tostring(default)
+			vl.Parent = valWrap
+
+			local vbox = Instance.new("TextBox")
+			vbox.BackgroundColor3 = T3.Panel2
+			vbox.Size = UDim2.new(1, 0, 1, 0)
+			vbox.Font = Enum.Font.GothamSemibold
+			vbox.TextSize = 12
+			vbox.TextColor3 = T3.Accent
+			vbox.TextXAlignment = Enum.TextXAlignment.Center
+			vbox.ClearTextOnFocus = true
+			vbox.Text = ""
+			vbox.Visible = false
+			vbox.ZIndex = 5
+			vbox.Parent = valWrap
+			_corner(vbox, 4); _stroke(vbox, 1, 0.55, T3.Accent)
 
 			local bar = Instance.new("Frame")
 			bar.Size = UDim2.new(1, -24, 0, 8)
@@ -724,17 +747,18 @@ function RefLib:Tab(name)
 			_corner(fill, 999)
 
 			local dragging = false
+			local editing  = false
 			local value    = default
 
 			local function snap(v)
 				return math.clamp(math.floor((v - min) / step + 0.5) * step + min, min, max)
 			end
 
-			local function setV(v)
+			local function setV(v, silent)
 				v = snap(v); value = v
 				vl.Text = tostring(v)
 				fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0)
-				if callback then callback(value) end
+				if not silent and callback then callback(value) end
 			end
 
 			local function fromX(x)
@@ -742,10 +766,42 @@ function RefLib:Tab(name)
 				setV(min + (max - min) * r)
 			end
 
-			setV(default)
+			local function openEdit()
+				if editing then return end
+				editing = true
+				vbox.Text = tostring(value)
+				vbox.Visible = true
+				vl.Visible = false
+				task.wait()
+				vbox:CaptureFocus()
+			end
+
+			local function closeEdit(confirm)
+				if not editing then return end
+				editing = false
+				if confirm then
+					local n = tonumber(vbox.Text)
+					if n then setV(n) end
+				end
+				vbox.Visible = false
+				vl.Visible = true
+			end
+
+			vl.MouseEnter:Connect(function() _tween(vl, { TextColor3 = T3.Accent }, 0.1) end)
+			vl.MouseLeave:Connect(function() _tween(vl, { TextColor3 = T3.Sub }, 0.1) end)
+			vl.MouseButton1Click:Connect(openEdit)
+
+			vbox.FocusLost:Connect(function(enter) closeEdit(enter) end)
+			vbox:GetPropertyChangedSignal("Text"):Connect(function()
+				local n = tonumber(vbox.Text)
+				if n then vbox.TextColor3 = T3.Accent else vbox.TextColor3 = T3.Bad end
+			end)
+
+			setV(default, true)
 
 			bar.InputBegan:Connect(function(inp)
 				if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+					if editing then closeEdit(false) end
 					dragging = true; fromX(inp.Position.X)
 				end
 			end)
@@ -763,7 +819,7 @@ function RefLib:Tab(name)
 			h.MouseEnter:Connect(function() _tween(h, { BackgroundColor3 = Color3.fromRGB(26, 26, 34) }, 0.12) end)
 			h.MouseLeave:Connect(function() _tween(h, { BackgroundColor3 = T3.Panel }, 0.12) end)
 
-			return { Get = function() return value end, Set = setV }
+			return { Get = function() return value end, Set = function(v) setV(v, true) end }
 		end
 
 		function secObj:Button(labelText, callback)

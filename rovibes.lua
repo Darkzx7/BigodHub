@@ -420,9 +420,6 @@ end
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function collectLoop()
-    collected = 0
-    updateStatus()
-
     if not eggSpawnFolder then detectEggFolder() end
 
     while collectOn do

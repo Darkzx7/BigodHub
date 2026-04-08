@@ -335,27 +335,70 @@ function RefLib:_buildGui()
 	self._setMin = setMin
 end
 
+function RefLib:_initToastQueue()
+	if self._toastHolder then return end
+	local T = self.Theme
+
+	local holder = Instance.new("Frame")
+	holder.Name = "ref_toast_holder"
+	holder.Size = UDim2.new(0, 276, 1, 0)
+	holder.Position = UDim2.new(1, -292, 0, 0)
+	holder.BackgroundTransparency = 1
+	holder.ZIndex = 200
+	holder.Parent = self._sg
+
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = holder
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingBottom = UDim.new(0, 16)
+	pad.Parent = holder
+
+	self._toastHolder  = holder
+	self._toastLayout  = layout
+	self._toastQueue   = {}
+	self._toastRunning = false
+end
+
 function RefLib:Toast(icon, title, sub, accentColor)
+	self:_initToastQueue()
+	table.insert(self._toastQueue, { icon = icon, title = title, sub = sub, color = accentColor })
+	if not self._toastRunning then
+		self._toastRunning = true
+		task.spawn(function()
+			while #self._toastQueue > 0 do
+				local item = table.remove(self._toastQueue, 1)
+				self:_showToast(item.icon, item.title, item.sub, item.color)
+				task.wait(3.6)
+			end
+			self._toastRunning = false
+		end)
+	end
+end
+
+function RefLib:_showToast(icon, title, sub, accentColor)
 	local T = self.Theme
 	accentColor = accentColor or T.Accent
-	local W, H = 260, 54
+	local W, H  = 260, 54
 
 	local toast = Instance.new("Frame")
 	toast.Name = "ref_toast"
-	toast.Size = UDim2.new(0, W, 0, H)
-	toast.Position = UDim2.new(1, 20, 1, -80)
+	toast.Size = UDim2.new(0, W, 0, 0)
 	toast.BackgroundColor3 = T.Panel2
 	toast.BorderSizePixel = 0
-	toast.ZIndex = 200
+	toast.ZIndex = 201
 	toast.ClipsDescendants = true
-	toast.Parent = self._sg
+	toast.Parent = self._toastHolder
 	_corner(toast, 10); _stroke(toast, 1, 0.6, T.Stroke)
 
 	local bar = Instance.new("Frame")
 	bar.Size = UDim2.new(0, 3, 1, 0)
 	bar.BackgroundColor3 = accentColor
 	bar.BorderSizePixel = 0
-	bar.ZIndex = 201
+	bar.ZIndex = 202
 	bar.Parent = toast
 	_corner(bar, 2)
 
@@ -366,7 +409,7 @@ function RefLib:Toast(icon, title, sub, accentColor)
 	img.BorderSizePixel = 0
 	img.Image = icon or self._icon
 	img.ScaleType = Enum.ScaleType.Fit
-	img.ZIndex = 201
+	img.ZIndex = 202
 	img.Parent = toast
 	_corner(img, 6)
 
@@ -380,7 +423,7 @@ function RefLib:Toast(icon, title, sub, accentColor)
 	lbl.Font = Enum.Font.GothamBold
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.TextTruncate = Enum.TextTruncate.AtEnd
-	lbl.ZIndex = 201
+	lbl.ZIndex = 202
 	lbl.Parent = toast
 
 	local sub2 = Instance.new("TextLabel")
@@ -393,7 +436,7 @@ function RefLib:Toast(icon, title, sub, accentColor)
 	sub2.Font = Enum.Font.Gotham
 	sub2.TextXAlignment = Enum.TextXAlignment.Left
 	sub2.TextTruncate = Enum.TextTruncate.AtEnd
-	sub2.ZIndex = 201
+	sub2.ZIndex = 202
 	sub2.Parent = toast
 
 	local pb = Instance.new("Frame")
@@ -401,21 +444,21 @@ function RefLib:Toast(icon, title, sub, accentColor)
 	pb.Position = UDim2.new(0, 0, 1, -2)
 	pb.BackgroundColor3 = T.Panel
 	pb.BorderSizePixel = 0
-	pb.ZIndex = 202
+	pb.ZIndex = 203
 	pb.Parent = toast
 
 	local pf = Instance.new("Frame")
 	pf.Size = UDim2.new(1, 0, 1, 0)
 	pf.BackgroundColor3 = accentColor
 	pf.BorderSizePixel = 0
-	pf.ZIndex = 203
+	pf.ZIndex = 204
 	pf.Parent = pb
 
-	_tween(toast, { Position = UDim2.new(1, -(W + 16), 1, -80) }, 0.3)
+	_tween(toast, { Size = UDim2.new(0, W, 0, H) }, 0.22)
 	task.delay(0.3, function() _tween(pf, { Size = UDim2.new(0, 0, 1, 0) }, 3.0) end)
 	task.delay(3.3, function()
-		_tween(toast, { Position = UDim2.new(1, 20, 1, -80) }, 0.25)
-		task.delay(0.26, function()
+		_tween(toast, { Size = UDim2.new(0, W, 0, 0) }, 0.2)
+		task.delay(0.22, function()
 			if toast and toast.Parent then toast:Destroy() end
 		end)
 	end)
@@ -535,13 +578,14 @@ function RefLib:Tab(name)
 
 	function tabObj:Select() setActive() end
 
-	function tabObj:Section(titleText)
+	function tabObj:Section(titleText, collapsible)
 		local lib2 = self._lib
 		local T2   = lib2.Theme
 
 		local sec = Instance.new("Frame")
 		sec.BackgroundColor3 = T2.Panel2
 		sec.Size = UDim2.new(1, 0, 0, 44)
+		sec.ClipsDescendants = true
 		sec.Parent = page
 		_corner(sec, 12); _stroke(sec, 1, 0.84, T2.Stroke)
 
@@ -551,15 +595,31 @@ function RefLib:Tab(name)
 		pad.Parent = sec
 		_pad(pad, 12)
 
+		local headerRow = Instance.new("Frame")
+		headerRow.BackgroundTransparency = 1
+		headerRow.Size = UDim2.new(1, 0, 0, 18)
+		headerRow.Parent = pad
+
 		local tlbl = Instance.new("TextLabel")
 		tlbl.BackgroundTransparency = 1
-		tlbl.Size = UDim2.new(1, 0, 0, 18)
+		tlbl.Size = UDim2.new(1, -20, 1, 0)
 		tlbl.Font = Enum.Font.GothamSemibold
 		tlbl.Text = titleText
 		tlbl.TextSize = 13
 		tlbl.TextColor3 = T2.Text
 		tlbl.TextXAlignment = Enum.TextXAlignment.Left
-		tlbl.Parent = pad
+		tlbl.Parent = headerRow
+
+		local arrow = Instance.new("TextLabel")
+		arrow.BackgroundTransparency = 1
+		arrow.Size = UDim2.new(0, 16, 1, 0)
+		arrow.Position = UDim2.new(1, -16, 0, 0)
+		arrow.Font = Enum.Font.GothamBold
+		arrow.Text = collapsible and "v" or ""
+		arrow.TextSize = 11
+		arrow.TextColor3 = T2.Sub
+		arrow.TextXAlignment = Enum.TextXAlignment.Right
+		arrow.Parent = headerRow
 
 		local items = Instance.new("Frame")
 		items.BackgroundTransparency = 1
@@ -572,9 +632,38 @@ function RefLib:Tab(name)
 		il.SortOrder = Enum.SortOrder.LayoutOrder
 		il.Parent = items
 
+		local collapsed  = false
+		local fullHeight = 44
+		local HEADER_H   = 42
+
 		il:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			sec.Size = UDim2.new(1, 0, 0, il.AbsoluteContentSize.Y + 18 + 24)
+			fullHeight = il.AbsoluteContentSize.Y + HEADER_H + 6
+			if not collapsed then
+				sec.Size = UDim2.new(1, 0, 0, fullHeight)
+			end
 		end)
+
+		if collapsible then
+			local hBtn = Instance.new("TextButton")
+			hBtn.BackgroundTransparency = 1
+			hBtn.Size = UDim2.new(1, 0, 0, 18)
+			hBtn.Text = ""
+			hBtn.ZIndex = 2
+			hBtn.Parent = headerRow
+
+			hBtn.MouseEnter:Connect(function() _tween(tlbl, { TextColor3 = T2.Accent }, 0.1) end)
+			hBtn.MouseLeave:Connect(function() _tween(tlbl, { TextColor3 = T2.Text }, 0.1) end)
+			hBtn.MouseButton1Click:Connect(function()
+				collapsed = not collapsed
+				if collapsed then
+					_tween(sec, { Size = UDim2.new(1, 0, 0, HEADER_H) }, 0.18)
+					_tween(arrow, { Rotation = -90 }, 0.18)
+				else
+					_tween(sec, { Size = UDim2.new(1, 0, 0, fullHeight) }, 0.18)
+					_tween(arrow, { Rotation = 0 }, 0.18)
+				end
+			end)
+		end
 
 		local secObj = { _items = items, _lib = lib2 }
 
@@ -1255,6 +1344,213 @@ function RefLib:Tab(name)
 					local hm = target.Character:FindFirstChildOfClass("Humanoid")
 					if hm then hp.Text = "hp: " .. math.floor(hm.Health) .. "/" .. math.floor(hm.MaxHealth) end
 				end,
+			}
+		end
+
+		function secObj:ColorPicker(labelText, default, callback)
+			local T3  = lib2.Theme
+			local cur = default or Color3.fromRGB(120, 80, 255)
+
+			local SWATCHES = {
+				Color3.fromRGB(255,  80,  80), Color3.fromRGB(255, 160,  60),
+				Color3.fromRGB(255, 220,  60), Color3.fromRGB(80,  210, 110),
+				Color3.fromRGB(60,  180, 255), Color3.fromRGB(120,  80, 255),
+				Color3.fromRGB(220,  80, 220), Color3.fromRGB(255, 255, 255),
+				Color3.fromRGB(170, 170, 180), Color3.fromRGB(40,   40,  50),
+			}
+
+			local open = false
+
+			local wrap = Instance.new("Frame")
+			wrap.Size = UDim2.new(1, 0, 0, 34)
+			wrap.BackgroundTransparency = 1
+			wrap.ClipsDescendants = false
+			wrap.Parent = items
+
+			local hdr = Instance.new("Frame")
+			hdr.Size = UDim2.new(1, 0, 0, 34)
+			hdr.BackgroundColor3 = T3.Panel
+			hdr.Parent = wrap
+			_corner(hdr, 10); _stroke(hdr, 1, 0.86, T3.Stroke)
+
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Size = UDim2.new(1, -90, 1, 0)
+			lbl.Position = UDim2.new(0, 12, 0, 0)
+			lbl.Font = Enum.Font.GothamSemibold
+			lbl.Text = labelText
+			lbl.TextSize = 13
+			lbl.TextColor3 = T3.Text
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Parent = hdr
+
+			local preview = Instance.new("Frame")
+			preview.Size = UDim2.new(0, 22, 0, 22)
+			preview.Position = UDim2.new(1, -70, 0.5, -11)
+			preview.BackgroundColor3 = cur
+			preview.BorderSizePixel = 0
+			preview.Parent = hdr
+			_corner(preview, 6); _stroke(preview, 1, 0.6, T3.Stroke)
+
+			local hexBtn = Instance.new("TextButton")
+			hexBtn.Size = UDim2.new(0, 36, 0, 22)
+			hexBtn.Position = UDim2.new(1, -44, 0.5, -11)
+			hexBtn.BackgroundColor3 = T3.Panel2
+			hexBtn.Font = Enum.Font.GothamSemibold
+			hexBtn.TextSize = 9
+			hexBtn.TextColor3 = T3.Sub
+			hexBtn.AutoButtonColor = false
+			hexBtn.Text = "hex"
+			hexBtn.Parent = hdr
+			_corner(hexBtn, 5); _stroke(hexBtn, 1, 0.82, T3.Stroke)
+
+			local hBtn = Instance.new("TextButton")
+			hBtn.BackgroundTransparency = 1
+			hBtn.Size = UDim2.new(1, 0, 1, 0)
+			hBtn.Text = ""
+			hBtn.ZIndex = 2
+			hBtn.Parent = hdr
+
+			local panel = Instance.new("Frame")
+			panel.BackgroundColor3 = T3.Panel2
+			panel.Size = UDim2.new(1, 0, 0, 0)
+			panel.Position = UDim2.new(0, 0, 1, 4)
+			panel.ClipsDescendants = true
+			panel.ZIndex = 30
+			panel.Visible = false
+			panel.Parent = hdr
+			_corner(panel, 10); _stroke(panel, 1, 0.72, T3.Stroke)
+
+			local PANEL_H = 76
+
+			local swGrid = Instance.new("Frame")
+			swGrid.BackgroundTransparency = 1
+			swGrid.Size = UDim2.new(1, -16, 0, 28)
+			swGrid.Position = UDim2.new(0, 8, 0, 8)
+			swGrid.ZIndex = 31
+			swGrid.Parent = panel
+
+			local swLayout = Instance.new("UIGridLayout")
+			swLayout.CellSize = UDim2.new(0, 22, 0, 22)
+			swLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+			swLayout.SortOrder = Enum.SortOrder.LayoutOrder
+			swLayout.Parent = swGrid
+
+			for _, col in ipairs(SWATCHES) do
+				local sw = Instance.new("TextButton")
+				sw.Size = UDim2.new(0, 22, 0, 22)
+				sw.BackgroundColor3 = col
+				sw.Text = ""
+				sw.AutoButtonColor = false
+				sw.ZIndex = 32
+				sw.Parent = swGrid
+				_corner(sw, 5)
+				local c = col
+				sw.MouseButton1Click:Connect(function()
+					cur = c
+					preview.BackgroundColor3 = cur
+					if callback then callback(cur) end
+				end)
+			end
+
+			local hexRow = Instance.new("Frame")
+			hexRow.BackgroundTransparency = 1
+			hexRow.Size = UDim2.new(1, -16, 0, 26)
+			hexRow.Position = UDim2.new(0, 8, 0, 42)
+			hexRow.ZIndex = 31
+			hexRow.Parent = panel
+
+			local hexPfx = Instance.new("TextLabel")
+			hexPfx.BackgroundTransparency = 1
+			hexPfx.Size = UDim2.new(0, 14, 1, 0)
+			hexPfx.Font = Enum.Font.GothamSemibold
+			hexPfx.Text = "#"
+			hexPfx.TextSize = 12
+			hexPfx.TextColor3 = T3.Sub
+			hexPfx.ZIndex = 32
+			hexPfx.Parent = hexRow
+
+			local hexBox = Instance.new("TextBox")
+			hexBox.Size = UDim2.new(1, -52, 1, 0)
+			hexBox.Position = UDim2.new(0, 16, 0, 0)
+			hexBox.BackgroundColor3 = T3.Panel
+			hexBox.Font = Enum.Font.GothamSemibold
+			hexBox.TextSize = 11
+			hexBox.TextColor3 = T3.Text
+			hexBox.PlaceholderText = "rrggbb"
+			hexBox.PlaceholderColor3 = T3.Sub
+			hexBox.Text = ""
+			hexBox.ClearTextOnFocus = true
+			hexBox.MaxVisibleGraphemes = 6
+			hexBox.ZIndex = 32
+			hexBox.Parent = hexRow
+			_corner(hexBox, 5); _stroke(hexBox, 1, 0.80, T3.Stroke)
+			local hbp = Instance.new("UIPadding")
+			hbp.PaddingLeft = UDim.new(0, 5)
+			hbp.Parent = hexBox
+
+			local applyBtn = Instance.new("TextButton")
+			applyBtn.Size = UDim2.new(0, 32, 1, 0)
+			applyBtn.Position = UDim2.new(1, -32, 0, 0)
+			applyBtn.BackgroundColor3 = T3.Accent
+			applyBtn.BackgroundTransparency = 0.3
+			applyBtn.Font = Enum.Font.GothamSemibold
+			applyBtn.Text = "ok"
+			applyBtn.TextSize = 11
+			applyBtn.TextColor3 = T3.Text
+			applyBtn.AutoButtonColor = false
+			applyBtn.ZIndex = 32
+			applyBtn.Parent = hexRow
+			_corner(applyBtn, 5)
+
+			local function applyHex()
+				local h = hexBox.Text:gsub("#", ""):sub(1, 6)
+				if #h == 6 then
+					local r = tonumber(h:sub(1,2), 16)
+					local g = tonumber(h:sub(3,4), 16)
+					local b = tonumber(h:sub(5,6), 16)
+					if r and g and b then
+						cur = Color3.fromRGB(r, g, b)
+						preview.BackgroundColor3 = cur
+						if callback then callback(cur) end
+					end
+				end
+			end
+
+			applyBtn.MouseButton1Click:Connect(applyHex)
+			hexBox.FocusLost:Connect(function(enter) if enter then applyHex() end end)
+
+			local function closePanel()
+				open = false
+				_tween(panel, { Size = UDim2.new(1, 0, 0, 0) }, 0.16)
+				task.delay(0.17, function() panel.Visible = false end)
+				wrap.Size = UDim2.new(1, 0, 0, 34)
+			end
+
+			local function openPanel()
+				local r = math.floor(cur.R * 255)
+				local g = math.floor(cur.G * 255)
+				local b = math.floor(cur.B * 255)
+				hexBox.Text = string.format("%02x%02x%02x", r, g, b)
+				panel.Visible = true
+				_tween(panel, { Size = UDim2.new(1, 0, 0, PANEL_H) }, 0.16)
+				wrap.Size = UDim2.new(1, 0, 0, 34 + 4 + PANEL_H)
+				open = true
+			end
+
+			hBtn.MouseEnter:Connect(function() _tween(hdr, { BackgroundColor3 = Color3.fromRGB(26, 26, 34) }, 0.12) end)
+			hBtn.MouseLeave:Connect(function() _tween(hdr, { BackgroundColor3 = T3.Panel }, 0.12) end)
+			hBtn.MouseButton1Click:Connect(function() if open then closePanel() else openPanel() end end)
+
+			hexBtn.MouseButton1Click:Connect(function()
+				if not open then openPanel() end
+				task.wait(0.05)
+				hexBox:CaptureFocus()
+			end)
+
+			return {
+				Get = function() return cur end,
+				Set = function(v) cur = v; preview.BackgroundColor3 = v end,
 			}
 		end
 

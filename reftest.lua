@@ -1,7 +1,7 @@
 -- ref universal v2 — reescrito usando RefLib
 -- requer que RefLib seja carregada antes (loadstring ou require)
 
-local RefLib = loadstring(game:HttpGet("SEU_LINK_DA_REFLIB_AQUI"))()
+local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua"))()
 -- ou: local RefLib = require(path_to_reflib)
 
 local Players          = game:GetService("Players")

@@ -14,7 +14,7 @@ local pg     = player:WaitForChild("PlayerGui")
 -- ──────────────────────────────────────────────────────────────
 local GIST_RAW      = "https://gist.githubusercontent.com/Darkzx7/dc0facdd3b84b21871cb711da0b3a8b3/raw/tags.json"
 local GIST_ID       = "dc0facdd3b84b21871cb711da0b3a8b3"
-local GITHUB_TOKEN  = "COLOCA_SEU_TOKEN_NOVO_AQUI"
+local GITHUB_TOKEN  = "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"
 local SYNC_INTERVAL = 15
 
 -- ──────────────────────────────────────────────────────────────

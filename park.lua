@@ -3,155 +3,134 @@ local ui = RefLib.new("AutoFish Ultra", "rbxassetid://131165537896572", "af_ultr
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInput = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
-local events = require(ReplicatedStorage.Shared.Modules.events)
 
-local config = {
-    enabled = false,
-    lastCast = 0,
-    isCasting = false,     -- FIX: evita cast duplo (race condition)
-}
+local config = { enabled = false, strikeHandled = false }
 
-local function getValidate()
-    return player.UserId * game.PlaceVersion * 6 / 2
+local function getUI()
+    local gui = player.PlayerGui:FindFirstChild("FishingUI")
+    if not gui then return nil, nil, nil end
+    local strikePrompt = gui:FindFirstChild("BuoyFrame") and gui.BuoyFrame:FindFirstChild("StrikePrompt")
+    local catchingBar  = gui:FindFirstChild("CatchingBar")
+    return gui, strikePrompt, catchingBar
+end
+
+local function simulateClick(down)
+    local center = workspace.CurrentCamera.ViewportSize / 2
+    VirtualInput:SendMouseButtonEvent(center.X, center.Y, 0, down, game, 1)
+end
+
+local function shouldCast()
+    local state   = player:GetAttribute("fishingState")
+    local hasBuoy = workspace.Temp:FindFirstChild(player.UserId .. ".buoy")
+    local _, _, bar = getUI()
+    return not state and not hasBuoy and not (bar and bar.Visible)
 end
 
 -- ================================================================
--- SOLVER (lógica correta baseada no cliente original)
+-- MINIGAME SOLVER
+-- Mantém o fishIcon dentro do bar.Green segurando/soltando o clique.
+-- Não dispara nenhum evento — só controla o MouseButton1 que o
+-- UserInputService do cliente legítimo já está escutando.
 -- ================================================================
-local function solveMinigame()
-    local fishingUI = player.PlayerGui:FindFirstChild("FishingUI")
-    if not fishingUI then return end
+local miniGameConnection = nil
 
-    -- FIX: WaitForChild com timeout em vez de assumir que já está visível
-    local catchingBar = fishingUI:WaitForChild("CatchingBar", 5)
-    if not catchingBar or not catchingBar.Visible then
-        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-        return
+local function startSolver()
+    if miniGameConnection then
+        miniGameConnection:Disconnect()
+        miniGameConnection = nil
     end
 
-    local bar      = catchingBar.Frame.Bar.Catch.Green
-    local fishIcon = catchingBar.Frame.Bar.Catch.Marker
-    local progressFill = catchingBar.Frame.Progress.Catch.Bar
+    local _, _, catchingBar = getUI()
+    if not catchingBar then return end
 
-    -- FIX: barSize lido UMA vez (igual ao cliente original: bar.Size.Y.Scale)
-    local barSize = bar.Size.Y.Scale
+    local bar      = catchingBar:WaitForChild("Frame"):WaitForChild("Bar"):WaitForChild("Catch"):WaitForChild("Green")
+    local fishIcon = catchingBar.Frame.Bar.Catch:WaitForChild("Marker")
+    local barSize  = bar.Size.Y.Scale
 
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not config.enabled or not catchingBar.Visible then
-            VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-            connection:Disconnect()
+    miniGameConnection = RunService.Heartbeat:Connect(function()
+        local _, _, cb = getUI()
+
+        -- Para quando o minigame fechar
+        if not cb or not cb.Visible then
+            simulateClick(false)
+            miniGameConnection:Disconnect()
+            miniGameConnection = nil
             return
         end
 
-        local barY      = bar.Position.Y.Scale
-        local fishY     = fishIcon.Position.Y.Scale
+        local barY  = bar.Position.Y.Scale
+        local fishY = fishIcon.Position.Y.Scale
 
-        -- FIX: progressY lido via Size (como o servidor define), não Position
-        -- No cliente original: progressFill começa em Position.Y = 0.9 e vai a 0
-        -- A leitura correta do "quão cheio está" é 1 - progressFill.Position.Y.Scale
-        local progressY = progressFill.Position.Y.Scale -- 0 = cheio (ganhou), 1 = vazio (perdeu)
-
-        -- FIX: lógica de colisão correta (igual ao startBattle do cliente original)
-        -- fishY >= barY AND fishY <= barY + barSize → peixe DENTRO da barra
+        -- Peixe dentro da barra verde: segura
+        -- Peixe fora: solta (barra cai em direção ao peixe pela gravidade)
         local fishInBar = fishY >= barY and fishY <= (barY + barSize)
-
-        if fishInBar then
-            -- Peixe dentro da barra: segura o clique para subir a barra com o peixe
-            VirtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-        else
-            -- Peixe fora: solta para deixar a barra cair em direção ao peixe
-            VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-        end
-
-        -- Partida acabou (progressY chegou a 0 ou 1): o gameLoop do cliente já chama endFishing
-        -- Só precisamos desconectar nosso heartbeat quando a UI some
+        simulateClick(fishInBar)
     end)
 end
 
 -- ================================================================
--- HANDLER DE STRIKE com retry loop (sem return cego)
--- ================================================================
-local function handleStrike()
-    local fishingUI = player.PlayerGui:FindFirstChild("FishingUI")
-    if not fishingUI then return end
-
-    -- FIX: loop de retry em vez de return cego quando ainda não deu 40s
-    while config.enabled do
-        local state = player:GetAttribute("fishingState")
-        if state ~= "waiting" then return end -- saiu do estado certo
-
-        local timeSinceCast = os.clock() - config.lastCast
-
-        if timeSinceCast >= 40.2 then
-            break -- pronto para chamar startBattle
-        end
-
-        -- Espera o tempo restante em pequenos incrementos
-        task.wait(0.25)
-    end
-
-    if not config.enabled then return end
-
-    -- Verifica novamente se ainda está em "waiting" após a espera
-    if player:GetAttribute("fishingState") ~= "waiting" then return end
-
-    events:Fire("Fish", {
-        fishingAction = "startBattle",
-        validateFishing = getValidate()
-    })
-
-    -- FIX: solveMinigame espera a UI abrir em vez de task.wait(0.5) fixo
-    task.spawn(solveMinigame)
-end
-
--- ================================================================
--- LOOP PRINCIPAL com debounce de cast correto
+-- LOOP PRINCIPAL
 -- ================================================================
 task.spawn(function()
     while true do
-        task.wait(0.25) -- FIX: 0.25s em vez de 1s, evita perder janela de estado
+        task.wait(0.3)
 
-        if not config.enabled then continue end
+        if not config.enabled then
+            config.strikeHandled = false
+            if miniGameConnection then
+                miniGameConnection:Disconnect()
+                miniGameConnection = nil
+                simulateClick(false)
+            end
+            continue
+        end
 
-        local state  = player:GetAttribute("fishingState")
-        local hasBuoy = workspace.Temp:FindFirstChild(player.UserId .. ".buoy")
+        local _, strikePrompt, catchingBar = getUI()
 
-        -- Estado: sem bóia e sem estado → hora de lançar
-        if not state and not hasBuoy and not config.isCasting then
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then continue end
+        -- PRIORIDADE 1: Minigame aberto → solver cuida
+        if catchingBar and catchingBar.Visible then
+            config.strikeHandled = false
+            if not miniGameConnection then
+                startSolver()
+            end
+            continue
+        end
 
-            -- FIX: flag isCasting evita disparar createBuoy duas vezes
-            config.isCasting = true
-            config.lastCast = os.clock()
+        -- PRIORIDADE 2: Strike prompt visível → clica para aceitar
+        if strikePrompt and strikePrompt.Visible and not config.strikeHandled then
+            config.strikeHandled = true
+            simulateClick(true)
+            task.wait(0.1)
+            simulateClick(false)
 
-            local destiny = (char.HumanoidRootPart.CFrame * CFrame.new(0, -3, -25)).Position
-
-            events:Fire("Fish", {
-                fishingAction = "createBuoy",
-                destiny = destiny,
-                validateFishing = getValidate()
-            })
-
-            -- Limpa a flag após 3s (tempo suficiente para o servidor confirmar)
-            task.delay(3, function()
-                config.isCasting = false
-            end)
-
-        -- Estado: servidor confirmou a bóia, aguardando mordida
-        elseif state == "waiting" then
-            -- Só trata a mordida se a UI de strike estiver visível
-            local fishingUI = player.PlayerGui:FindFirstChild("FishingUI")
-            if fishingUI and fishingUI.BuoyFrame.StrikePrompt.Visible then
-                task.spawn(handleStrike)
-                -- Espera sair do estado "waiting" para não spammar handleStrike
-                while config.enabled and player:GetAttribute("fishingState") == "waiting" do
-                    task.wait(0.25)
+            -- Aguarda o minigame abrir
+            local waited = 0
+            while waited < 3 do
+                task.wait(0.1)
+                waited += 0.1
+                local _, _, cb = getUI()
+                if cb and cb.Visible then
+                    startSolver()
+                    break
                 end
+            end
+            continue
+        end
+
+        -- PRIORIDADE 3: Sem bóia → lança a vara
+        if shouldCast() then
+            config.strikeHandled = false
+            simulateClick(true)
+            task.wait(0.1)
+            simulateClick(false)
+
+            local waited = 0
+            while waited < 5 do
+                task.wait(0.5)
+                waited += 0.5
+                if player:GetAttribute("fishingState") == "waiting" then break end
             end
         end
     end
@@ -161,15 +140,18 @@ end)
 -- INTERFACE
 -- ================================================================
 local tab = ui:Tab("Safe Farm")
-local sec = tab:Section("Configurações Anti-Ban")
+local sec = tab:Section("Automação")
 
-sec:Toggle("Ativar Auto-Fish v5", false, function(v)
+sec:Toggle("Ativar Auto-Fish", false, function(v)
     config.enabled = v
-    config.isCasting = false
     if not v then
-        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        simulateClick(false)
+        if miniGameConnection then
+            miniGameConnection:Disconnect()
+            miniGameConnection = nil
+        end
     end
 end)
 
-sec:Label("Espera 40s por peixe — sincronizado com o servidor.")
-sec:Label("Lança novamente automaticamente após cada captura.")
+sec:Label("Equipe a vara uma vez e ative o script.")
+sec:Label("Cast → Strike → Minigame resolvidos automaticamente.")

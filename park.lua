@@ -30,9 +30,7 @@ end
 
 -- ================================================================
 -- MINIGAME SOLVER
--- Mantém o fishIcon dentro do bar.Green segurando/soltando o clique.
--- Não dispara nenhum evento — só controla o MouseButton1 que o
--- UserInputService do cliente legítimo já está escutando.
+-- Controla o centro da barra verde para seguir o ícone do peixe.
 -- ================================================================
 local miniGameConnection = nil
 
@@ -60,13 +58,18 @@ local function startSolver()
             return
         end
 
-        local barY  = bar.Position.Y.Scale
-        local fishY = fishIcon.Position.Y.Scale
+        local barY     = bar.Position.Y.Scale
+        local fishY    = fishIcon.Position.Y.Scale
+        local barCenter = barY + (barSize / 2)
 
-        -- Peixe dentro da barra verde: segura
-        -- Peixe fora: solta (barra cai em direção ao peixe pela gravidade)
-        local fishInBar = fishY >= barY and fishY <= (barY + barSize)
-        simulateClick(fishInBar)
+        -- Mantém o peixe no CENTRO da barra verde:
+        -- Peixe acima do centro → solta (barra desce pela gravidade em direção ao peixe)
+        -- Peixe abaixo do centro → segura (puxa barra pra cima em direção ao peixe)
+        if fishY < barCenter then
+            simulateClick(false)
+        else
+            simulateClick(true)
+        end
     end)
 end
 

@@ -1,12 +1,20 @@
 local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua", true))()
-local ui = RefLib.new("AutoFish Ultra", "rbxassetid://131165537896572", "af_ultra_safe")
+local ui = RefLib.new("autofish parkvoice", "rbxassetid://131165537896572", "af_ultra_safe")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInput = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
+local events = require(ReplicatedStorage.Shared.Modules.events)
 
-local config = { enabled = false, strikeHandled = false }
+local config = {
+    enabled = false,
+    strikeHandled = false,
+    autoSell = false,
+    autoSellInterval = 300,
+    lastSell = 0,
+}
 
 local function getUI()
     local gui = player.PlayerGui:FindFirstChild("FishingUI")
@@ -28,11 +36,13 @@ local function shouldCast()
     return not state and not hasBuoy and not (bar and bar.Visible)
 end
 
+local function sellAll()
+    events:Fire("sellFish")
+    config.lastSell = os.clock()
+end
+
 -- ================================================================
--- MINIGAME SOLVER
--- Y=0 é topo, Y=1 é fundo.
--- Segurando → barra sobe (Y diminui)
--- Soltando  → barra desce (Y aumenta)
+-- minigame solver
 -- ================================================================
 local miniGameConnection = nil
 
@@ -63,8 +73,6 @@ local function startSolver()
         local fishY     = fishIcon.Position.Y.Scale
         local barCenter = barY + (barSize / 2)
 
-        -- Peixe acima do centro (fishY menor) → segura → barra sobe
-        -- Peixe abaixo do centro (fishY maior) → solta  → barra desce
         if fishY < barCenter then
             simulateClick(true)
         else
@@ -74,7 +82,7 @@ local function startSolver()
 end
 
 -- ================================================================
--- LOOP PRINCIPAL
+-- main loop
 -- ================================================================
 task.spawn(function()
     while true do
@@ -90,9 +98,12 @@ task.spawn(function()
             continue
         end
 
+        if config.autoSell and (os.clock() - config.lastSell) >= config.autoSellInterval then
+            sellAll()
+        end
+
         local _, strikePrompt, catchingBar = getUI()
 
-        -- PRIORIDADE 1: Minigame aberto → solver cuida
         if catchingBar and catchingBar.Visible then
             config.strikeHandled = false
             if not miniGameConnection then
@@ -101,7 +112,6 @@ task.spawn(function()
             continue
         end
 
-        -- PRIORIDADE 2: Strike prompt visível → clica para aceitar
         if strikePrompt and strikePrompt.Visible and not config.strikeHandled then
             config.strikeHandled = true
             simulateClick(true)
@@ -121,7 +131,6 @@ task.spawn(function()
             continue
         end
 
-        -- PRIORIDADE 3: Sem bóia → lança a vara
         if shouldCast() then
             config.strikeHandled = false
             simulateClick(true)
@@ -139,12 +148,12 @@ task.spawn(function()
 end)
 
 -- ================================================================
--- INTERFACE
+-- ui
 -- ================================================================
-local tab = ui:Tab("Safe Farm")
-local sec = tab:Section("Automação")
+local tab = ui:Tab("farm")
+local fishSec = tab:Section("auto fish")
 
-sec:Toggle("Ativar Auto-Fish", false, function(v)
+fishSec:Toggle("enable", false, function(v)
     config.enabled = v
     if not v then
         simulateClick(false)
@@ -155,5 +164,16 @@ sec:Toggle("Ativar Auto-Fish", false, function(v)
     end
 end)
 
-sec:Label("Equipe a vara uma vez e ative o script.")
-sec:Label("Cast → Strike → Minigame resolvidos automaticamente.")
+local sellSec = tab:Section("sell")
+
+sellSec:Toggle("auto sell", false, function(v)
+    config.autoSell = v
+end)
+
+sellSec:Slider("interval (seconds)", 60, 600, 300, function(v)
+    config.autoSellInterval = v
+end)
+
+sellSec:Button("sell all", function()
+    sellAll()
+end)

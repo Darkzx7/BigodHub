@@ -4,21 +4,21 @@ local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local HttpService       = game:GetService("HttpService")
+local HttpService      = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 local pg     = player:WaitForChild("PlayerGui")
 
 -- ──────────────────────────────────────────────────────────────
--- CONFIG
+-- config
 -- ──────────────────────────────────────────────────────────────
-local GIST_RAW    = "https://gist.githubusercontent.com/Darkzx7/dc0facdd3b84b21871cb711da0b3a8b3/raw/tags.json"
-local GIST_ID     = "dc0facdd3b84b21871cb711da0b3a8b3"
-local GITHUB_TOKEN = "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" -- só o dev precisa disso
-local SYNC_INTERVAL = 15 -- segundos entre cada leitura do gist
+local GIST_RAW      = "https://gist.githubusercontent.com/Darkzx7/dc0facdd3b84b21871cb711da0b3a8b3/raw/tags.json"
+local GIST_ID       = "dc0facdd3b84b21871cb711da0b3a8b3"
+local GITHUB_TOKEN  = "COLOCA_SEU_TOKEN_NOVO_AQUI"
+local SYNC_INTERVAL = 15
 
 -- ──────────────────────────────────────────────────────────────
--- ROLES
+-- roles
 -- ──────────────────────────────────────────────────────────────
 local ROLES = {
     owner = {
@@ -66,7 +66,7 @@ local ROLES = {
 }
 
 -- ──────────────────────────────────────────────────────────────
--- FIXED TAGS (sempre visíveis, não podem ser alteradas)
+-- fixed tags
 -- ──────────────────────────────────────────────────────────────
 local FIXED_TAGS = {
     [2450152162] = "pecinha",
@@ -74,10 +74,16 @@ local FIXED_TAGS = {
 }
 
 -- ──────────────────────────────────────────────────────────────
--- GIST SYNC
+-- estado
 -- ──────────────────────────────────────────────────────────────
-local remoteTags = {} -- tags vindas do gist: [userId] = role
+local remoteTags   = {}
+local billboards   = {}
+local effectConns  = {}
+local billboardsOn = true
 
+-- ──────────────────────────────────────────────────────────────
+-- gist
+-- ──────────────────────────────────────────────────────────────
 local function parseGist(raw)
     if not raw or raw == "" or raw == "{}" then return {} end
     local t = {}
@@ -105,19 +111,13 @@ local function readGist()
 end
 
 local function writeGist(tagsTable)
-    local body = serializeTags(tagsTable)
+    local body    = serializeTags(tagsTable)
     local payload = '{"files":{"tags.json":{"content":' .. HttpService:JSONEncode(body) .. '}}}'
 
-    local ok, err = pcall(function()
-        syn and syn.request or (http and http.request) or request
-    end)
-
-    -- usa a função de request disponível no executor
     local reqFn = (syn and syn.request) or (http and http.request) or request
+    if not reqFn then return false end
 
-    if not reqFn then return false, "executor sem suporte a request" end
-
-    local res = reqFn({
+    local ok, res = pcall(reqFn, {
         Url     = "https://api.github.com/gists/" .. GIST_ID,
         Method  = "PATCH",
         Headers = {
@@ -127,37 +127,15 @@ local function writeGist(tagsTable)
         Body = payload,
     })
 
-    return res and res.StatusCode == 200
+    return ok and res and res.StatusCode == 200
 end
 
 -- leitura inicial
 readGist()
 
--- sync periódico em background
-task.spawn(function()
-    while true do
-        task.wait(SYNC_INTERVAL)
-        readGist()
-        -- atualiza billboards de quem ganhou/perdeu tag remotamente
-        for _, p in ipairs(Players:GetPlayers()) do
-            refreshBillboard(p)
-        end
-    end
-end)
-
 -- ──────────────────────────────────────────────────────────────
--- ESTADO
+-- helpers
 -- ──────────────────────────────────────────────────────────────
-local billboards   = {}
-local effectConns  = {}
-local billboardsOn = true
-local devPanelGui  = nil
-
--- ──────────────────────────────────────────────────────────────
--- HELPERS
--- ──────────────────────────────────────────────────────────────
-
--- agora retorna "user" como fallback para qualquer jogador
 local function getTag(p)
     return FIXED_TAGS[p.UserId] or remoteTags[p.UserId] or "user"
 end
@@ -208,10 +186,10 @@ end
 
 local function makeStroke(inst, th, tr, col)
     local s = Instance.new("UIStroke")
-    s.Thickness = th or 1
+    s.Thickness  = th or 1
     s.Transparency = tr or 0.5
-    s.Color = col or Color3.fromRGB(255, 255, 255)
-    s.Parent = inst
+    s.Color      = col or Color3.fromRGB(255, 255, 255)
+    s.Parent     = inst
     return s
 end
 
@@ -229,49 +207,49 @@ end
 local function makeLabel(parent, text, font, size, color, transparency, zindex, pos, width, height)
     local lbl = Instance.new("TextLabel")
     lbl.BackgroundTransparency = 1
-    lbl.Size = UDim2.new(0, width or 280, 0, height or 36)
-    lbl.AnchorPoint = Vector2.new(0.5, 0.5)
-    lbl.Position = pos or UDim2.new(0.5, 0, 0.5, 0)
-    lbl.Font = font
-    lbl.TextSize = size
-    lbl.Text = text
-    lbl.TextColor3 = color
+    lbl.Size           = UDim2.new(0, width or 280, 0, height or 36)
+    lbl.AnchorPoint    = Vector2.new(0.5, 0.5)
+    lbl.Position       = pos or UDim2.new(0.5, 0, 0.5, 0)
+    lbl.Font           = font
+    lbl.TextSize       = size
+    lbl.Text           = text
+    lbl.TextColor3     = color
     lbl.TextTransparency = transparency or 0
     lbl.TextXAlignment = Enum.TextXAlignment.Center
     lbl.TextYAlignment = Enum.TextYAlignment.Center
-    lbl.ZIndex = zindex or 1
-    lbl.Parent = parent
+    lbl.ZIndex         = zindex or 1
+    lbl.Parent         = parent
     return lbl
 end
 
 local function addStroke(label, color, thickness, transparency)
     local s = Instance.new("UIStroke")
     s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-    s.Color = color
-    s.Thickness = thickness
-    s.Transparency = transparency or 0
-    s.Parent = label
+    s.Color           = color
+    s.Thickness       = thickness
+    s.Transparency    = transparency or 0
+    s.Parent          = label
     return s
 end
 
 local function buildTextVisual(bb, tagName, role)
     local root = Instance.new("Frame")
-    root.Name = "tag_root"
+    root.Name                 = "tag_root"
     root.BackgroundTransparency = 1
-    root.Size = UDim2.new(1, 0, 1, 0)
-    root.Parent = bb
+    root.Size                 = UDim2.new(1, 0, 1, 0)
+    root.Parent               = bb
 
-    local shadowFar = makeLabel(root, tagName, role.font, role.size, Color3.fromRGB(0,0,0), 0.56, 1, UDim2.new(0.5,0,0.5,4), 320, 42)
-    local shadowMid = makeLabel(root, tagName, role.font, role.size, role.glow, 0.38, 2, UDim2.new(0.5,0,0.5,2), 312, 40)
-    local main      = makeLabel(root, tagName, role.font, role.size, role.color, 0.00, 4, UDim2.new(0.5,0,0.5,0), 304, 38)
-    local shine     = makeLabel(root, tagName, role.font, role.size, Color3.fromRGB(255,255,255), 0.90, 5, UDim2.new(0.5,0,0.5,-1), 304, 38)
+    local shadowFar = makeLabel(root, tagName, role.font, role.size, Color3.fromRGB(0,0,0),         0.56, 1, UDim2.new(0.5,0,0.5,4),  320, 42)
+    local shadowMid = makeLabel(root, tagName, role.font, role.size, role.glow,                     0.38, 2, UDim2.new(0.5,0,0.5,2),  312, 40)
+    local main      = makeLabel(root, tagName, role.font, role.size, role.color,                    0.00, 4, UDim2.new(0.5,0,0.5,0),  304, 38)
+    local shine     = makeLabel(root, tagName, role.font, role.size, Color3.fromRGB(255,255,255),   0.90, 5, UDim2.new(0.5,0,0.5,-1), 304, 38)
     local stroke    = addStroke(main, role.glow, 1.25, 0.34)
 
     return { root=root, shadowFar=shadowFar, shadowMid=shadowMid, main=main, shine=shine, stroke=stroke }
 end
 
 -- ──────────────────────────────────────────────────────────────
--- EFEITOS (iguais ao original)
+-- efeitos
 -- ──────────────────────────────────────────────────────────────
 local function startOwnerEffect(p, refs, role)
     disconnectEffect(p)
@@ -279,11 +257,11 @@ local function startOwnerEffect(p, refs, role)
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
         local pulse = 0.5 + 0.5 * math.sin(t * 2.35)
-        refs.shadowMid.TextColor3 = role.glow:Lerp(Color3.fromRGB(255,88,88), pulse * 0.45)
+        refs.shadowMid.TextColor3    = role.glow:Lerp(Color3.fromRGB(255,88,88), pulse * 0.45)
         refs.shadowFar.TextTransparency = 0.62 - pulse * 0.05
         refs.shadowMid.TextTransparency = 0.34 - pulse * 0.08
-        refs.stroke.Transparency = 0.28 - pulse * 0.10
-        refs.shine.TextTransparency = 0.90 - pulse * 0.05
+        refs.stroke.Transparency     = 0.28 - pulse * 0.10
+        refs.shine.TextTransparency  = 0.90 - pulse * 0.05
         refs.main.Position      = UDim2.new(0.5, 0, 0.5, 0)
         refs.shadowMid.Position = UDim2.new(0.5, 0, 0.5, 2 + math.sin(t*2.0)*0.6)
         refs.shadowFar.Position = UDim2.new(0.5, 0, 0.5, 4 + math.sin(t*1.7)*0.5)
@@ -300,16 +278,16 @@ local function startDevEffect(p, refs, role)
         local shake  = math.sin(t * 18) * 0.8
         local shake2 = math.cos(t * 14) * 1.2
         local flash  = 0.5 + 0.5 * math.sin(t * 11)
-        refs.shadowMid.TextColor3 = role.glow:Lerp(Color3.fromRGB(255,110,110), pulse * 0.65)
-        refs.shadowFar.TextColor3 = Color3.fromRGB(70, 0, 0)
+        refs.shadowMid.TextColor3    = role.glow:Lerp(Color3.fromRGB(255,110,110), pulse * 0.65)
+        refs.shadowFar.TextColor3    = Color3.fromRGB(70, 0, 0)
         refs.shadowMid.TextTransparency = 0.20 - pulse * 0.08
         refs.shadowFar.TextTransparency = 0.48 - pulse2 * 0.06
-        refs.stroke.Transparency = 0.16 - pulse * 0.08
-        refs.stroke.Thickness = 1.3 + pulse * 0.9
-        refs.shine.TextTransparency = 0.84 - flash * 0.10
-        refs.main.Position      = UDim2.new(0.5, shake*0.45, 0.5, 0)
-        refs.shine.Position     = UDim2.new(0.5, shake*0.55, 0.5, -1)
-        refs.shadowMid.Position = UDim2.new(0.5, shake2, 0.5, 2)
+        refs.stroke.Transparency     = 0.16 - pulse * 0.08
+        refs.stroke.Thickness        = 1.3 + pulse * 0.9
+        refs.shine.TextTransparency  = 0.84 - flash * 0.10
+        refs.main.Position      = UDim2.new(0.5, shake*0.45,  0.5, 0)
+        refs.shine.Position     = UDim2.new(0.5, shake*0.55,  0.5, -1)
+        refs.shadowMid.Position = UDim2.new(0.5, shake2,      0.5, 2)
         refs.shadowFar.Position = UDim2.new(0.5, shake2*1.25, 0.5, 4)
         refs.main.Rotation      = math.sin(t*6.5) * 0.35
         refs.shine.Rotation     = math.sin(t*6.5) * 0.45
@@ -324,12 +302,12 @@ local function startPecinhaEffect(p, refs, role)
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
         local pulse = 0.5 + 0.5 * math.sin(t * 2.1)
-        refs.shadowMid.TextColor3 = role.glow
-        refs.shadowFar.TextColor3 = Color3.fromRGB(0,0,0)
+        refs.shadowMid.TextColor3    = role.glow
+        refs.shadowFar.TextColor3    = Color3.fromRGB(0,0,0)
         refs.shadowMid.TextTransparency = 0.28 - pulse * 0.04
         refs.shadowFar.TextTransparency = 0.50 - pulse * 0.03
-        refs.stroke.Transparency = 0.46 - pulse * 0.08
-        refs.shine.TextTransparency = 0.97
+        refs.stroke.Transparency     = 0.46 - pulse * 0.08
+        refs.shine.TextTransparency  = 0.97
         refs.main.Position      = UDim2.new(0.5, 0, 0.5, 0)
         refs.shadowMid.Position = UDim2.new(0.5, 0, 0.5, 2)
         refs.shadowFar.Position = UDim2.new(0.5, 0, 0.5, 4)
@@ -342,11 +320,11 @@ local function startVipEffect(p, refs, role)
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
         local pulse = 0.5 + 0.5 * math.sin(t * 2.5)
-        refs.shadowMid.TextColor3 = role.glow
+        refs.shadowMid.TextColor3    = role.glow
         refs.shadowMid.TextTransparency = 0.36 - pulse * 0.06
         refs.shadowFar.TextTransparency = 0.60 - pulse * 0.04
-        refs.stroke.Transparency = 0.40 - pulse * 0.08
-        refs.shine.TextTransparency = 0.92 - pulse * 0.04
+        refs.stroke.Transparency     = 0.40 - pulse * 0.08
+        refs.shine.TextTransparency  = 0.92 - pulse * 0.04
     end)
 end
 
@@ -355,11 +333,11 @@ local function applyEffect(p, refs, role)
     elseif role.effect == "dev"     then startDevEffect(p, refs, role)
     elseif role.effect == "pecinha" then startPecinhaEffect(p, refs, role)
     elseif role.effect == "vip"     then startVipEffect(p, refs, role)
-    else disconnectEffect(p) end
+    else   disconnectEffect(p) end
 end
 
 -- ──────────────────────────────────────────────────────────────
--- BILLBOARD
+-- billboard
 -- ──────────────────────────────────────────────────────────────
 local function createBillboard(p)
     removeBillboard(p)
@@ -373,28 +351,43 @@ local function createBillboard(p)
     local role    = getRole(tagName)
 
     local bb = Instance.new("BillboardGui")
-    bb.Name = "ref_tag_bb"
-    bb.Size = UDim2.new(0, 320, 0, 42)
-    bb.StudsOffset = Vector3.new(0, 3.75, 0)
-    bb.AlwaysOnTop = true
+    bb.Name          = "ref_tag_bb"
+    bb.Size          = UDim2.new(0, 320, 0, 42)
+    bb.StudsOffset   = Vector3.new(0, 3.75, 0)
+    bb.AlwaysOnTop   = true
     bb.LightInfluence = 0
-    bb.MaxDistance = 250
-    bb.ResetOnSpawn = false
-    bb.Adornee = head
-    bb.Parent = head
+    bb.MaxDistance   = 250
+    bb.ResetOnSpawn  = false
+    bb.Adornee       = head
+    bb.Parent        = head
 
     local refs = buildTextVisual(bb, tagName, role)
     applyEffect(p, refs, role)
     billboards[p] = bb
 end
 
-function refreshBillboard(p)
+local function refreshBillboard(p)
     removeBillboard(p)
     if billboardsOn then createBillboard(p) end
 end
 
 -- ──────────────────────────────────────────────────────────────
--- WATCH PLAYERS
+-- sync periódico (declarado DEPOIS de refreshBillboard)
+-- ──────────────────────────────────────────────────────────────
+local function startSync()
+    task.spawn(function()
+        while true do
+            task.wait(SYNC_INTERVAL)
+            readGist()
+            for _, p in ipairs(Players:GetPlayers()) do
+                refreshBillboard(p)
+            end
+        end
+    end)
+end
+
+-- ──────────────────────────────────────────────────────────────
+-- watch players
 -- ──────────────────────────────────────────────────────────────
 local function watchPlayer(p)
     p.CharacterAdded:Connect(function()
@@ -415,13 +408,14 @@ for _, p in ipairs(Players:GetPlayers()) do
 end
 
 Players.PlayerAdded:Connect(watchPlayer)
+
 Players.PlayerRemoving:Connect(function(p)
     removeBillboard(p)
     billboards[p] = nil
 end)
 
 -- ──────────────────────────────────────────────────────────────
--- TAG SYSTEM API
+-- tag system api
 -- ──────────────────────────────────────────────────────────────
 local TagSystem = {}
 
@@ -464,8 +458,25 @@ function TagSystem.getTag(userId)
     return FIXED_TAGS[userId] or remoteTags[userId] or "user"
 end
 
+function TagSystem.addFixed(userId, role)
+    FIXED_TAGS[userId] = role
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.UserId == userId then refreshBillboard(p) break end
+    end
+end
+
+function TagSystem.addRole(name, color, textColor, effect)
+    ROLES[name] = {
+        color  = textColor or Color3.new(1,1,1),
+        glow   = color or Color3.new(1,1,1),
+        effect = effect,
+        font   = Enum.Font.Arcade,
+        size   = 19,
+    }
+end
+
 -- ──────────────────────────────────────────────────────────────
--- INTEGRAÇÃO REFLIB
+-- integração reflib
 -- ──────────────────────────────────────────────────────────────
 function TagSystem.init(lib)
     _G.__last_ref_lib = lib
@@ -602,23 +613,9 @@ function TagSystem.init(lib)
     end)
 
     lib:Toast(lib._icon, "ref tags", "sistema de tags carregado", T.Accent)
-end
 
-function TagSystem.addFixed(userId, role)
-    FIXED_TAGS[userId] = role
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.UserId == userId then refreshBillboard(p) break end
-    end
-end
-
-function TagSystem.addRole(name, color, textColor, effect)
-    ROLES[name] = {
-        color  = textColor or Color3.new(1,1,1),
-        glow   = color or Color3.new(1,1,1),
-        effect = effect,
-        font   = Enum.Font.Arcade,
-        size   = 19,
-    }
+    -- sync começa aqui, depois de tudo definido
+    startSync()
 end
 
 return TagSystem

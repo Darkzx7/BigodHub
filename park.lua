@@ -30,7 +30,9 @@ end
 
 -- ================================================================
 -- MINIGAME SOLVER
--- Controla o centro da barra verde para seguir o ícone do peixe.
+-- Y=0 é topo, Y=1 é fundo.
+-- Segurando → barra sobe (Y diminui)
+-- Soltando  → barra desce (Y aumenta)
 -- ================================================================
 local miniGameConnection = nil
 
@@ -50,7 +52,6 @@ local function startSolver()
     miniGameConnection = RunService.Heartbeat:Connect(function()
         local _, _, cb = getUI()
 
-        -- Para quando o minigame fechar
         if not cb or not cb.Visible then
             simulateClick(false)
             miniGameConnection:Disconnect()
@@ -58,17 +59,16 @@ local function startSolver()
             return
         end
 
-        local barY     = bar.Position.Y.Scale
-        local fishY    = fishIcon.Position.Y.Scale
+        local barY      = bar.Position.Y.Scale
+        local fishY     = fishIcon.Position.Y.Scale
         local barCenter = barY + (barSize / 2)
 
-        -- Mantém o peixe no CENTRO da barra verde:
-        -- Peixe acima do centro → solta (barra desce pela gravidade em direção ao peixe)
-        -- Peixe abaixo do centro → segura (puxa barra pra cima em direção ao peixe)
+        -- Peixe acima do centro (fishY menor) → segura → barra sobe
+        -- Peixe abaixo do centro (fishY maior) → solta  → barra desce
         if fishY < barCenter then
-            simulateClick(false)
-        else
             simulateClick(true)
+        else
+            simulateClick(false)
         end
     end)
 end
@@ -108,7 +108,6 @@ task.spawn(function()
             task.wait(0.1)
             simulateClick(false)
 
-            -- Aguarda o minigame abrir
             local waited = 0
             while waited < 3 do
                 task.wait(0.1)

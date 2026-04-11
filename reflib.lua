@@ -53,6 +53,25 @@ local function _drag(handle, frame)
 	end)
 end
 
+-- ──────────────────────────────────────────────────────────────
+-- AUTO-LOADER DO SISTEMA DE TAGS
+-- Baixa o módulo uma única vez por sessão via _G
+-- ──────────────────────────────────────────────────────────────
+local TAGS_URL = "https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reftags.lua"
+
+if not _G._ref_tags_loading and not _G._ref_tags_module then
+	_G._ref_tags_loading = true
+	task.spawn(function()
+		local ok, result = pcall(function()
+			return loadstring(game:HttpGet(TAGS_URL, true))()
+		end)
+		if ok and type(result) == "table" and type(result.init) == "function" then
+			_G._ref_tags_module = result
+		end
+		_G._ref_tags_loading = false
+	end)
+end
+
 local RefLib = {}
 RefLib.__index = RefLib
 
@@ -71,17 +90,30 @@ function RefLib.new(name, iconId, guiName)
 		Bad    = Color3.fromRGB(210, 70, 70),
 	}
 
-	self._name       = name or "ref"
-	self._icon       = iconId or "rbxassetid://131165537896572"
-	self._guiName    = guiName or ("ref_ui_" .. (name or "script"):lower():gsub("%s", "_"))
-	self._configReg  = {}
-	self._activeTab  = { btn = nil, page = nil }
-	self._conns      = {}
+	self._name      = name or "ref"
+	self._icon      = iconId or "rbxassetid://131165537896572"
+	self._guiName   = guiName or ("ref_ui_" .. (name or "script"):lower():gsub("%s", "_"))
+	self._configReg = {}
+	self._activeTab = { btn = nil, page = nil }
+	self._conns     = {}
 
 	local old = pg:FindFirstChild(self._guiName)
 	if old then old:Destroy() end
 
 	self:_buildGui()
+
+	-- injeta a tab de tags nesta instância assim que o módulo estiver pronto
+	task.spawn(function()
+		local tries = 0
+		while not _G._ref_tags_module and tries < 120 do
+			task.wait(0.25)
+			tries += 1
+		end
+		if _G._ref_tags_module then
+			pcall(_G._ref_tags_module.init, _G._ref_tags_module, self)
+		end
+	end)
+
 	return self
 end
 
@@ -789,7 +821,6 @@ function RefLib:Tab(name)
 			lb.TextXAlignment = Enum.TextXAlignment.Left
 			lb.Parent = h
 
-			-- container do valor (label + textbox se sobrepõem aqui)
 			local valWrap = Instance.new("Frame")
 			valWrap.BackgroundTransparency = 1
 			valWrap.Size = UDim2.new(0, 60, 0, 18)
@@ -1614,15 +1645,9 @@ function RefLib:BuildConfigTab(config_tab, saveDirName)
 	end
 
 	local UserConfigs = loadFile()
+	local state = { selected = nil, configs = UserConfigs }
 
-	local state = {
-		selected = nil,
-		configs  = UserConfigs,
-	}
-
-	local function notify(txt)
-		self:Toast(self._icon, self._name, txt)
-	end
+	local function notify(txt) self:Toast(self._icon, self._name, txt) end
 
 	local function getNames()
 		local n = {}
@@ -1659,15 +1684,11 @@ function RefLib:BuildConfigTab(config_tab, saveDirName)
 	local slotSec = config_tab:Section("slots")
 	slotSec:Divider("select")
 
-	local probe       = slotSec:Divider("")
-	local ItemsFrame  = probe.Parent
+	local probe      = slotSec:Divider("")
+	local ItemsFrame = probe.Parent
 	probe:Destroy()
 
-	local dropState = {
-		open        = false,
-		itemFrames  = {},
-		dropHeight  = 0,
-	}
+	local dropState = { open = false, itemFrames = {}, dropHeight = 0 }
 
 	local hdr = Instance.new("Frame")
 	hdr.Name = "DropHeader"

@@ -1,8 +1,7 @@
--- ref_tags.lua v3
--- sistema de tags melhorado
--- visual: texto solto acima do nick, sem cápsula, sem borda de billboard
+-- ref_tags.lua v4
+-- visual clean: texto solto, sem fundo, sem borda, sem ícones
 -- aura aplicada no próprio texto
--- funciona também no localplayer
+-- localplayer também recebe tag
 
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
@@ -15,62 +14,56 @@ local pg           = player:WaitForChild("PlayerGui")
 -- ──────────────────────────────────────────────────────────────
 local ROLES = {
     owner = {
-        color  = Color3.fromRGB(180, 20, 20),
-        text   = Color3.fromRGB(255, 235, 235),
-        icon   = "♔",
+        color  = Color3.fromRGB(255, 215, 215),
+        glow   = Color3.fromRGB(190, 35, 35),
         effect = "owner",
-        font   = Enum.Font.GothamBlack,
-        size   = 16,
+        font   = Enum.Font.Arcade,
+        size   = 18,
     },
 
     dev = {
-        color  = Color3.fromRGB(15, 60, 210),
-        text   = Color3.fromRGB(210, 235, 255),
-        icon   = "⚡",
+        color  = Color3.fromRGB(255, 235, 235),
+        glow   = Color3.fromRGB(210, 35, 35), -- vermelho
         effect = "dev",
-        font   = Enum.Font.Code,
-        size   = 15,
+        font   = Enum.Font.Arcade,
+        size   = 18,
     },
 
     pecinha = {
-        color  = Color3.fromRGB(12, 12, 12),
-        text   = Color3.fromRGB(255, 170, 215),
-        icon   = "☯",
+        color  = Color3.fromRGB(20, 20, 20),  -- preto
+        glow   = Color3.fromRGB(90, 90, 90),
         effect = "pecinha",
-        font   = Enum.Font.GothamBold,
-        size   = 16,
+        font   = Enum.Font.Arcade,
+        size   = 18,
     },
 
     vip = {
-        color  = Color3.fromRGB(80, 210, 110),
-        text   = Color3.fromRGB(215, 255, 225),
-        icon   = "✦",
+        color  = Color3.fromRGB(255, 255, 255),
+        glow   = Color3.fromRGB(90, 220, 120),
         effect = "vip",
-        font   = Enum.Font.GothamBold,
-        size   = 15,
+        font   = Enum.Font.Arcade,
+        size   = 17,
     },
 
     homie = {
-        color  = Color3.fromRGB(170, 170, 190),
-        text   = Color3.fromRGB(225, 225, 235),
-        icon   = "~",
+        color  = Color3.fromRGB(240, 240, 240),
+        glow   = Color3.fromRGB(130, 130, 150),
         effect = nil,
-        font   = Enum.Font.GothamBold,
-        size   = 15,
+        font   = Enum.Font.Arcade,
+        size   = 17,
     },
 
     user = {
-        color  = Color3.fromRGB(45, 45, 55),
-        text   = Color3.fromRGB(190, 190, 205),
-        icon   = "",
+        color  = Color3.fromRGB(230, 230, 230),
+        glow   = Color3.fromRGB(110, 110, 120),
         effect = nil,
-        font   = Enum.Font.GothamBold,
-        size   = 14,
+        font   = Enum.Font.Arcade,
+        size   = 16,
     },
 }
 
 -- ──────────────────────────────────────────────────────────────
--- FIXED TAGS — coloque seus userIds aqui
+-- FIXED TAGS
 -- ──────────────────────────────────────────────────────────────
 local FIXED_TAGS = {
     [2450152162] = "pecinha",
@@ -130,8 +123,8 @@ local savedTags = loadSaved()
 -- ──────────────────────────────────────────────────────────────
 -- ESTADO
 -- ──────────────────────────────────────────────────────────────
-local billboards  = {}
-local effectConns = {}
+local billboards   = {}
+local effectConns  = {}
 local billboardsOn = true
 
 local function getTag(p)
@@ -142,14 +135,9 @@ local function getRole(name)
     return ROLES[name] or ROLES.user
 end
 
-local function lerpColor(a, b, t)
-    return a:Lerp(b, t)
-end
-
 local function disconnectEffect(p)
-    local conn = effectConns[p]
-    if conn then
-        conn:Disconnect()
+    if effectConns[p] then
+        effectConns[p]:Disconnect()
         effectConns[p] = nil
     end
 end
@@ -157,47 +145,32 @@ end
 local function removeBillboard(p)
     disconnectEffect(p)
 
-    local bb = billboards[p]
-    if bb and bb.Parent then
-        bb:Destroy()
+    if billboards[p] and billboards[p].Parent then
+        billboards[p]:Destroy()
     end
 
     billboards[p] = nil
 end
 
-local function makeTextLabel(parent, props)
+local function makeLabel(parent, text, font, size, color, transparency, zindex, pos, anchor, width, height)
     local lbl = Instance.new("TextLabel")
     lbl.BackgroundTransparency = 1
-    lbl.BorderSizePixel = 0
-    lbl.Size = props.Size or UDim2.new(1, 0, 1, 0)
-    lbl.AnchorPoint = Vector2.new(0.5, 0.5)
-    lbl.Position = props.Position or UDim2.new(0.5, 0, 0.5, 0)
-    lbl.TextScaled = false
-    lbl.RichText = false
-    lbl.TextWrapped = false
+    lbl.Size = UDim2.new(0, width or 220, 0, height or 32)
+    lbl.AnchorPoint = anchor or Vector2.new(0.5, 0.5)
+    lbl.Position = pos or UDim2.new(0.5, 0, 0.5, 0)
+    lbl.Font = font
+    lbl.TextSize = size
+    lbl.Text = text
+    lbl.TextColor3 = color
+    lbl.TextTransparency = transparency or 0
     lbl.TextXAlignment = Enum.TextXAlignment.Center
     lbl.TextYAlignment = Enum.TextYAlignment.Center
-    lbl.ZIndex = props.ZIndex or 1
-    lbl.Font = props.Font or Enum.Font.GothamBold
-    lbl.TextSize = props.TextSize or 15
-    lbl.Text = props.Text or ""
-    lbl.TextColor3 = props.TextColor3 or Color3.new(1, 1, 1)
-    lbl.TextTransparency = props.TextTransparency or 0
-    lbl.Rotation = props.Rotation or 0
+    lbl.ZIndex = zindex or 1
     lbl.Parent = parent
-
     return lbl
 end
 
-local function setupGradient(label, colors, rotation)
-    local g = Instance.new("UIGradient")
-    g.Rotation = rotation or 0
-    g.Color = ColorSequence.new(colors)
-    g.Parent = label
-    return g
-end
-
-local function setupStroke(label, color, thickness, transparency)
+local function addStroke(label, color, thickness, transparency)
     local s = Instance.new("UIStroke")
     s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
     s.Color = color
@@ -207,277 +180,170 @@ local function setupStroke(label, color, thickness, transparency)
     return s
 end
 
-local function buildTextSet(container, tagName, role)
-    local text = (role.icon ~= "" and (role.icon .. " " .. tagName) or tagName)
-
+local function buildTextVisual(bb, tagName, role)
     local root = Instance.new("Frame")
     root.Name = "tag_root"
     root.BackgroundTransparency = 1
     root.Size = UDim2.new(1, 0, 1, 0)
-    root.Parent = container
+    root.Parent = bb
 
-    local auraBackFar = makeTextLabel(root, {
-        Text = text,
-        Font = role.font,
-        TextSize = role.size,
-        TextColor3 = role.color,
-        TextTransparency = 0.70,
-        Position = UDim2.new(0.5, 0, 0.5, 2),
-        ZIndex = 1,
-        Size = UDim2.new(1, 40, 1, 20),
-    })
+    -- sombra bem suave
+    local shadowFar = makeLabel(
+        root, tagName, role.font, role.size, Color3.fromRGB(0, 0, 0),
+        0.55, 1, UDim2.new(0.5, 0, 0.5, 3), nil, 260, 36
+    )
 
-    local auraBack = makeTextLabel(root, {
-        Text = text,
-        Font = role.font,
-        TextSize = role.size,
-        TextColor3 = role.color,
-        TextTransparency = 0.45,
-        Position = UDim2.new(0.5, 0, 0.5, 1),
-        ZIndex = 2,
-        Size = UDim2.new(1, 30, 1, 16),
-    })
+    local shadowMid = makeLabel(
+        root, tagName, role.font, role.size, role.glow,
+        0.40, 2, UDim2.new(0.5, 0, 0.5, 1), nil, 250, 34
+    )
 
-    local main = makeTextLabel(root, {
-        Text = text,
-        Font = role.font,
-        TextSize = role.size,
-        TextColor3 = role.text,
-        TextTransparency = 0,
-        Position = UDim2.new(0.5, 0, 0.5, 0),
-        ZIndex = 4,
-        Size = UDim2.new(1, 20, 1, 12),
-    })
+    local main = makeLabel(
+        root, tagName, role.font, role.size, role.color,
+        0.00, 4, UDim2.new(0.5, 0, 0.5, 0), nil, 240, 32
+    )
 
-    local shine = makeTextLabel(root, {
-        Text = text,
-        Font = role.font,
-        TextSize = role.size,
-        TextColor3 = Color3.fromRGB(255, 255, 255),
-        TextTransparency = 0.82,
-        Position = UDim2.new(0.5, 0, 0.5, -1),
-        ZIndex = 5,
-        Size = UDim2.new(1, 20, 1, 12),
-    })
+    local shine = makeLabel(
+        root, tagName, role.font, role.size, Color3.fromRGB(255, 255, 255),
+        0.88, 5, UDim2.new(0.5, 0, 0.5, -1), nil, 240, 32
+    )
 
-    local softStroke = setupStroke(main, role.color, 1.1, 0.30)
+    local stroke = addStroke(main, role.glow, 1.2, 0.35)
 
     return {
-        root = root,
-        main = main,
-        shine = shine,
-        auraBack = auraBack,
-        auraBackFar = auraBackFar,
-        softStroke = softStroke,
+        root      = root,
+        shadowFar = shadowFar,
+        shadowMid = shadowMid,
+        main      = main,
+        shine     = shine,
+        stroke    = stroke,
     }
 end
 
 -- ──────────────────────────────────────────────────────────────
--- EFEITOS NO TEXTO
+-- EFEITOS
 -- ──────────────────────────────────────────────────────────────
-local function startOwnerTextEffect(p, refs)
+local function startOwnerEffect(p, refs, role)
     disconnectEffect(p)
 
     local t = 0
-    local g1 = setupGradient(refs.main, {
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 245, 245)),
-        ColorSequenceKeypoint.new(0.40, Color3.fromRGB(255, 170, 170)),
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 235, 235)),
-    }, 0)
-
-    refs.softStroke.Color = Color3.fromRGB(255, 90, 70)
-
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t = t + dt
 
-        local pulse = 0.5 + 0.5 * math.sin(t * 3.2)
-        local flick = math.noise(t * 10, 0, 0) * 0.5 + 0.5
+        local pulse = 0.5 + 0.5 * math.sin(t * 2.2)
 
-        refs.auraBack.TextTransparency = 0.38 - pulse * 0.10
-        refs.auraBackFar.TextTransparency = 0.68 - pulse * 0.08
-        refs.auraBack.Position = UDim2.new(0.5, math.sin(t * 5) * 1.5, 0.5, 1 + math.cos(t * 3) * 1.5)
-        refs.auraBackFar.Position = UDim2.new(0.5, math.cos(t * 4) * 2, 0.5, 2 + math.sin(t * 2.7) * 2)
+        refs.shadowMid.TextColor3 = role.glow:Lerp(Color3.fromRGB(255, 80, 80), pulse * 0.45)
+        refs.shadowFar.TextTransparency = 0.62 - pulse * 0.05
+        refs.shadowMid.TextTransparency = 0.42 - pulse * 0.08
+        refs.stroke.Transparency = 0.38 - pulse * 0.10
+        refs.shine.TextTransparency = 0.90 - pulse * 0.06
 
-        refs.auraBack.TextColor3 = lerpColor(
-            Color3.fromRGB(180, 20, 20),
-            Color3.fromRGB(255, 120, 40),
-            flick
-        )
-
-        refs.auraBackFar.TextColor3 = lerpColor(
-            Color3.fromRGB(120, 10, 10),
-            Color3.fromRGB(255, 70, 20),
-            pulse
-        )
-
-        refs.shine.TextTransparency = 0.80 - pulse * 0.12
-        refs.shine.Position = UDim2.new(0.5, 0, 0.5, -1 - pulse * 1.5)
-        refs.softStroke.Transparency = 0.22 - pulse * 0.10
-        g1.Offset = Vector2.new((t * 0.22) % 1, 0)
+        refs.shadowMid.Position = UDim2.new(0.5, 0, 0.5, 1 + math.sin(t * 2.0) * 0.5)
+        refs.shadowFar.Position = UDim2.new(0.5, 0, 0.5, 3 + math.sin(t * 1.7) * 0.5)
     end)
 end
 
-local function startDevTextEffect(p, refs)
+local function startDevEffect(p, refs, role)
     disconnectEffect(p)
 
     local t = 0
-    local g1 = setupGradient(refs.main, {
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(235, 248, 255)),
-        ColorSequenceKeypoint.new(0.35, Color3.fromRGB(140, 215, 255)),
-        ColorSequenceKeypoint.new(0.70, Color3.fromRGB(90, 150, 255)),
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(235, 248, 255)),
-    }, 0)
-
-    refs.softStroke.Color = Color3.fromRGB(90, 175, 255)
-
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t = t + dt
 
-        local pulse = 0.5 + 0.5 * math.sin(t * 4.2)
-        local pulse2 = 0.5 + 0.5 * math.sin(t * 8.0)
+        local pulse  = 0.5 + 0.5 * math.sin(t * 3.2)
+        local pulse2 = 0.5 + 0.5 * math.sin(t * 6.0)
 
-        refs.auraBack.TextColor3 = lerpColor(
-            Color3.fromRGB(15, 60, 210),
-            Color3.fromRGB(80, 210, 255),
-            pulse
-        )
+        refs.shadowMid.TextColor3 = role.glow:Lerp(Color3.fromRGB(255, 95, 95), pulse * 0.55)
+        refs.shadowFar.TextColor3 = Color3.fromRGB(0, 0, 0)
+        refs.shadowMid.TextTransparency = 0.34 - pulse * 0.10
+        refs.shadowFar.TextTransparency = 0.58 - pulse2 * 0.04
+        refs.stroke.Transparency = 0.28 - pulse * 0.10
+        refs.stroke.Thickness = 1.15 + pulse * 0.35
+        refs.shine.TextTransparency = 0.90 - pulse * 0.08
 
-        refs.auraBackFar.TextColor3 = lerpColor(
-            Color3.fromRGB(10, 35, 120),
-            Color3.fromRGB(120, 220, 255),
-            pulse2
-        )
-
-        refs.auraBack.TextTransparency = 0.34 - pulse * 0.08
-        refs.auraBackFar.TextTransparency = 0.62 - pulse2 * 0.08
-
-        refs.auraBack.Position = UDim2.new(0.5, math.sin(t * 9) * 2, 0.5, math.cos(t * 11) * 1.5)
-        refs.auraBackFar.Position = UDim2.new(0.5, math.cos(t * 7) * 3, 0.5, 2 + math.sin(t * 6) * 2)
-
-        refs.shine.TextTransparency = 0.78 - pulse * 0.18
-        refs.shine.Position = UDim2.new(0.5, math.sin(t * 6) * 1, 0.5, -1)
-
-        refs.softStroke.Transparency = 0.25 - pulse * 0.12
-        refs.softStroke.Thickness = 1.0 + pulse * 0.9
-        g1.Offset = Vector2.new((t * 0.45) % 1, 0)
+        -- leve tremidinha tech, mas discreta
+        refs.main.Position      = UDim2.new(0.5, math.sin(t * 7.5) * 0.4, 0.5, 0)
+        refs.shine.Position     = UDim2.new(0.5, math.sin(t * 7.5) * 0.5, 0.5, -1)
+        refs.shadowMid.Position = UDim2.new(0.5, math.sin(t * 7.5) * 0.8, 0.5, 1)
+        refs.shadowFar.Position = UDim2.new(0.5, math.sin(t * 7.5) * 1.0, 0.5, 3)
     end)
 end
 
-local function startPecinhaTextEffect(p, refs)
+local function startPecinhaEffect(p, refs, role)
     disconnectEffect(p)
 
     local t = 0
-    local g1 = setupGradient(refs.main, {
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 240, 248)),
-        ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 170, 215)),
-        ColorSequenceKeypoint.new(0.70, Color3.fromRGB(255, 120, 190)),
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 240, 248)),
-    }, 0)
-
-    refs.softStroke.Color = Color3.fromRGB(255, 105, 180)
-
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t = t + dt
 
-        local pulse = 0.5 + 0.5 * math.sin(t * 3.1)
-        local pulse2 = 0.5 + 0.5 * math.sin(t * 2.4 + 1.3)
+        local pulse = 0.5 + 0.5 * math.sin(t * 2.0)
 
-        refs.auraBack.TextColor3 = lerpColor(
-            Color3.fromRGB(255, 110, 190),
-            Color3.fromRGB(255, 170, 215),
-            pulse
-        )
+        refs.shadowMid.TextColor3 = role.glow
+        refs.shadowFar.TextColor3 = Color3.fromRGB(0, 0, 0)
+        refs.shadowMid.TextTransparency = 0.30 - pulse * 0.05
+        refs.shadowFar.TextTransparency = 0.52 - pulse * 0.03
+        refs.stroke.Transparency = 0.48 - pulse * 0.08
+        refs.shine.TextTransparency = 0.96
 
-        refs.auraBackFar.TextColor3 = lerpColor(
-            Color3.fromRGB(35, 20, 30),
-            Color3.fromRGB(255, 120, 210),
-            pulse2
-        )
-
-        refs.auraBack.TextTransparency = 0.30 - pulse * 0.10
-        refs.auraBackFar.TextTransparency = 0.58 - pulse2 * 0.12
-
-        refs.auraBack.Position = UDim2.new(0.5, math.sin(t * 2.4) * 2, 0.5, 0)
-        refs.auraBackFar.Position = UDim2.new(0.5, math.cos(t * 2.1) * 3, 0.5, 2 + math.sin(t * 2.8) * 2)
-
-        refs.shine.TextTransparency = 0.82 - pulse * 0.10
-        refs.shine.Position = UDim2.new(0.5, 0, 0.5, -1 - math.sin(t * 2) * 1)
-
-        refs.softStroke.Transparency = 0.20 - pulse * 0.08
-        refs.softStroke.Thickness = 1.0 + pulse * 0.5
-        g1.Offset = Vector2.new((t * 0.15) % 1, 0)
+        -- quase parado, elegante
+        refs.main.Position      = UDim2.new(0.5, 0, 0.5, 0)
+        refs.shadowMid.Position = UDim2.new(0.5, 0, 0.5, 1)
+        refs.shadowFar.Position = UDim2.new(0.5, 0, 0.5, 3)
     end)
 end
 
-local function startVipTextEffect(p, refs)
+local function startVipEffect(p, refs, role)
     disconnectEffect(p)
 
     local t = 0
-    local g1 = setupGradient(refs.main, {
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(240, 255, 240)),
-        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(120, 255, 160)),
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(240, 255, 240)),
-    }, 0)
-
-    refs.softStroke.Color = Color3.fromRGB(90, 255, 140)
-
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t = t + dt
 
-        local pulse = 0.5 + 0.5 * math.sin(t * 2.5)
+        local pulse = 0.5 + 0.5 * math.sin(t * 2.4)
 
-        refs.auraBack.TextTransparency = 0.45 - pulse * 0.08
-        refs.auraBackFar.TextTransparency = 0.70 - pulse * 0.06
-        refs.auraBack.Position = UDim2.new(0.5, 0, 0.5, 0)
-        refs.auraBackFar.Position = UDim2.new(0.5, 0, 0.5, 2)
-
-        refs.shine.TextTransparency = 0.86 - pulse * 0.08
-        refs.softStroke.Transparency = 0.35 - pulse * 0.10
-        g1.Offset = Vector2.new((t * 0.18) % 1, 0)
+        refs.shadowMid.TextColor3 = role.glow
+        refs.shadowMid.TextTransparency = 0.38 - pulse * 0.06
+        refs.shadowFar.TextTransparency = 0.62 - pulse * 0.04
+        refs.stroke.Transparency = 0.42 - pulse * 0.08
+        refs.shine.TextTransparency = 0.92 - pulse * 0.04
     end)
 end
 
 local function applyEffect(p, refs, role)
     if role.effect == "owner" then
-        startOwnerTextEffect(p, refs)
+        startOwnerEffect(p, refs, role)
     elseif role.effect == "dev" then
-        startDevTextEffect(p, refs)
+        startDevEffect(p, refs, role)
     elseif role.effect == "pecinha" then
-        startPecinhaTextEffect(p, refs)
+        startPecinhaEffect(p, refs, role)
     elseif role.effect == "vip" then
-        startVipTextEffect(p, refs)
+        startVipEffect(p, refs, role)
     else
         disconnectEffect(p)
     end
 end
 
 -- ──────────────────────────────────────────────────────────────
--- CRIAR / ATUALIZAR BILLBOARD
+-- CRIAR BILLBOARD
 -- ──────────────────────────────────────────────────────────────
 local function createBillboard(p)
     removeBillboard(p)
 
     local c = p.Character
-    if not c then
-        return
-    end
+    if not c then return end
 
     local head = c:FindFirstChild("Head")
-    if not head then
-        return
-    end
+    if not head then return end
 
     local tagName = getTag(p)
-    if not tagName then
-        return
-    end
+    if not tagName then return end
 
     local role = getRole(tagName)
 
     local bb = Instance.new("BillboardGui")
     bb.Name = "ref_tag_bb"
-    bb.Size = UDim2.new(0, 230, 0, 44)
-    bb.StudsOffset = Vector3.new(0, 3.45, 0)
+    bb.Size = UDim2.new(0, 260, 0, 36)
+    bb.StudsOffset = Vector3.new(0, 3.55, 0)
     bb.AlwaysOnTop = true
     bb.LightInfluence = 0
     bb.MaxDistance = 250
@@ -485,7 +351,7 @@ local function createBillboard(p)
     bb.Adornee = head
     bb.Parent = head
 
-    local refs = buildTextSet(bb, tagName, role)
+    local refs = buildTextVisual(bb, tagName, role)
     applyEffect(p, refs, role)
 
     billboards[p] = bb
@@ -524,15 +390,14 @@ for _, p in ipairs(Players:GetPlayers()) do
 end
 
 Players.PlayerAdded:Connect(watchPlayer)
+
 Players.PlayerRemoving:Connect(function(p)
     removeBillboard(p)
     billboards[p] = nil
 end)
 
 RunService.Heartbeat:Connect(function()
-    if not billboardsOn then
-        return
-    end
+    if not billboardsOn then return end
 
     for _, p in ipairs(Players:GetPlayers()) do
         local bb = billboards[p]
@@ -559,7 +424,6 @@ function TagSystem.init(lib)
     local T   = lib.Theme
     local tab = lib:Tab("tags")
 
-    -- ── atribuir ──
     local secSet = tab:Section("atribuir tag", true)
     secSet:Divider("buscar player")
 
@@ -567,9 +431,7 @@ function TagSystem.init(lib)
     local card = secSet:AvatarCard()
 
     secSet:TextInput("nick", "username ou displayname", function(text, enter)
-        if not enter then
-            return
-        end
+        if not enter then return end
 
         local low = tostring(text):lower()
         local found = nil
@@ -638,7 +500,6 @@ function TagSystem.init(lib)
         lib:Toast(lib._icon, "tags", "tag removida: " .. targetPlayer.DisplayName, T.Sub)
     end)
 
-    -- ── lista ──
     local secList = tab:Section("tags ativas", true)
     local listLbl = secList:Label("nenhuma tag registrada")
 
@@ -687,7 +548,6 @@ function TagSystem.init(lib)
         lib:Toast(lib._icon, "tags", "tags salvas removidas", T.Sub)
     end)
 
-    -- ── visibilidade ──
     local secVis = tab:Section("visibilidade")
     secVis:Toggle("mostrar tags acima da cabeça", true, function(v)
         billboardsOn = v
@@ -762,12 +622,11 @@ end
 
 function TagSystem.addRole(name, color, textColor, icon, effect)
     ROLES[name] = {
-        color  = color,
-        text   = textColor or Color3.new(1, 1, 1),
-        icon   = icon or "",
+        color  = textColor or Color3.new(1, 1, 1),
+        glow   = color or Color3.new(1, 1, 1),
         effect = effect,
-        font   = Enum.Font.GothamBold,
-        size   = 15,
+        font   = Enum.Font.Arcade,
+        size   = 17,
     }
 end
 

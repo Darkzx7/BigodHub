@@ -1,48 +1,44 @@
 -- ================================================================
--- CARREGA A REFLIB (seu loader)
+-- CARREGA A REFLIB
 -- ================================================================
 local RefLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Darkzx7/BigodHub/refs/heads/main/reflib.lua", true))()
 if not RefLib then error("RefLib nao carregou") end
 
--- ================================================================
--- CRIA O MENU
--- ================================================================
-local ui = RefLib.new("AutoFish", "rbxassetid://131165537896572", "autofish_v1")
+local ui = RefLib.new("AutoFish", "rbxassetid://131165537896572", "autofish_v2")
 
 -- ================================================================
--- AUTOFISH - SISTEMA COMPLETO
+-- AUTOFISH - BASEADO NO CÓDIGO REAL DO JOGO
 -- ================================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualInput = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
 
--- Tenta carregar os eventos do jogo
-local events = nil
-pcall(function()
-    events = require(ReplicatedStorage.Shared.Modules.events)
-end)
+-- Carrega os eventos do jogo
+local events = require(ReplicatedStorage.Shared.Modules.events)
+
+-- Calcula o validateFishing (igual o servidor faz)
+local function getValidateFishing()
+    return player.UserId * game.PlaceVersion * 6 / 2
+end
 
 -- Configurações
 local config = {
     enabled = false,
     autoReel = true,
-    perfectCatch = true,
     autoSell = false,
-    castDelay = 3,
     fishCaught = 0
 }
 
 -- Variáveis de controle
+local activeBattle = false
+local currentBattleLoop = nil
 local lastCastTime = 0
-local isInBattle = false
-local holding = false
+local castDelay = 2
 
 -- ================================================================
--- FUNÇÕES PRINCIPAIS
+-- FUNÇÕES DE PESCA (USANDO OS REMOTES CORRETOS)
 -- ================================================================
 
 local function getFishingRod()
@@ -61,86 +57,133 @@ end
 
 local function castRod()
     local rod = getFishingRod()
-    if rod then
-        rod:Activate()
-        return true
+    if not rod then return false end
+    
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    -- Calcula a posição de destino (à frente do personagem)
+    local destiny = root.CFrame * CFrame.new(0, 0, -25)
+    
+    -- Raycast para encontrar a água
+    local rayParams = RaycastParams.new()
+    rayParams.IgnoreWater = false
+    local result = workspace:Raycast(destiny.Position, Vector3.new(0, -50, 0), rayParams)
+    
+    if result and result.Material == Enum.Material.Water then
+        destiny = CFrame.new(result.Position)
     end
-    return false
+    
+    -- Dispara o evento createBuoy
+    events:Fire("Fish", {
+        fishingAction = "createBuoy",
+        destiny = destiny.Position,
+        validateFishing = getValidateFishing()
+    })
+    
+    return true
 end
 
-local function pullFish()
-    VirtualInput:SendMouseButtonEvent(0, 0, 0, true, "Left", 1)
-    task.wait(0.05)
-    VirtualInput:SendMouseButtonEvent(0, 0, 0, false, "Left", 1)
+local function startBattle()
+    events:Fire("Fish", {
+        fishingAction = "startBattle",
+        validateFishing = getValidateFishing()
+    })
 end
 
-local function holdPull()
-    if not holding then
-        holding = true
-        VirtualInput:SendMouseButtonEvent(0, 0, 0, true, "Left", 1)
-    end
+local function finishFish()
+    events:Fire("Fish", {
+        fishingAction = "fish",
+        validateFishing = getValidateFishing()
+    })
+    config.fishCaught = config.fishCaught + 1
 end
 
-local function releasePull()
-    if holding then
-        holding = false
-        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, "Left", 1)
-    end
+local function destroyBuoy()
+    events:Fire("Fish", {
+        fishingAction = "destroyBuoy",
+        validateFishing = getValidateFishing()
+    })
 end
 
 local function sellAllFish()
-    if events then
-        events:Fire("sellFish")
-        ui:Toast("rbxassetid://131165537896572", "💰 Venda", "Peixes vendidos!", Color3.fromRGB(255, 200, 100))
-    end
+    events:Fire("sellFish")
+    ui:Toast("rbxassetid://131165537896572", "💰 Venda", "Peixes vendidos!", Color3.fromRGB(255, 200, 100))
 end
 
 -- ================================================================
--- MONITORAMENTO DA UI DO JOGO
+-- SIMULA O MINIGAME DA BARRA (CLIQUE SEGURADO)
 -- ================================================================
 
-local function setupListeners()
+local function holdClick()
+    local VirtualInput = game:GetService("VirtualInputManager")
+    VirtualInput:SendMouseButtonEvent(0, 0, 0, true, "Left", 1)
+end
+
+local function releaseClick()
+    local VirtualInput = game:GetService("VirtualInputManager")
+    VirtualInput:SendMouseButtonEvent(0, 0, 0, false, "Left", 1)
+end
+
+-- ================================================================
+-- MONITORAMENTO DA UI
+-- ================================================================
+
+local function setupUIListeners()
     local fishingUI = player.PlayerGui:FindFirstChild("FishingUI")
     if not fishingUI then return end
     
-    -- Monitora o StrikePrompt (peixe mordeu)
+    -- Monitora o StrikePrompt (quando o peixe morde)
     local buoyFrame = fishingUI:FindFirstChild("BuoyFrame")
     if buoyFrame then
         local strikePrompt = buoyFrame:FindFirstChild("StrikePrompt")
         if strikePrompt then
             strikePrompt:GetPropertyChangedSignal("Visible"):Connect(function()
-                if config.enabled and strikePrompt.Visible and config.autoReel then
+                if config.enabled and config.autoReel and strikePrompt.Visible then
                     task.wait(0.1)
-                    pullFish()
+                    startBattle()
                 end
             end)
         end
     end
     
-    -- Monitora a batalha (CatchingBar)
+    -- Monitora a barra de batalha
     local catchingBar = fishingUI:FindFirstChild("CatchingBar")
     if catchingBar then
         catchingBar:GetPropertyChangedSignal("Visible"):Connect(function()
             if config.enabled and catchingBar.Visible then
-                isInBattle = true
+                activeBattle = true
                 
-                -- Loop da batalha
-                local battleLoop = RunService.RenderStepped:Connect(function()
-                    if not config.enabled or not isInBattle then
-                        battleLoop:Disconnect()
-                        releasePull()
+                -- Loop do minigame
+                if currentBattleLoop then
+                    pcall(function() currentBattleLoop:Disconnect() end)
+                    currentBattleLoop = nil
+                end
+                
+                currentBattleLoop = RunService.RenderStepped:Connect(function()
+                    if not config.enabled or not activeBattle then
+                        if currentBattleLoop then
+                            pcall(function() currentBattleLoop:Disconnect() end)
+                            currentBattleLoop = nil
+                        end
+                        releaseClick()
                         return
                     end
                     
+                    -- Verifica se a batalha acabou
                     if not catchingBar.Visible then
-                        isInBattle = false
-                        config.fishCaught = config.fishCaught + 1
-                        releasePull()
-                        battleLoop:Disconnect()
+                        activeBattle = false
+                        finishFish()
+                        releaseClick()
+                        if currentBattleLoop then
+                            pcall(function() currentBattleLoop:Disconnect() end)
+                            currentBattleLoop = nil
+                        end
                         return
                     end
                     
-                    -- Pega os elementos da UI
+                    -- Encontra os elementos da UI
                     local catchFrame = catchingBar:FindFirstChild("Frame")
                     if catchFrame then
                         local catchContainer = catchFrame:FindFirstChild("Bar")
@@ -153,32 +196,25 @@ local function setupListeners()
                                 local fishY = marker.Position.Y.Scale
                                 local barSize = greenBar.Size.Y.Scale
                                 
+                                -- Segura o clique quando o peixe está dentro da barra
                                 local isFishInBar = fishY >= barY and fishY <= (barY + barSize)
                                 
-                                if config.perfectCatch then
-                                    local centerY = barY + (barSize / 2)
-                                    local offset = fishY - centerY
-                                    
-                                    if offset > 0.05 then
-                                        releasePull()
-                                    elseif offset < -0.05 then
-                                        holdPull()
-                                    elseif isFishInBar then
-                                        holdPull()
-                                    else
-                                        releasePull()
-                                    end
+                                if isFishInBar then
+                                    holdClick()
                                 else
-                                    if isFishInBar then
-                                        holdPull()
-                                    else
-                                        releasePull()
-                                    end
+                                    releaseClick()
                                 end
                             end
                         end
                     end
                 end)
+            else
+                activeBattle = false
+                releaseClick()
+                if currentBattleLoop then
+                    pcall(function() currentBattleLoop:Disconnect() end)
+                    currentBattleLoop = nil
+                end
             end
         end)
     end
@@ -190,19 +226,21 @@ end
 
 local function mainLoop()
     while config.enabled do
+        -- Aguarda o delay entre lançamentos
         local elapsed = os.clock() - lastCastTime
-        if elapsed < config.castDelay then
-            task.wait(config.castDelay - elapsed)
+        if elapsed < castDelay then
+            task.wait(castDelay - elapsed)
         end
         
         if not config.enabled then break end
         
+        -- Verifica se já está pescando
         local fishingUI = player.PlayerGui:FindFirstChild("FishingUI")
         local isFishing = fishingUI and fishingUI:FindFirstChild("BuoyFrame") and fishingUI.BuoyFrame.Visible
         
-        if not isFishing and not isInBattle then
-            if getFishingRod() then
-                castRod()
+        if not isFishing and not activeBattle then
+            local success = castRod()
+            if success then
                 lastCastTime = os.clock()
             end
         end
@@ -210,6 +248,10 @@ local function mainLoop()
         task.wait(0.5)
     end
 end
+
+-- ================================================================
+-- VENDA AUTOMÁTICA
+-- ================================================================
 
 local function autoSellLoop()
     while config.enabled and config.autoSell do
@@ -228,7 +270,7 @@ local function startAutoFish()
     if config.enabled then return end
     config.enabled = true
     config.fishCaught = 0
-    setupListeners()
+    setupUIListeners()
     task.spawn(mainLoop)
     if config.autoSell then
         task.spawn(autoSellLoop)
@@ -238,30 +280,29 @@ end
 
 local function stopAutoFish()
     config.enabled = false
-    isInBattle = false
-    releasePull()
+    activeBattle = false
+    releaseClick()
+    destroyBuoy()
+    if currentBattleLoop then
+        pcall(function() currentBattleLoop:Disconnect() end)
+        currentBattleLoop = nil
+    end
     ui:Toast("rbxassetid://131165537896572", "🎣 AutoFish", "Desativado", Color3.fromRGB(200, 100, 100))
 end
 
 -- ================================================================
--- CONSTRUÇÃO DO MENU
+-- MENU
 -- ================================================================
 
 local tabFarm = ui:Tab("farm")
 local secFish = tabFarm:Section("auto fish")
 
--- Toggle principal
 local t_main = secFish:Toggle("auto fish", false, function(v)
     if v then startAutoFish() else stopAutoFish() end
 end)
 
--- Configurações
-local t_reel = secFish:Toggle("auto reel", true, function(v)
+local t_reel = secFish:Toggle("auto reel (puxa quando morde)", true, function(v)
     config.autoReel = v
-end)
-
-local t_perfect = secFish:Toggle("perfect catch", true, function(v)
-    config.perfectCatch = v
 end)
 
 local t_autosell = secFish:Toggle("auto sell (60s)", false, function(v)
@@ -271,15 +312,14 @@ local t_autosell = secFish:Toggle("auto sell (60s)", false, function(v)
     end
 end)
 
-local s_delay = secFish:Slider("delay entre pescas (s)", 1, 10, 3, function(v)
-    config.castDelay = v
+local s_delay = secFish:Slider("delay entre pescas (s)", 1, 5, 2, function(v)
+    castDelay = v
 end)
 
-secFish:Button("vender agora", function()
+secFish:Button("vender todos os peixes", function()
     sellAllFish()
 end)
 
--- Status em tempo real
 local statusLabel = secFish:Label("Status: ⚪ Parado")
 
 task.spawn(function()
@@ -293,13 +333,4 @@ task.spawn(function()
     end
 end)
 
--- ================================================================
--- SALVAR CONFIGURAÇÕES (opcional)
--- ================================================================
-ui:CfgRegister("autofish_enabled", function() return config.enabled end, function(v) t_main.Set(v) end)
-ui:CfgRegister("autofish_reel", function() return config.autoReel end, function(v) t_reel.Set(v) end)
-ui:CfgRegister("autofish_perfect", function() return config.perfectCatch end, function(v) t_perfect.Set(v) end)
-ui:CfgRegister("autofish_sell", function() return config.autoSell end, function(v) t_autosell.Set(v) end)
-ui:CfgRegister("autofish_delay", function() return config.castDelay end, function(v) s_delay.Set(v) end)
-
-print("[AutoFish] Carregado! Abra o menu na aba 'farm'")
+print("[AutoFish] Carregado! Use a aba 'farm' no menu")

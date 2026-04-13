@@ -9,78 +9,33 @@ local HttpService      = game:GetService("HttpService")
 local player = Players.LocalPlayer
 local pg     = player:WaitForChild("PlayerGui")
 
--- ──────────────────────────────────────────────────────────────
--- config
--- ──────────────────────────────────────────────────────────────
 local GIST_RAW      = "https://gist.githubusercontent.com/Darkzx7/dc0facdd3b84b21871cb711da0b3a8b3/raw/tags.json"
 local GIST_ID       = "dc0facdd3b84b21871cb711da0b3a8b3"
 local GITHUB_TOKEN  = "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"
 local SYNC_INTERVAL = 15
 
--- ──────────────────────────────────────────────────────────────
--- roles
--- ──────────────────────────────────────────────────────────────
 local ROLES = {
-    owner = {
-        color  = Color3.fromRGB(255, 232, 232),
-        glow   = Color3.fromRGB(190, 35, 35),
-        effect = "owner",
-        font   = Enum.Font.Arcade,
-        size   = 20,
-    },
-    dev = {
-        color  = Color3.fromRGB(255, 245, 245),
-        glow   = Color3.fromRGB(255, 35, 35),
-        effect = "dev",
-        font   = Enum.Font.Arcade,
-        size   = 22,
-    },
-    pecinha = {
-        color  = Color3.fromRGB(18, 18, 18),
-        glow   = Color3.fromRGB(95, 95, 95),
-        effect = "pecinha",
-        font   = Enum.Font.Arcade,
-        size   = 21,
-    },
-    vip = {
-        color  = Color3.fromRGB(255, 255, 255),
-        glow   = Color3.fromRGB(90, 220, 120),
-        effect = "vip",
-        font   = Enum.Font.Arcade,
-        size   = 19,
-    },
-    homie = {
-        color  = Color3.fromRGB(242, 242, 242),
-        glow   = Color3.fromRGB(130, 130, 150),
-        effect = nil,
-        font   = Enum.Font.Arcade,
-        size   = 19,
-    },
-    user = {
-        color  = Color3.fromRGB(232, 232, 232),
-        glow   = Color3.fromRGB(110, 110, 120),
-        effect = nil,
-        font   = Enum.Font.Arcade,
-        size   = 18,
-    },
+    owner = { color = Color3.fromRGB(255,232,232), glow = Color3.fromRGB(190,35,35),   effect = "owner",   font = Enum.Font.Arcade, size = 20 },
+    dev   = { color = Color3.fromRGB(255,245,245), glow = Color3.fromRGB(255,35,35),   effect = "dev",     font = Enum.Font.Arcade, size = 22 },
+    pecinha={ color = Color3.fromRGB(18,18,18),    glow = Color3.fromRGB(95,95,95),    effect = "pecinha", font = Enum.Font.Arcade, size = 21 },
+    vip   = { color = Color3.fromRGB(255,255,255), glow = Color3.fromRGB(90,220,120),  effect = "vip",     font = Enum.Font.Arcade, size = 19 },
+    homie = { color = Color3.fromRGB(242,242,242), glow = Color3.fromRGB(130,130,150), effect = nil,       font = Enum.Font.Arcade, size = 19 },
+    user  = { color = Color3.fromRGB(232,232,232), glow = Color3.fromRGB(110,110,120), effect = nil,       font = Enum.Font.Arcade, size = 18 },
 }
 
--- ──────────────────────────────────────────────────────────────
--- fixed tags
--- ──────────────────────────────────────────────────────────────
 local FIXED_TAGS = {
     [2450152162] = "pecinha",
     [5049907844] = "dev",
 }
 
--- ──────────────────────────────────────────────────────────────
--- estado
--- ──────────────────────────────────────────────────────────────
 local remoteTags   = {}
 local billboards   = {}
 local effectConns  = {}
 local billboardsOn = true
 local scriptUsers  = {}
+
+-- declarado cedo para buildDevPanel poder referenciar
+local TagSystem = {}
 
 -- ──────────────────────────────────────────────────────────────
 -- gist
@@ -114,20 +69,14 @@ end
 local function writeGist(tagsTable)
     local body    = serializeTags(tagsTable)
     local payload = '{"files":{"tags.json":{"content":' .. HttpService:JSONEncode(body) .. '}}}'
-
-    local reqFn = (syn and syn.request) or (http and http.request) or request
+    local reqFn   = (syn and syn.request) or (http and http.request) or request
     if not reqFn then return false end
-
     local ok, res = pcall(reqFn, {
         Url     = "https://api.github.com/gists/" .. GIST_ID,
         Method  = "PATCH",
-        Headers = {
-            ["Authorization"] = "token " .. GITHUB_TOKEN,
-            ["Content-Type"]  = "application/json",
-        },
-        Body = payload,
+        Headers = { ["Authorization"] = "token " .. GITHUB_TOKEN, ["Content-Type"] = "application/json" },
+        Body    = payload,
     })
-
     return ok and res and res.StatusCode == 200
 end
 
@@ -152,17 +101,12 @@ local function isLocalDev()
 end
 
 local function disconnectEffect(p)
-    if effectConns[p] then
-        effectConns[p]:Disconnect()
-        effectConns[p] = nil
-    end
+    if effectConns[p] then effectConns[p]:Disconnect() effectConns[p] = nil end
 end
 
 local function removeBillboard(p)
     disconnectEffect(p)
-    if billboards[p] and billboards[p].Parent then
-        billboards[p]:Destroy()
-    end
+    if billboards[p] and billboards[p].Parent then billboards[p]:Destroy() end
     billboards[p] = nil
 end
 
@@ -173,11 +117,7 @@ local function createSimple(className, props)
 end
 
 local function tw(obj, props, t, style, dir)
-    TweenService:Create(
-        obj,
-        TweenInfo.new(t or 0.15, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out),
-        props
-    ):Play()
+    TweenService:Create(obj, TweenInfo.new(t or 0.15, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props):Play()
 end
 
 local function makeCorner(inst, r)
@@ -189,10 +129,10 @@ end
 
 local function makeStroke(inst, th, tr, col)
     local s = Instance.new("UIStroke")
-    s.Thickness    = th or 1
+    s.Thickness = th or 1
     s.Transparency = tr or 0.5
-    s.Color        = col or Color3.fromRGB(255, 255, 255)
-    s.Parent       = inst
+    s.Color = col or Color3.fromRGB(255,255,255)
+    s.Parent = inst
     return s
 end
 
@@ -200,9 +140,7 @@ local function findPlayerByText(text)
     local low = tostring(text or ""):lower()
     if low == "" then return nil end
     for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name:lower():find(low, 1, true) or p.DisplayName:lower():find(low, 1, true) then
-            return p
-        end
+        if p.Name:lower():find(low,1,true) or p.DisplayName:lower():find(low,1,true) then return p end
     end
     return nil
 end
@@ -210,18 +148,18 @@ end
 local function makeLabel(parent, text, font, size, color, transparency, zindex, pos, width, height)
     local lbl = Instance.new("TextLabel")
     lbl.BackgroundTransparency = 1
-    lbl.Size                   = UDim2.new(0, width or 280, 0, height or 36)
-    lbl.AnchorPoint            = Vector2.new(0.5, 0.5)
-    lbl.Position               = pos or UDim2.new(0.5, 0, 0.5, 0)
-    lbl.Font                   = font
-    lbl.TextSize               = size
-    lbl.Text                   = text
-    lbl.TextColor3             = color
-    lbl.TextTransparency       = transparency or 0
-    lbl.TextXAlignment         = Enum.TextXAlignment.Center
-    lbl.TextYAlignment         = Enum.TextYAlignment.Center
-    lbl.ZIndex                 = zindex or 1
-    lbl.Parent                 = parent
+    lbl.Size               = UDim2.new(0, width or 280, 0, height or 36)
+    lbl.AnchorPoint        = Vector2.new(0.5, 0.5)
+    lbl.Position           = pos or UDim2.new(0.5,0,0.5,0)
+    lbl.Font               = font
+    lbl.TextSize           = size
+    lbl.Text               = text
+    lbl.TextColor3         = color
+    lbl.TextTransparency   = transparency or 0
+    lbl.TextXAlignment     = Enum.TextXAlignment.Center
+    lbl.TextYAlignment     = Enum.TextYAlignment.Center
+    lbl.ZIndex             = zindex or 1
+    lbl.Parent             = parent
     return lbl
 end
 
@@ -237,10 +175,10 @@ end
 
 local function buildTextVisual(bb, tagName, role)
     local root = Instance.new("Frame")
-    root.Name                   = "tag_root"
+    root.Name = "tag_root"
     root.BackgroundTransparency = 1
-    root.Size                   = UDim2.new(1, 0, 1, 0)
-    root.Parent                 = bb
+    root.Size   = UDim2.new(1,0,1,0)
+    root.Parent = bb
 
     local shadowFar = makeLabel(root, tagName, role.font, role.size, Color3.fromRGB(0,0,0),       0.56, 1, UDim2.new(0.5,0,0.5,4),  320, 42)
     local shadowMid = makeLabel(root, tagName, role.font, role.size, role.glow,                   0.38, 2, UDim2.new(0.5,0,0.5,2),  312, 40)
@@ -260,14 +198,14 @@ local function startOwnerEffect(p, refs, role)
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
         local pulse = 0.5 + 0.5 * math.sin(t * 2.35)
-        refs.shadowMid.TextColor3       = role.glow:Lerp(Color3.fromRGB(255,88,88), pulse * 0.45)
-        refs.shadowFar.TextTransparency = 0.62 - pulse * 0.05
-        refs.shadowMid.TextTransparency = 0.34 - pulse * 0.08
-        refs.stroke.Transparency        = 0.28 - pulse * 0.10
-        refs.shine.TextTransparency     = 0.90 - pulse * 0.05
-        refs.main.Position      = UDim2.new(0.5, 0, 0.5, 0)
-        refs.shadowMid.Position = UDim2.new(0.5, 0, 0.5, 2 + math.sin(t*2.0)*0.6)
-        refs.shadowFar.Position = UDim2.new(0.5, 0, 0.5, 4 + math.sin(t*1.7)*0.5)
+        refs.shadowMid.TextColor3       = role.glow:Lerp(Color3.fromRGB(255,88,88), pulse*0.45)
+        refs.shadowFar.TextTransparency = 0.62 - pulse*0.05
+        refs.shadowMid.TextTransparency = 0.34 - pulse*0.08
+        refs.stroke.Transparency        = 0.28 - pulse*0.10
+        refs.shine.TextTransparency     = 0.90 - pulse*0.05
+        refs.main.Position      = UDim2.new(0.5,0,0.5,0)
+        refs.shadowMid.Position = UDim2.new(0.5,0,0.5, 2+math.sin(t*2.0)*0.6)
+        refs.shadowFar.Position = UDim2.new(0.5,0,0.5, 4+math.sin(t*1.7)*0.5)
     end)
 end
 
@@ -276,26 +214,26 @@ local function startDevEffect(p, refs, role)
     local t = 0
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
-        local pulse  = 0.5 + 0.5 * math.sin(t * 3.8)
-        local pulse2 = 0.5 + 0.5 * math.sin(t * 7.2 + 0.7)
-        local shake  = math.sin(t * 18) * 0.8
-        local shake2 = math.cos(t * 14) * 1.2
-        local flash  = 0.5 + 0.5 * math.sin(t * 11)
-        refs.shadowMid.TextColor3       = role.glow:Lerp(Color3.fromRGB(255,110,110), pulse * 0.65)
-        refs.shadowFar.TextColor3       = Color3.fromRGB(70, 0, 0)
-        refs.shadowMid.TextTransparency = 0.20 - pulse * 0.08
-        refs.shadowFar.TextTransparency = 0.48 - pulse2 * 0.06
-        refs.stroke.Transparency        = 0.16 - pulse * 0.08
-        refs.stroke.Thickness           = 1.3 + pulse * 0.9
-        refs.shine.TextTransparency     = 0.84 - flash * 0.10
+        local pulse  = 0.5 + 0.5*math.sin(t*3.8)
+        local pulse2 = 0.5 + 0.5*math.sin(t*7.2+0.7)
+        local shake  = math.sin(t*18)*0.8
+        local shake2 = math.cos(t*14)*1.2
+        local flash  = 0.5 + 0.5*math.sin(t*11)
+        refs.shadowMid.TextColor3       = role.glow:Lerp(Color3.fromRGB(255,110,110), pulse*0.65)
+        refs.shadowFar.TextColor3       = Color3.fromRGB(70,0,0)
+        refs.shadowMid.TextTransparency = 0.20 - pulse*0.08
+        refs.shadowFar.TextTransparency = 0.48 - pulse2*0.06
+        refs.stroke.Transparency        = 0.16 - pulse*0.08
+        refs.stroke.Thickness           = 1.3 + pulse*0.9
+        refs.shine.TextTransparency     = 0.84 - flash*0.10
         refs.main.Position      = UDim2.new(0.5, shake*0.45,  0.5, 0)
         refs.shine.Position     = UDim2.new(0.5, shake*0.55,  0.5, -1)
         refs.shadowMid.Position = UDim2.new(0.5, shake2,      0.5, 2)
         refs.shadowFar.Position = UDim2.new(0.5, shake2*1.25, 0.5, 4)
-        refs.main.Rotation      = math.sin(t*6.5) * 0.35
-        refs.shine.Rotation     = math.sin(t*6.5) * 0.45
-        refs.shadowMid.Rotation = math.sin(t*6.5) * 0.55
-        refs.shadowFar.Rotation = math.sin(t*6.5) * 0.75
+        refs.main.Rotation      = math.sin(t*6.5)*0.35
+        refs.shine.Rotation     = math.sin(t*6.5)*0.45
+        refs.shadowMid.Rotation = math.sin(t*6.5)*0.55
+        refs.shadowFar.Rotation = math.sin(t*6.5)*0.75
     end)
 end
 
@@ -304,16 +242,16 @@ local function startPecinhaEffect(p, refs, role)
     local t = 0
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
-        local pulse = 0.5 + 0.5 * math.sin(t * 2.1)
+        local pulse = 0.5 + 0.5*math.sin(t*2.1)
         refs.shadowMid.TextColor3       = role.glow
         refs.shadowFar.TextColor3       = Color3.fromRGB(0,0,0)
-        refs.shadowMid.TextTransparency = 0.28 - pulse * 0.04
-        refs.shadowFar.TextTransparency = 0.50 - pulse * 0.03
-        refs.stroke.Transparency        = 0.46 - pulse * 0.08
+        refs.shadowMid.TextTransparency = 0.28 - pulse*0.04
+        refs.shadowFar.TextTransparency = 0.50 - pulse*0.03
+        refs.stroke.Transparency        = 0.46 - pulse*0.08
         refs.shine.TextTransparency     = 0.97
-        refs.main.Position      = UDim2.new(0.5, 0, 0.5, 0)
-        refs.shadowMid.Position = UDim2.new(0.5, 0, 0.5, 2)
-        refs.shadowFar.Position = UDim2.new(0.5, 0, 0.5, 4)
+        refs.main.Position      = UDim2.new(0.5,0,0.5,0)
+        refs.shadowMid.Position = UDim2.new(0.5,0,0.5,2)
+        refs.shadowFar.Position = UDim2.new(0.5,0,0.5,4)
     end)
 end
 
@@ -322,12 +260,12 @@ local function startVipEffect(p, refs, role)
     local t = 0
     effectConns[p] = RunService.RenderStepped:Connect(function(dt)
         t += dt
-        local pulse = 0.5 + 0.5 * math.sin(t * 2.5)
+        local pulse = 0.5 + 0.5*math.sin(t*2.5)
         refs.shadowMid.TextColor3       = role.glow
-        refs.shadowMid.TextTransparency = 0.36 - pulse * 0.06
-        refs.shadowFar.TextTransparency = 0.60 - pulse * 0.04
-        refs.stroke.Transparency        = 0.40 - pulse * 0.08
-        refs.shine.TextTransparency     = 0.92 - pulse * 0.04
+        refs.shadowMid.TextTransparency = 0.36 - pulse*0.06
+        refs.shadowFar.TextTransparency = 0.60 - pulse*0.04
+        refs.stroke.Transparency        = 0.40 - pulse*0.08
+        refs.shine.TextTransparency     = 0.92 - pulse*0.04
     end)
 end
 
@@ -344,28 +282,23 @@ end
 -- ──────────────────────────────────────────────────────────────
 local function createBillboard(p)
     removeBillboard(p)
-
     local tagName = getTag(p)
     if not tagName then return end
-
     local c = p.Character
     if not c then return end
     local head = c:FindFirstChild("Head")
     if not head then return end
-
     local role = getRole(tagName)
-
     local bb = Instance.new("BillboardGui")
     bb.Name           = "ref_tag_bb"
-    bb.Size           = UDim2.new(0, 320, 0, 42)
-    bb.StudsOffset    = Vector3.new(0, 3.75, 0)
+    bb.Size           = UDim2.new(0,320,0,42)
+    bb.StudsOffset    = Vector3.new(0,3.75,0)
     bb.AlwaysOnTop    = true
     bb.LightInfluence = 0
     bb.MaxDistance    = 250
     bb.ResetOnSpawn   = false
     bb.Adornee        = head
     bb.Parent         = head
-
     local refs = buildTextVisual(bb, tagName, role)
     applyEffect(p, refs, role)
     billboards[p] = bb
@@ -377,7 +310,7 @@ local function refreshBillboard(p)
 end
 
 -- ──────────────────────────────────────────────────────────────
--- sync periódico
+-- sync
 -- ──────────────────────────────────────────────────────────────
 local function startSync()
     task.spawn(function()
@@ -409,10 +342,7 @@ end
 
 scriptUsers[player.UserId] = true
 
-for _, p in ipairs(Players:GetPlayers()) do
-    task.spawn(watchPlayer, p)
-end
-
+for _, p in ipairs(Players:GetPlayers()) do task.spawn(watchPlayer, p) end
 Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(function(p)
     removeBillboard(p)
@@ -435,8 +365,11 @@ local function buildDevPanel()
     sg.DisplayOrder   = 999
     sg.Parent         = pg
 
+    local BASE_H   = 210
+    local ITEM_H   = 26
+
     local panel = createSimple("Frame", {
-        Size             = UDim2.new(0, 260, 0, 210),
+        Size             = UDim2.new(0, 260, 0, BASE_H),
         Position         = UDim2.new(1, -278, 0.5, -105),
         BackgroundColor3 = Color3.fromRGB(18, 18, 20),
         BorderSizePixel  = 0,
@@ -446,26 +379,26 @@ local function buildDevPanel()
     makeStroke(panel, 1, 0.3, Color3.fromRGB(255, 40, 40))
 
     createSimple("TextLabel", {
-        Size                   = UDim2.new(1, -40, 0, 28),
-        Position               = UDim2.new(0, 12, 0, 10),
+        Size                   = UDim2.new(1,-40,0,28),
+        Position               = UDim2.new(0,12,0,10),
         BackgroundTransparency = 1,
         Font                   = Enum.Font.Arcade,
         Text                   = "ref tags",
         TextSize               = 16,
-        TextColor3             = Color3.fromRGB(255, 80, 80),
+        TextColor3             = Color3.fromRGB(255,80,80),
         TextXAlignment         = Enum.TextXAlignment.Left,
         Parent                 = panel,
     })
 
     local closeBtn = createSimple("TextButton", {
-        Size             = UDim2.new(0, 24, 0, 24),
-        Position         = UDim2.new(1, -32, 0, 8),
-        BackgroundColor3 = Color3.fromRGB(40, 20, 20),
+        Size             = UDim2.new(0,24,0,24),
+        Position         = UDim2.new(1,-32,0,8),
+        BackgroundColor3 = Color3.fromRGB(40,20,20),
         BorderSizePixel  = 0,
         Font             = Enum.Font.GothamBold,
         Text             = "x",
         TextSize         = 12,
-        TextColor3       = Color3.fromRGB(200, 200, 200),
+        TextColor3       = Color3.fromRGB(200,200,200),
         AutoButtonColor  = false,
         Parent           = panel,
     })
@@ -473,56 +406,53 @@ local function buildDevPanel()
     closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
 
     local nickBox = createSimple("TextBox", {
-        Size              = UDim2.new(1, -24, 0, 30),
-        Position          = UDim2.new(0, 12, 0, 48),
-        BackgroundColor3  = Color3.fromRGB(28, 28, 32),
+        Size              = UDim2.new(1,-24,0,30),
+        Position          = UDim2.new(0,12,0,48),
+        BackgroundColor3  = Color3.fromRGB(28,28,32),
         BorderSizePixel   = 0,
         Font              = Enum.Font.Gotham,
         PlaceholderText   = "nick / displayname",
         Text              = "",
         TextSize          = 13,
-        TextColor3        = Color3.fromRGB(220, 220, 220),
-        PlaceholderColor3 = Color3.fromRGB(90, 90, 100),
+        TextColor3        = Color3.fromRGB(220,220,220),
+        PlaceholderColor3 = Color3.fromRGB(90,90,100),
         ClearTextOnFocus  = false,
         Parent            = panel,
     })
     makeCorner(nickBox, 7)
 
-    -- dropdown
     local roleNames = {}
     for name in pairs(ROLES) do table.insert(roleNames, name) end
     table.sort(roleNames)
 
     local selectedRole = "user"
     local dropdownOpen = false
-    local ITEM_H       = 26
-    local BASE_H       = 210
 
     local dropDisplay = createSimple("TextButton", {
-        Size             = UDim2.new(1, -24, 0, 30),
-        Position         = UDim2.new(0, 12, 0, 86),
-        BackgroundColor3 = Color3.fromRGB(28, 28, 32),
+        Size             = UDim2.new(1,-24,0,30),
+        Position         = UDim2.new(0,12,0,86),
+        BackgroundColor3 = Color3.fromRGB(28,28,32),
         BorderSizePixel  = 0,
         Font             = Enum.Font.Gotham,
         Text             = "role: " .. selectedRole,
         TextSize         = 13,
-        TextColor3       = Color3.fromRGB(220, 220, 220),
+        TextColor3       = Color3.fromRGB(220,220,220),
         AutoButtonColor  = false,
         Parent           = panel,
     })
     makeCorner(dropDisplay, 7)
 
     local dropList = createSimple("Frame", {
-        Size             = UDim2.new(1, -24, 0, #roleNames * ITEM_H),
-        Position         = UDim2.new(0, 12, 0, 118),
-        BackgroundColor3 = Color3.fromRGB(22, 22, 26),
+        Size             = UDim2.new(1,-24,0, #roleNames * ITEM_H),
+        Position         = UDim2.new(0,12,0,118),
+        BackgroundColor3 = Color3.fromRGB(22,22,26),
         BorderSizePixel  = 0,
         Visible          = false,
         ZIndex           = 10,
         Parent           = panel,
     })
     makeCorner(dropList, 7)
-    makeStroke(dropList, 1, 0.5, Color3.fromRGB(255, 40, 40))
+    makeStroke(dropList, 1, 0.5, Color3.fromRGB(255,40,40))
 
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -530,71 +460,67 @@ local function buildDevPanel()
 
     for i, name in ipairs(roleNames) do
         local btn = createSimple("TextButton", {
-            Size             = UDim2.new(1, 0, 0, ITEM_H),
-            BackgroundColor3 = Color3.fromRGB(22, 22, 26),
+            Size             = UDim2.new(1,0,0,ITEM_H),
+            BackgroundColor3 = Color3.fromRGB(22,22,26),
             BorderSizePixel  = 0,
             Font             = Enum.Font.Gotham,
             Text             = name,
             TextSize         = 13,
-            TextColor3       = Color3.fromRGB(200, 200, 200),
+            TextColor3       = Color3.fromRGB(200,200,200),
             AutoButtonColor  = false,
             LayoutOrder      = i,
             ZIndex           = 11,
             Parent           = dropList,
         })
-        btn.MouseEnter:Connect(function() tw(btn, { BackgroundColor3 = Color3.fromRGB(40, 20, 20) }, 0.1) end)
-        btn.MouseLeave:Connect(function() tw(btn, { BackgroundColor3 = Color3.fromRGB(22, 22, 26) }, 0.1) end)
+        btn.MouseEnter:Connect(function() tw(btn, {BackgroundColor3=Color3.fromRGB(40,20,20)}, 0.1) end)
+        btn.MouseLeave:Connect(function() tw(btn, {BackgroundColor3=Color3.fromRGB(22,22,26)}, 0.1) end)
         btn.MouseButton1Click:Connect(function()
             selectedRole     = name
             dropDisplay.Text = "role: " .. selectedRole
             dropList.Visible = false
             dropdownOpen     = false
-            tw(panel, { Size = UDim2.new(0, 260, 0, BASE_H) }, 0.15)
+            tw(panel, {Size=UDim2.new(0,260,0,BASE_H)}, 0.15)
         end)
     end
 
     dropDisplay.MouseButton1Click:Connect(function()
         dropdownOpen     = not dropdownOpen
         dropList.Visible = dropdownOpen
-        local newH = dropdownOpen and (BASE_H + #roleNames * ITEM_H) or BASE_H
-        tw(panel, { Size = UDim2.new(0, 260, 0, newH) }, 0.15)
+        tw(panel, {Size=UDim2.new(0,260,0, dropdownOpen and (BASE_H + #roleNames*ITEM_H) or BASE_H)}, 0.15)
     end)
 
-    -- status
     local status = createSimple("TextLabel", {
-        Size                   = UDim2.new(1, -24, 0, 18),
-        Position               = UDim2.new(0, 12, 0, 124),
+        Size                   = UDim2.new(1,-24,0,18),
+        Position               = UDim2.new(0,12,0,124),
         BackgroundTransparency = 1,
         Font                   = Enum.Font.Gotham,
         Text                   = "",
         TextSize               = 12,
-        TextColor3             = Color3.fromRGB(120, 120, 130),
+        TextColor3             = Color3.fromRGB(120,120,130),
         TextXAlignment         = Enum.TextXAlignment.Left,
         Parent                 = panel,
     })
 
     local function setStatus(msg, good)
         status.Text       = msg
-        status.TextColor3 = good
-            and Color3.fromRGB(80, 200, 100)
-            or  Color3.fromRGB(220, 70, 70)
+        status.TextColor3 = good and Color3.fromRGB(80,200,100) or Color3.fromRGB(220,70,70)
     end
 
     local applyBtn = createSimple("TextButton", {
-        Size             = UDim2.new(0, 112, 0, 32),
-        Position         = UDim2.new(0, 12, 0, 148),
-        BackgroundColor3 = Color3.fromRGB(160, 30, 30),
+        Size             = UDim2.new(0,112,0,32),
+        Position         = UDim2.new(0,12,0,148),
+        BackgroundColor3 = Color3.fromRGB(160,30,30),
         BorderSizePixel  = 0,
         Font             = Enum.Font.GothamBold,
         Text             = "aplicar",
         TextSize         = 13,
-        TextColor3       = Color3.fromRGB(255, 255, 255),
+        TextColor3       = Color3.fromRGB(255,255,255),
         AutoButtonColor  = false,
         Parent           = panel,
     })
     makeCorner(applyBtn, 8)
-    applyBtn.MouseEnter:Connect(function() tw(applyBtn, { BackgroundColor3 = Color3.fromRGB(190, 40, 40) }, 0.1) end)
-    applyBtn.MouseLeave:Connect(function() tw(applyBtn, { BackgroundColor3 = Color3.fromRGB(160, 30, 30) }, 0.1) end)
+    applyBtn.MouseEnter:Connect(function() tw(applyBtn, {BackgroundColor3=Color3.fromRGB(190,40,40)}, 0.1) end)
+    applyBtn.MouseLeave:Connect(function() tw(applyBtn, {BackgroundColor3=Color3.fromRGB(160,30,30)}, 0.1) end)
     applyBtn.MouseButton1Click:Connect(function()
         local target = findPlayerByText(nickBox.Text)
         if not target then setStatus("player nao encontrado", false) return end
@@ -605,20 +531,20 @@ local function buildDevPanel()
     end)
 
     local removeBtn = createSimple("TextButton", {
-        Size             = UDim2.new(0, 112, 0, 32),
-        Position         = UDim2.new(1, -124, 0, 148),
-        BackgroundColor3 = Color3.fromRGB(35, 35, 42),
+        Size             = UDim2.new(0,112,0,32),
+        Position         = UDim2.new(1,-124,0,148),
+        BackgroundColor3 = Color3.fromRGB(35,35,42),
         BorderSizePixel  = 0,
         Font             = Enum.Font.GothamBold,
         Text             = "remover",
         TextSize         = 13,
-        TextColor3       = Color3.fromRGB(200, 200, 200),
+        TextColor3       = Color3.fromRGB(200,200,200),
         AutoButtonColor  = false,
         Parent           = panel,
     })
     makeCorner(removeBtn, 8)
-    removeBtn.MouseEnter:Connect(function() tw(removeBtn, { BackgroundColor3 = Color3.fromRGB(55, 55, 65) }, 0.1) end)
-    removeBtn.MouseLeave:Connect(function() tw(removeBtn, { BackgroundColor3 = Color3.fromRGB(35, 35, 42) }, 0.1) end)
+    removeBtn.MouseEnter:Connect(function() tw(removeBtn, {BackgroundColor3=Color3.fromRGB(55,55,65)}, 0.1) end)
+    removeBtn.MouseLeave:Connect(function() tw(removeBtn, {BackgroundColor3=Color3.fromRGB(35,35,42)}, 0.1) end)
     removeBtn.MouseButton1Click:Connect(function()
         local target = findPlayerByText(nickBox.Text)
         if not target then setStatus("player nao encontrado", false) return end
@@ -654,8 +580,6 @@ end
 -- ──────────────────────────────────────────────────────────────
 -- tag system api
 -- ──────────────────────────────────────────────────────────────
-TagSystem = {}
-
 function TagSystem.setTag(userId, role)
     if FIXED_TAGS[userId] then return false, "tag fixa" end
     if not ROLES[role] then return false, "role invalida" end
@@ -719,9 +643,7 @@ function TagSystem.init(lib)
 
     local secDev = tab:Section("gerenciar")
     secDev:Button("abrir painel de tags", function()
-        -- relê o gist antes de checar, caso ainda nao tenha carregado
         if not isLocalDev() then readGist() end
-
         if isLocalDev() then
             buildDevPanel()
         else
@@ -730,7 +652,6 @@ function TagSystem.init(lib)
     end)
 
     lib:Toast(lib._icon, "ref tags", "sistema de tags carregado", T.Accent)
-
     startSync()
 end
 

@@ -80,9 +80,6 @@ local remoteTags   = {}
 local billboards   = {}
 local effectConns  = {}
 local billboardsOn = true
-
--- lista de players que estão executando o script (só eles recebem "user")
--- o próprio executor é adicionado ao iniciar
 local scriptUsers  = {}
 
 -- ──────────────────────────────────────────────────────────────
@@ -139,22 +136,11 @@ readGist()
 -- ──────────────────────────────────────────────────────────────
 -- helpers
 -- ──────────────────────────────────────────────────────────────
-
--- tag só aparece se:
--- 1. é fixed tag (sempre visível)
--- 2. tem tag no gist (sempre visível)
--- 3. é o próprio executor ou outro scriptUser → recebe "user"
 local function getTag(p)
-    if FIXED_TAGS[p.UserId] then
-        return FIXED_TAGS[p.UserId]
-    end
-    if remoteTags[p.UserId] then
-        return remoteTags[p.UserId]
-    end
-    if scriptUsers[p.UserId] then
-        return "user"
-    end
-    return nil -- não mostra nada para quem não executa o script
+    if FIXED_TAGS[p.UserId] then return FIXED_TAGS[p.UserId] end
+    if remoteTags[p.UserId] then return remoteTags[p.UserId] end
+    if scriptUsers[p.UserId] then return "user" end
+    return nil
 end
 
 local function getRole(name)
@@ -251,10 +237,10 @@ end
 
 local function buildTextVisual(bb, tagName, role)
     local root = Instance.new("Frame")
-    root.Name                  = "tag_root"
+    root.Name                   = "tag_root"
     root.BackgroundTransparency = 1
-    root.Size                  = UDim2.new(1, 0, 1, 0)
-    root.Parent                = bb
+    root.Size                   = UDim2.new(1, 0, 1, 0)
+    root.Parent                 = bb
 
     local shadowFar = makeLabel(root, tagName, role.font, role.size, Color3.fromRGB(0,0,0),       0.56, 1, UDim2.new(0.5,0,0.5,4),  320, 42)
     local shadowMid = makeLabel(root, tagName, role.font, role.size, role.glow,                   0.38, 2, UDim2.new(0.5,0,0.5,2),  312, 40)
@@ -360,7 +346,7 @@ local function createBillboard(p)
     removeBillboard(p)
 
     local tagName = getTag(p)
-    if not tagName then return end -- não executa o script, não mostra nada
+    if not tagName then return end
 
     local c = p.Character
     if not c then return end
@@ -391,7 +377,7 @@ local function refreshBillboard(p)
 end
 
 -- ──────────────────────────────────────────────────────────────
--- sync periódico (declarado depois de refreshBillboard)
+-- sync periódico
 -- ──────────────────────────────────────────────────────────────
 local function startSync()
     task.spawn(function()
@@ -413,7 +399,6 @@ local function watchPlayer(p)
         task.wait(0.35)
         if billboardsOn then createBillboard(p) end
     end)
-
     if p.Character then
         task.spawn(function()
             task.wait(0.35)
@@ -422,7 +407,6 @@ local function watchPlayer(p)
     end
 end
 
--- registra o próprio executor como scriptUser
 scriptUsers[player.UserId] = true
 
 for _, p in ipairs(Players:GetPlayers()) do
@@ -430,7 +414,6 @@ for _, p in ipairs(Players:GetPlayers()) do
 end
 
 Players.PlayerAdded:Connect(watchPlayer)
-
 Players.PlayerRemoving:Connect(function(p)
     removeBillboard(p)
     billboards[p] = nil
@@ -438,42 +421,261 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 -- ──────────────────────────────────────────────────────────────
+-- painel dev
+-- ──────────────────────────────────────────────────────────────
+local function buildDevPanel()
+    local existing = pg:FindFirstChild("ref_tag_panel")
+    if existing then existing:Destroy() end
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name           = "ref_tag_panel"
+    sg.ResetOnSpawn   = false
+    sg.IgnoreGuiInset = true
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.DisplayOrder   = 999
+    sg.Parent         = pg
+
+    local panel = createSimple("Frame", {
+        Size             = UDim2.new(0, 260, 0, 210),
+        Position         = UDim2.new(1, -278, 0.5, -105),
+        BackgroundColor3 = Color3.fromRGB(18, 18, 20),
+        BorderSizePixel  = 0,
+        Parent           = sg,
+    })
+    makeCorner(panel, 12)
+    makeStroke(panel, 1, 0.3, Color3.fromRGB(255, 40, 40))
+
+    createSimple("TextLabel", {
+        Size                   = UDim2.new(1, -40, 0, 28),
+        Position               = UDim2.new(0, 12, 0, 10),
+        BackgroundTransparency = 1,
+        Font                   = Enum.Font.Arcade,
+        Text                   = "ref tags",
+        TextSize               = 16,
+        TextColor3             = Color3.fromRGB(255, 80, 80),
+        TextXAlignment         = Enum.TextXAlignment.Left,
+        Parent                 = panel,
+    })
+
+    local closeBtn = createSimple("TextButton", {
+        Size             = UDim2.new(0, 24, 0, 24),
+        Position         = UDim2.new(1, -32, 0, 8),
+        BackgroundColor3 = Color3.fromRGB(40, 20, 20),
+        BorderSizePixel  = 0,
+        Font             = Enum.Font.GothamBold,
+        Text             = "x",
+        TextSize         = 12,
+        TextColor3       = Color3.fromRGB(200, 200, 200),
+        AutoButtonColor  = false,
+        Parent           = panel,
+    })
+    makeCorner(closeBtn, 6)
+    closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
+
+    local nickBox = createSimple("TextBox", {
+        Size              = UDim2.new(1, -24, 0, 30),
+        Position          = UDim2.new(0, 12, 0, 48),
+        BackgroundColor3  = Color3.fromRGB(28, 28, 32),
+        BorderSizePixel   = 0,
+        Font              = Enum.Font.Gotham,
+        PlaceholderText   = "nick / displayname",
+        Text              = "",
+        TextSize          = 13,
+        TextColor3        = Color3.fromRGB(220, 220, 220),
+        PlaceholderColor3 = Color3.fromRGB(90, 90, 100),
+        ClearTextOnFocus  = false,
+        Parent            = panel,
+    })
+    makeCorner(nickBox, 7)
+
+    -- dropdown
+    local roleNames = {}
+    for name in pairs(ROLES) do table.insert(roleNames, name) end
+    table.sort(roleNames)
+
+    local selectedRole = "user"
+    local dropdownOpen = false
+    local ITEM_H       = 26
+    local BASE_H       = 210
+
+    local dropDisplay = createSimple("TextButton", {
+        Size             = UDim2.new(1, -24, 0, 30),
+        Position         = UDim2.new(0, 12, 0, 86),
+        BackgroundColor3 = Color3.fromRGB(28, 28, 32),
+        BorderSizePixel  = 0,
+        Font             = Enum.Font.Gotham,
+        Text             = "role: " .. selectedRole,
+        TextSize         = 13,
+        TextColor3       = Color3.fromRGB(220, 220, 220),
+        AutoButtonColor  = false,
+        Parent           = panel,
+    })
+    makeCorner(dropDisplay, 7)
+
+    local dropList = createSimple("Frame", {
+        Size             = UDim2.new(1, -24, 0, #roleNames * ITEM_H),
+        Position         = UDim2.new(0, 12, 0, 118),
+        BackgroundColor3 = Color3.fromRGB(22, 22, 26),
+        BorderSizePixel  = 0,
+        Visible          = false,
+        ZIndex           = 10,
+        Parent           = panel,
+    })
+    makeCorner(dropList, 7)
+    makeStroke(dropList, 1, 0.5, Color3.fromRGB(255, 40, 40))
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent    = dropList
+
+    for i, name in ipairs(roleNames) do
+        local btn = createSimple("TextButton", {
+            Size             = UDim2.new(1, 0, 0, ITEM_H),
+            BackgroundColor3 = Color3.fromRGB(22, 22, 26),
+            BorderSizePixel  = 0,
+            Font             = Enum.Font.Gotham,
+            Text             = name,
+            TextSize         = 13,
+            TextColor3       = Color3.fromRGB(200, 200, 200),
+            AutoButtonColor  = false,
+            LayoutOrder      = i,
+            ZIndex           = 11,
+            Parent           = dropList,
+        })
+        btn.MouseEnter:Connect(function() tw(btn, { BackgroundColor3 = Color3.fromRGB(40, 20, 20) }, 0.1) end)
+        btn.MouseLeave:Connect(function() tw(btn, { BackgroundColor3 = Color3.fromRGB(22, 22, 26) }, 0.1) end)
+        btn.MouseButton1Click:Connect(function()
+            selectedRole     = name
+            dropDisplay.Text = "role: " .. selectedRole
+            dropList.Visible = false
+            dropdownOpen     = false
+            tw(panel, { Size = UDim2.new(0, 260, 0, BASE_H) }, 0.15)
+        end)
+    end
+
+    dropDisplay.MouseButton1Click:Connect(function()
+        dropdownOpen     = not dropdownOpen
+        dropList.Visible = dropdownOpen
+        local newH = dropdownOpen and (BASE_H + #roleNames * ITEM_H) or BASE_H
+        tw(panel, { Size = UDim2.new(0, 260, 0, newH) }, 0.15)
+    end)
+
+    -- status
+    local status = createSimple("TextLabel", {
+        Size                   = UDim2.new(1, -24, 0, 18),
+        Position               = UDim2.new(0, 12, 0, 124),
+        BackgroundTransparency = 1,
+        Font                   = Enum.Font.Gotham,
+        Text                   = "",
+        TextSize               = 12,
+        TextColor3             = Color3.fromRGB(120, 120, 130),
+        TextXAlignment         = Enum.TextXAlignment.Left,
+        Parent                 = panel,
+    })
+
+    local function setStatus(msg, good)
+        status.Text       = msg
+        status.TextColor3 = good
+            and Color3.fromRGB(80, 200, 100)
+            or  Color3.fromRGB(220, 70, 70)
+    end
+
+    local applyBtn = createSimple("TextButton", {
+        Size             = UDim2.new(0, 112, 0, 32),
+        Position         = UDim2.new(0, 12, 0, 148),
+        BackgroundColor3 = Color3.fromRGB(160, 30, 30),
+        BorderSizePixel  = 0,
+        Font             = Enum.Font.GothamBold,
+        Text             = "aplicar",
+        TextSize         = 13,
+        TextColor3       = Color3.fromRGB(255, 255, 255),
+        AutoButtonColor  = false,
+        Parent           = panel,
+    })
+    makeCorner(applyBtn, 8)
+    applyBtn.MouseEnter:Connect(function() tw(applyBtn, { BackgroundColor3 = Color3.fromRGB(190, 40, 40) }, 0.1) end)
+    applyBtn.MouseLeave:Connect(function() tw(applyBtn, { BackgroundColor3 = Color3.fromRGB(160, 30, 30) }, 0.1) end)
+    applyBtn.MouseButton1Click:Connect(function()
+        local target = findPlayerByText(nickBox.Text)
+        if not target then setStatus("player nao encontrado", false) return end
+        if FIXED_TAGS[target.UserId] then setStatus("tag fixa, nao pode alterar", false) return end
+        local ok, err = TagSystem.setTag(target.UserId, selectedRole)
+        if ok then setStatus(target.DisplayName .. " -> " .. selectedRole, true)
+        else setStatus(err or "erro", false) end
+    end)
+
+    local removeBtn = createSimple("TextButton", {
+        Size             = UDim2.new(0, 112, 0, 32),
+        Position         = UDim2.new(1, -124, 0, 148),
+        BackgroundColor3 = Color3.fromRGB(35, 35, 42),
+        BorderSizePixel  = 0,
+        Font             = Enum.Font.GothamBold,
+        Text             = "remover",
+        TextSize         = 13,
+        TextColor3       = Color3.fromRGB(200, 200, 200),
+        AutoButtonColor  = false,
+        Parent           = panel,
+    })
+    makeCorner(removeBtn, 8)
+    removeBtn.MouseEnter:Connect(function() tw(removeBtn, { BackgroundColor3 = Color3.fromRGB(55, 55, 65) }, 0.1) end)
+    removeBtn.MouseLeave:Connect(function() tw(removeBtn, { BackgroundColor3 = Color3.fromRGB(35, 35, 42) }, 0.1) end)
+    removeBtn.MouseButton1Click:Connect(function()
+        local target = findPlayerByText(nickBox.Text)
+        if not target then setStatus("player nao encontrado", false) return end
+        if FIXED_TAGS[target.UserId] then setStatus("tag fixa, nao pode remover", false) return end
+        local ok, err = TagSystem.removeTag(target.UserId)
+        if ok then setStatus("tag removida: " .. target.DisplayName, true)
+        else setStatus(err or "erro", false) end
+    end)
+
+    -- drag
+    local dragging, dragStart, startPos = false, nil, nil
+    panel.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = panel.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            panel.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- ──────────────────────────────────────────────────────────────
 -- tag system api
 -- ──────────────────────────────────────────────────────────────
-local TagSystem = {}
+TagSystem = {}
 
 function TagSystem.setTag(userId, role)
     if FIXED_TAGS[userId] then return false, "tag fixa" end
     if not ROLES[role] then return false, "role invalida" end
-
     remoteTags[userId] = role
     local ok = writeGist(remoteTags)
     if not ok then return false, "erro ao salvar no gist" end
-
     for _, p in ipairs(Players:GetPlayers()) do
-        if p.UserId == userId then
-            refreshBillboard(p)
-            break
-        end
+        if p.UserId == userId then refreshBillboard(p) break end
     end
-
     return true
 end
 
 function TagSystem.removeTag(userId)
     if FIXED_TAGS[userId] then return false, "tag fixa" end
-
     remoteTags[userId] = nil
     local ok = writeGist(remoteTags)
     if not ok then return false, "erro ao salvar no gist" end
-
     for _, p in ipairs(Players:GetPlayers()) do
-        if p.UserId == userId then
-            refreshBillboard(p)
-            break
-        end
+        if p.UserId == userId then refreshBillboard(p) break end
     end
-
     return true
 end
 
@@ -499,267 +701,6 @@ function TagSystem.addRole(name, color, textColor, effect)
 end
 
 -- ──────────────────────────────────────────────────────────────
--- ui de gerenciamento (só aparece pro dev)
--- ──────────────────────────────────────────────────────────────
-local function buildDevPanel()
-    if not isLocalDev() then return end
-
-    local existing = pg:FindFirstChild("ref_tag_panel")
-    if existing then existing:Destroy() end
-
-    local sg = Instance.new("ScreenGui")
-    sg.Name            = "ref_tag_panel"
-    sg.ResetOnSpawn    = false
-    sg.IgnoreGuiInset  = true
-    sg.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
-    sg.DisplayOrder    = 999
-    sg.Parent          = pg
-
-    -- painel principal
-    local panel = createSimple("Frame", {
-        Size                = UDim2.new(0, 260, 0, 220),
-        Position            = UDim2.new(1, -278, 0.5, -110),
-        BackgroundColor3    = Color3.fromRGB(18, 18, 20),
-        BorderSizePixel     = 0,
-        Parent              = sg,
-    })
-    makeCorner(panel, 12)
-    makeStroke(panel, 1, 0.3, Color3.fromRGB(255, 40, 40))
-
-    -- título
-    createSimple("TextLabel", {
-        Size                = UDim2.new(1, -40, 0, 28),
-        Position            = UDim2.new(0, 12, 0, 10),
-        BackgroundTransparency = 1,
-        Font                = Enum.Font.Arcade,
-        Text                = "ref tags",
-        TextSize            = 16,
-        TextColor3          = Color3.fromRGB(255, 80, 80),
-        TextXAlignment      = Enum.TextXAlignment.Left,
-        Parent              = panel,
-    })
-
-    -- botão fechar
-    local closeBtn = createSimple("TextButton", {
-        Size                = UDim2.new(0, 24, 0, 24),
-        Position            = UDim2.new(1, -32, 0, 8),
-        BackgroundColor3    = Color3.fromRGB(40, 20, 20),
-        BorderSizePixel     = 0,
-        Font                = Enum.Font.GothamBold,
-        Text                = "x",
-        TextSize            = 12,
-        TextColor3          = Color3.fromRGB(200, 200, 200),
-        AutoButtonColor     = false,
-        Parent              = panel,
-    })
-    makeCorner(closeBtn, 6)
-    closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
-
-    -- input nick
-    local nickBox = createSimple("TextBox", {
-        Size                = UDim2.new(1, -24, 0, 30),
-        Position            = UDim2.new(0, 12, 0, 48),
-        BackgroundColor3    = Color3.fromRGB(28, 28, 32),
-        BorderSizePixel     = 0,
-        Font                = Enum.Font.Gotham,
-        PlaceholderText     = "nick / displayname",
-        Text                = "",
-        TextSize            = 13,
-        TextColor3          = Color3.fromRGB(220, 220, 220),
-        PlaceholderColor3   = Color3.fromRGB(90, 90, 100),
-        ClearTextOnFocus    = false,
-        Parent              = panel,
-    })
-    makeCorner(nickBox, 7)
-
-    -- dropdown de roles
-    local roleNames = {}
-    for name in pairs(ROLES) do table.insert(roleNames, name) end
-    table.sort(roleNames)
-
-    local selectedRole    = "user"
-    local dropdownOpen    = false
-    local dropdownButtons = {}
-
-    local dropDisplay = createSimple("TextButton", {
-        Size             = UDim2.new(1, -24, 0, 30),
-        Position         = UDim2.new(0, 12, 0, 86),
-        BackgroundColor3 = Color3.fromRGB(28, 28, 32),
-        BorderSizePixel  = 0,
-        Font             = Enum.Font.Gotham,
-        Text             = "role: " .. selectedRole,
-        TextSize         = 13,
-        TextColor3       = Color3.fromRGB(220, 220, 220),
-        AutoButtonColor  = false,
-        Parent           = panel,
-    })
-    makeCorner(dropDisplay, 7)
-
-    local dropList = createSimple("Frame", {
-        Size             = UDim2.new(1, -24, 0, #roleNames * 26),
-        Position         = UDim2.new(0, 12, 0, 118),
-        BackgroundColor3 = Color3.fromRGB(22, 22, 26),
-        BorderSizePixel  = 0,
-        Visible          = false,
-        ZIndex           = 10,
-        Parent           = panel,
-    })
-    makeCorner(dropList, 7)
-    makeStroke(dropList, 1, 0.5, Color3.fromRGB(255, 40, 40))
-
-    local listLayout = Instance.new("UIListLayout")
-    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    listLayout.Parent    = dropList
-
-    for i, name in ipairs(roleNames) do
-        local btn = createSimple("TextButton", {
-            Size             = UDim2.new(1, 0, 0, 26),
-            BackgroundColor3 = Color3.fromRGB(22, 22, 26),
-            BorderSizePixel  = 0,
-            Font             = Enum.Font.Gotham,
-            Text             = name,
-            TextSize         = 13,
-            TextColor3       = Color3.fromRGB(200, 200, 200),
-            AutoButtonColor  = false,
-            LayoutOrder      = i,
-            ZIndex           = 11,
-            Parent           = dropList,
-        })
-
-        btn.MouseEnter:Connect(function()
-            tw(btn, { BackgroundColor3 = Color3.fromRGB(40, 20, 20) }, 0.1)
-        end)
-        btn.MouseLeave:Connect(function()
-            tw(btn, { BackgroundColor3 = Color3.fromRGB(22, 22, 26) }, 0.1)
-        end)
-        btn.MouseButton1Click:Connect(function()
-            selectedRole = name
-            dropDisplay.Text = "role: " .. selectedRole
-            dropList.Visible = false
-            dropdownOpen = false
-        end)
-
-        table.insert(dropdownButtons, btn)
-    end
-
-    dropDisplay.MouseButton1Click:Connect(function()
-        dropdownOpen = not dropdownOpen
-        dropList.Visible = dropdownOpen
-
-        -- expande o painel se o dropdown abrir
-        if dropdownOpen then
-            tw(panel, { Size = UDim2.new(0, 260, 0, 220 + #roleNames * 26) }, 0.15)
-        else
-            tw(panel, { Size = UDim2.new(0, 260, 0, 220) }, 0.15)
-        end
-    end)
-
-    -- status
-    local status = createSimple("TextLabel", {
-        Size                = UDim2.new(1, -24, 0, 18),
-        Position            = UDim2.new(0, 12, 0, 124),
-        BackgroundTransparency = 1,
-        Font                = Enum.Font.Gotham,
-        Text                = "",
-        TextSize            = 12,
-        TextColor3          = Color3.fromRGB(120, 120, 130),
-        TextXAlignment      = Enum.TextXAlignment.Left,
-        Parent              = panel,
-    })
-
-    local function setStatus(msg, good)
-        status.Text       = msg
-        status.TextColor3 = good and Color3.fromRGB(80, 200, 100) or Color3.fromRGB(220, 70, 70)
-    end
-
-    -- botão aplicar
-    local applyBtn = createSimple("TextButton", {
-        Size             = UDim2.new(0, 112, 0, 32),
-        Position         = UDim2.new(0, 12, 0, 148),
-        BackgroundColor3 = Color3.fromRGB(160, 30, 30),
-        BorderSizePixel  = 0,
-        Font             = Enum.Font.GothamBold,
-        Text             = "aplicar",
-        TextSize         = 13,
-        TextColor3       = Color3.fromRGB(255, 255, 255),
-        AutoButtonColor  = false,
-        Parent           = panel,
-    })
-    makeCorner(applyBtn, 8)
-
-    applyBtn.MouseEnter:Connect(function() tw(applyBtn, { BackgroundColor3 = Color3.fromRGB(190, 40, 40) }, 0.1) end)
-    applyBtn.MouseLeave:Connect(function() tw(applyBtn, { BackgroundColor3 = Color3.fromRGB(160, 30, 30) }, 0.1) end)
-
-    applyBtn.MouseButton1Click:Connect(function()
-        local target = findPlayerByText(nickBox.Text)
-        if not target then setStatus("player nao encontrado", false) return end
-        if FIXED_TAGS[target.UserId] then setStatus("tag fixa, nao pode alterar", false) return end
-
-        local ok, err = TagSystem.setTag(target.UserId, selectedRole)
-        if ok then
-            setStatus(target.DisplayName .. " -> " .. selectedRole, true)
-        else
-            setStatus(err or "erro", false)
-        end
-    end)
-
-    -- botão remover
-    local removeBtn = createSimple("TextButton", {
-        Size             = UDim2.new(0, 112, 0, 32),
-        Position         = UDim2.new(1, -124, 0, 148),
-        BackgroundColor3 = Color3.fromRGB(35, 35, 42),
-        BorderSizePixel  = 0,
-        Font             = Enum.Font.GothamBold,
-        Text             = "remover",
-        TextSize         = 13,
-        TextColor3       = Color3.fromRGB(200, 200, 200),
-        AutoButtonColor  = false,
-        Parent           = panel,
-    })
-    makeCorner(removeBtn, 8)
-
-    removeBtn.MouseEnter:Connect(function() tw(removeBtn, { BackgroundColor3 = Color3.fromRGB(55, 55, 65) }, 0.1) end)
-    removeBtn.MouseLeave:Connect(function() tw(removeBtn, { BackgroundColor3 = Color3.fromRGB(35, 35, 42) }, 0.1) end)
-
-    removeBtn.MouseButton1Click:Connect(function()
-        local target = findPlayerByText(nickBox.Text)
-        if not target then setStatus("player nao encontrado", false) return end
-        if FIXED_TAGS[target.UserId] then setStatus("tag fixa, nao pode remover", false) return end
-
-        local ok, err = TagSystem.removeTag(target.UserId)
-        if ok then
-            setStatus("tag removida: " .. target.DisplayName, true)
-        else
-            setStatus(err or "erro", false)
-        end
-    end)
-
-    -- drag
-    local dragging, dragStart, startPos = false, nil, nil
-    panel.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging  = true
-            dragStart = input.Position
-            startPos  = panel.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            panel.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-end
-
--- ──────────────────────────────────────────────────────────────
 -- integração reflib
 -- ──────────────────────────────────────────────────────────────
 function TagSystem.init(lib)
@@ -776,12 +717,17 @@ function TagSystem.init(lib)
         end
     end)
 
-    if isLocalDev() then
-        local secDev = tab:Section("gerenciar")
-        secDev:Button("abrir painel de tags", function()
+    local secDev = tab:Section("gerenciar")
+    secDev:Button("abrir painel de tags", function()
+        -- relê o gist antes de checar, caso ainda nao tenha carregado
+        if not isLocalDev() then readGist() end
+
+        if isLocalDev() then
             buildDevPanel()
-        end)
-    end
+        else
+            lib:Toast(lib._icon, "tags", "sem permissao", T.Bad)
+        end
+    end)
 
     lib:Toast(lib._icon, "ref tags", "sistema de tags carregado", T.Accent)
 
